@@ -30,6 +30,21 @@ METRIC_LABELS = {
 }
 CLIENT_METRICS = {"request", "ttfb", "load", "lcp", "longtask", "cache_render"}
 
+CHANNEL_LABELS = {"web": "Web 网页", "windows": "Windows 应用", "android": "Android App", "unknown": "历史未分类"}
+
+
+def channel_for_request(request) -> str:
+    """Classify explicit product markers without retaining user-agent or identity."""
+    marker = request.headers.get("x-awesome-client", "").lower()
+    if marker in {"web", "windows", "android"}:
+        return marker
+    agent = request.headers.get("user-agent", "")
+    if "AwesomeInterview/Android" in agent:
+        return "android"
+    if "AwesomeInterview/Windows" in agent:
+        return "windows"
+    return "web"
+
 
 def node_for_path(path: str, method: str = "GET") -> str | None:
     """Map paths to fixed names; never retain IDs, query strings, or titles."""

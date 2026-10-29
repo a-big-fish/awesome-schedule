@@ -1,0 +1,9 @@
+{
+  "date": "2026-10-29",
+  "data": "isolated synthetic data",
+  "renderer": "Chrome + actual FastAPI TestClient routes",
+  "screens": [
+    "01-all-channels.png",
+    "02-android-filter.png"
+  ]
+}

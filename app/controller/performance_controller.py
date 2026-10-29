@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import ValidationError
 
 from app.controller.schema.performance_dto import PerformanceBatch
+from app.core.performance import channel_for_request
 
 router = APIRouter(prefix="/my-schedule/telemetry", tags=["performance"])
 
@@ -29,5 +30,6 @@ async def collect(request: Request):
         # Validation details may echo client input. Return only a fixed message.
         raise HTTPException(status_code=422, detail="性能样本格式无效") from exc
     for sample in batch.samples:
-        service.record(sample.node, "browser", sample.metric, sample.duration, sample.status)
+        service.record(sample.node, "browser", sample.metric, sample.duration, sample.status,
+                       channel=channel_for_request(request))
     return Response(status_code=204)

@@ -35,7 +35,7 @@ def test_async_storage_persists_distributions_and_prunes_old_samples(tmp_path):
     assert len(snapshot["trend"]) == 24
     with sqlite3.connect(path) as connection:
         assert [row[1] for row in connection.execute("PRAGMA table_info(samples)")] == [
-            "id", "received", "node", "source", "metric", "duration", "status"]
+            "id", "received", "node", "source", "metric", "duration", "status", "channel"]
         connection.execute("INSERT INTO samples(received,node,source,metric,duration,status) VALUES(?,?,?,?,?,?)",
                            (time.time() - 8 * 86400, "calendar", "server", "request", 10, 200))
     restarted = PerformanceService(path)
@@ -127,6 +127,8 @@ def test_performance_ingestion_permissions_validation_and_no_self_collection(tmp
         assert client.get("/my-schedule/admin/performance").status_code == 403
         assert client.post("/my-schedule/telemetry", data={"payload": payload}).status_code == 403
         assert client.post("/my-schedule/telemetry", data={"csrf_token": csrf, "payload": payload}).status_code == 204
+        assert client.post("/my-schedule/telemetry", data={"csrf_token": csrf, "payload": payload},
+                           headers={"User-Agent": "Chrome AwesomeInterview/Android"}).status_code == 204
         invalid = json.dumps({"samples": [{"node": "/secret-account", "metric": "request", "duration": 10}]})
         response = client.post("/my-schedule/telemetry", data={"csrf_token": csrf, "payload": invalid})
         assert response.status_code == 422 and "secret-account" not in response.text
@@ -137,11 +139,13 @@ def test_performance_ingestion_permissions_validation_and_no_self_collection(tmp
         _login(client, "metrics-admin", "test-password")
         assert client.get("/my-schedule/admin").status_code == 200
         assert client.get("/my-schedule/admin/performance?hours=2").status_code == 422
+        assert client.get("/my-schedule/admin/performance?channel=invalid").status_code == 422
         assert client.get("/my-schedule/admin/performance").status_code == 200
         calendar = client.get("/my-schedule")
         assert "app;dur=" in calendar.headers["server-timing"]
         assert "auth;dur=" in calendar.headers["server-timing"]
     stored = app.state.performance.dashboard()
+    assert any(row["channel"] == "android" and row["source"] == "browser" for row in stored["groups"])
     assert any(row["source"] == "browser" and row["p95"] == 1234.5 for row in stored["groups"])
     assert all(row["node"] not in {"admin", "telemetry"} for row in stored["groups"])
     assert ordinary.email not in json.dumps(stored) and ordinary.id not in json.dumps(stored)
@@ -157,6 +161,43 @@ def test_disabled_performance_does_not_create_files(tmp_path):
         _login(client, user.email, "test-password")
         assert 'name="performance-csrf"' not in client.get("/my-schedule/new").text
     assert not app.state.performance.path.exists()
+
+
+def test_channel_migration_and_filtered_metrics(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, received REAL, node TEXT, "
+                           "source TEXT, metric TEXT, duration REAL, status INTEGER)")
+        connection.execute("INSERT INTO samples VALUES (1, ?, 'calendar', 'server', 'request', 300, 200)", (time.time(),))
+    store = PerformanceService(path)
+    store.record("calendar", "server", "request", 10, channel="web")
+    store.record("calendar", "server", "request", 500, 503, channel="android")
+    store.record("calendar", "browser", "request", 600, channel="android")
+    store.record("calendar", "server", "request", 20, channel="windows")
+    store.start()
+    store.stop()
+    overview = store.dashboard()
+    assert {row["key"]: row["requests"] for row in overview["channels"]} == {
+        "web": 1, "windows": 1, "android": 1, "unknown": 1}
+    android = store.dashboard(channel="android")
+    assert android["server_count"] == android["browser_count"] == android["errors"] == 1
+    assert all(row["channel"] == "android" for row in android["groups"] + android["slow"])
+    assert store.dashboard(channel="windows")["server_count"] == 1
+    assert store.dashboard(channel="unknown")["server_count"] == 1
+
+
+@pytest.mark.parametrize("headers, expected", [
+    ({}, "web"), ({"user-agent": "Android Chrome"}, "web"),
+    ({"user-agent": "Chrome AwesomeInterview/Android"}, "android"),
+    ({"user-agent": "Edge AwesomeInterview/Windows"}, "windows"),
+    ({"x-awesome-client": "android"}, "android"),
+    ({"x-awesome-client": "arbitrary-private-text"}, "web"),
+])
+def test_client_channel_uses_fixed_markers(headers, expected):
+    from starlette.requests import Request
+    from app.core.performance import channel_for_request
+    request = Request({"type": "http", "headers": [(k.encode(), v.encode()) for k, v in headers.items()]})
+    assert channel_for_request(request) == expected
 
 
 def test_performance_batches_are_rate_limited(tmp_path):

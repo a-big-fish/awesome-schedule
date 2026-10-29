@@ -9,7 +9,7 @@ from pathlib import Path
 from queue import Empty, Full, Queue
 from threading import Event, Thread
 
-from app.core.performance import METRIC_LABELS, NODE_LABELS
+from app.core.performance import METRIC_LABELS, NODE_LABELS, CHANNEL_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +45,13 @@ class PerformanceService:
         if self.worker:
             self.worker.join(timeout=3)
 
-    def record(self, node: str, source: str, metric: str, duration: float, status: int = 200) -> None:
+    def record(self, node: str, source: str, metric: str, duration: float, status: int = 200,
+               channel: str = "unknown") -> None:
         if not self.enabled:
             return
         try:
-            self.queue.put_nowait((time.time(), node, source, metric, round(duration, 2), status))
+            self.queue.put_nowait((time.time(), node, source, metric, round(duration, 2), status,
+                                   channel if channel in CHANNEL_LABELS else "unknown"))
         except Full:
             self.dropped += 1
 
@@ -79,9 +81,12 @@ class PerformanceService:
                         connection.execute("CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY, "
                                            "received REAL, node TEXT, source TEXT, metric TEXT, duration REAL, status INTEGER)")
                         connection.execute("CREATE INDEX IF NOT EXISTS sample_time ON samples(received)")
+                        columns = {row[1] for row in connection.execute("PRAGMA table_info(samples)")}
+                        if "channel" not in columns:
+                            connection.execute("ALTER TABLE samples ADD COLUMN channel TEXT NOT NULL DEFAULT 'unknown'")
                     if batch:
-                        connection.executemany("INSERT INTO samples(received,node,source,metric,duration,status) "
-                                               "VALUES (?,?,?,?,?,?)", batch)
+                        connection.executemany("INSERT INTO samples(received,node,source,metric,duration,status,channel) "
+                                               "VALUES (?,?,?,?,?,?,?)", batch)
                         connection.execute("DELETE FROM samples WHERE id <= (SELECT MAX(id) FROM samples) - 100000")
                     now = time.time()
                     if now - last_prune >= 60:
@@ -114,26 +119,33 @@ class PerformanceService:
             if connection:
                 connection.close()
 
-    def dashboard(self, hours: int = 24) -> dict:
+    def dashboard(self, hours: int = 24, channel: str = "all") -> dict:
         now = time.time()
         result = {"enabled": self.enabled, "ready": self.ready, "dropped": self.dropped,
                   "write_failures": self.write_failures, "queued": self.queue.qsize(),
-                  "hours": hours, "groups": [], "trend": [], "slow": [],
+                  "hours": hours, "channel": channel, "channels": [], "groups": [], "trend": [], "slow": [],
                   "server_count": 0, "browser_count": 0, "errors": 0, "longtasks": 0}
         if not self.enabled:
             return result
         try:
             with sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=.3) as connection:
-                rows = connection.execute("SELECT received,node,source,metric,duration,status FROM samples "
+                rows = connection.execute("SELECT received,node,source,metric,duration,status,channel FROM samples "
                                           "WHERE received >= ? ORDER BY received LIMIT 100000", (now - hours * 3600,)).fetchall()
         except (OSError, sqlite3.Error):
             result["ready"] = False
             return result
         groups = defaultdict(list)
+        for key, label in CHANNEL_LABELS.items():
+            samples = [row for row in rows if row[6] == key and row[3] == "request" and row[2] == "server"]
+            result["channels"].append({"key": key, "label": label, "requests": len(samples),
+                                       "errors": sum(row[5] >= 400 for row in samples),
+                                       "p95": percentile([row[4] for row in samples], .95)})
+        if channel != "all":
+            rows = [row for row in rows if row[6] == channel]
         buckets = [defaultdict(list) for _ in range(24)]
         slow = []
-        for received, node, source, metric, duration, status in rows:
-            groups[(node, source, metric)].append((duration, status))
+        for received, node, source, metric, duration, status, client_channel in rows:
+            groups[(node, source, metric, client_channel)].append((duration, status))
             if metric == "request":
                 result[f"{source}_count"] += 1
                 if source == "server" and status >= 400:
@@ -145,11 +157,13 @@ class PerformanceService:
             threshold = 2500 if metric == "lcp" else 200 if metric == "longtask" else 1000
             if duration >= threshold or metric == "request" and (status == 0 or status >= 400):
                 slow.append({"received": received, "node": NODE_LABELS.get(node, node),
+                             "channel": client_channel, "channel_label": CHANNEL_LABELS.get(client_channel, "历史未分类"),
                              "source": source, "metric": METRIC_LABELS.get(metric, metric), "metric_key": metric,
                              "duration": round(duration, 1), "status": status})
-        for (node, source, metric), values in groups.items():
+        for (node, source, metric, client_channel), values in groups.items():
             durations = [item[0] for item in values]
             result["groups"].append({"node": NODE_LABELS.get(node, node), "source": source,
+                                     "channel": client_channel, "channel_label": CHANNEL_LABELS.get(client_channel, "历史未分类"),
                                      "metric": metric, "metric_label": METRIC_LABELS.get(metric, metric),
                                      "count": len(values), "p50": percentile(durations, .5),
                                      "p95": percentile(durations, .95), "max": round(max(durations), 1),

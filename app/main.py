@@ -25,7 +25,7 @@ from app.controller import (
 )
 from app.core.auth_guard import AuthRequired, InvalidCsrf, require_current_user
 from app.core.config import Settings, get_settings
-from app.core.performance import RequestTimings, node_for_path, request_timings
+from app.core.performance import RequestTimings, node_for_path, request_timings, channel_for_request
 from app.core.postgres_pool import close_pools
 from app.mapper.postgres_auth_mapper import PostgresAuthMapper
 from app.service.auth_service import AuthService
@@ -97,9 +97,9 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
             return response
         finally:
             elapsed_ms = (perf_counter() - started) * 1000
-            performance.record(node, "server", "request", elapsed_ms, status)
+            performance.record(node, "server", "request", elapsed_ms, status, channel=channel_for_request(request))
             for name, duration in timings.values.items():
-                performance.record(node, "server", name, duration, status)
+                performance.record(node, "server", name, duration, status, channel=channel_for_request(request))
             request_timings.reset(token)
             if elapsed_ms >= 500:
                 logger.warning("Slow request node=%s method=%s status=%s duration_ms=%.1f",
