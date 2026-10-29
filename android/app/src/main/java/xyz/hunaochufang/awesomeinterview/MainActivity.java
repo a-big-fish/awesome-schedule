@@ -80,6 +80,7 @@ public final class MainActivity extends Activity {
     private NativeDashboard dashboard;
     private NativeEventScreen eventScreen;
     private NativeExportScreen exportScreen;
+    private NativeExperienceList experienceList;
     private String exportExperienceId;
     private int exportGeneration;
     private final TextView[] tabs = new TextView[5];
@@ -170,6 +171,7 @@ public final class MainActivity extends Activity {
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
+        web.getSettings().setUserAgentString(web.getSettings().getUserAgentString() + " AwesomeInterview/Android");
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
         web.getSettings().setAllowFileAccess(false);
@@ -208,6 +210,7 @@ public final class MainActivity extends Activity {
                         initialHomePending = false;
                         showNative(false);
                     } else if (dashboard.getVisibility() != View.VISIBLE &&
+                            (experienceList == null || experienceList.getVisibility() != View.VISIBLE) &&
                             exportScreen.getVisibility() != View.VISIBLE &&
                             eventScreen.getVisibility() != View.VISIBLE) {
                         if (url.contains("/my-schedule/new")) activeTab = 2;
@@ -290,6 +293,14 @@ public final class MainActivity extends Activity {
         });
         exportScreen.setVisibility(View.GONE);
         content.addView(exportScreen, new FrameLayout.LayoutParams(-1, -1));
+        experienceList = new NativeExperienceList(this, new NativeExperienceList.Actions() {
+            @Override public void edit(String id) { navigateAppPage(BASE + "/experiences/" + Uri.encode(id)); }
+            @Override public void export(String id) { showNativeExport(id); }
+            @Override public void create() { navigateAppPage(BASE + "/experiences"); }
+            @Override public void plaza() { navigateAppPage(BASE + "/experiences/plaza"); }
+        });
+        experienceList.setVisibility(View.GONE);
+        content.addView(experienceList, new FrameLayout.LayoutParams(-1, -1));
         offline = new TextView(this);
         offline.setTextColor(Color.rgb(25, 40, 70));
         offline.setTextSize(15);
@@ -345,6 +356,13 @@ public final class MainActivity extends Activity {
     }
 
     private boolean showAcceptanceFixture(String screen) {
+        if ("native-experiences".equals(screen)) {
+            try {
+                currentSnapshot = new JSONObject("{\"experiences\":[{\"id\":\"demo\",\"title\":\"后端开发二面复盘\",\"company\":\"示例公司\",\"is_public\":true,\"questions\":[{},{}]},{\"id\":\"demo-private\",\"title\":\"我的下一场面试准备\",\"company\":\"示例团队\",\"is_public\":false,\"questions\":[]}]}");
+                showExperienceList();
+                return true;
+            } catch (Exception ignored) { return false; }
+        }
         if ("dashboard-home".equals(screen) || "dashboard-calendar".equals(screen) ||
                 "dashboard-next-day".equals(screen)) {
             initialHomePending = false;
@@ -455,6 +473,11 @@ public final class MainActivity extends Activity {
             showEventScreen();
             return;
         }
+        if (index == 3) {
+            showExperienceList();
+            syncSnapshot(false);
+            return;
+        }
         String[] paths = {BASE + "/experiences", BASE + "/profile"};
         navigateAppPage(paths[index - 3]);
     }
@@ -476,6 +499,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showNative(boolean calendar) {
+        if (experienceList != null) experienceList.setVisibility(View.GONE);
         offlineVisible = false;
         offline.setVisibility(View.GONE);
         retry.setVisibility(View.GONE);
@@ -488,6 +512,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showEventScreen() {
+        if (experienceList != null) experienceList.setVisibility(View.GONE);
         offlineVisible = false;
         offline.setVisibility(View.GONE);
         retry.setVisibility(View.GONE);
@@ -540,6 +565,7 @@ public final class MainActivity extends Activity {
                 connection.setRequestProperty("Cookie", cookie);
                 connection.setRequestProperty("X-CSRF-Token", csrf);
                 connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                connection.setRequestProperty("X-Awesome-Client", "android");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(10000);
                 connection.setDoOutput(true);
@@ -579,6 +605,7 @@ public final class MainActivity extends Activity {
                 connection.setRequestMethod("COMPLETE".equals(method) ? "POST" : method);
                 connection.setRequestProperty("Cookie", cookie);
                 connection.setRequestProperty("X-CSRF-Token", csrf);
+                connection.setRequestProperty("X-Awesome-Client", "android");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(10000);
                 connection.setInstanceFollowRedirects(false);
@@ -682,6 +709,7 @@ public final class MainActivity extends Activity {
                 connection.setRequestMethod(action.equals("delete") ? "DELETE" : "POST");
                 connection.setRequestProperty("Cookie", cookie);
                 connection.setRequestProperty("X-CSRF-Token", csrf);
+                connection.setRequestProperty("X-Awesome-Client", "android");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(10000);
                 connection.setInstanceFollowRedirects(false);
@@ -714,7 +742,8 @@ public final class MainActivity extends Activity {
         HttpURLConnection connection = (HttpURLConnection) new URL(ORIGIN + "/api/mobile/v1/session").openConnection();
         try {
             connection.setRequestProperty("Cookie", cookie);
-            connection.setConnectTimeout(8000);
+            connection.setRequestProperty("X-Awesome-Client", "android");
+                connection.setConnectTimeout(8000);
             connection.setReadTimeout(10000);
             connection.setInstanceFollowRedirects(false);
             if (connection.getResponseCode() != 200) return null;
@@ -746,6 +775,7 @@ public final class MainActivity extends Activity {
                 connection = (HttpURLConnection) new URL(ORIGIN + "/api/mobile/v1/snapshot").openConnection();
                 connection.setRequestProperty("Cookie", cookie);
                 connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("X-Awesome-Client", "android");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(10000);
                 connection.setInstanceFollowRedirects(false);
@@ -767,6 +797,8 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     currentSnapshot = snapshot;
                     dashboard.setSnapshot(snapshot);
+                    if (experienceList != null && experienceList.getVisibility() == View.VISIBLE)
+                        experienceList.setSnapshot(snapshot);
                     if (pendingEventId != null) {
                         String requested = pendingEventId;
                         pendingEventId = null;
@@ -817,6 +849,7 @@ public final class MainActivity extends Activity {
             currentSnapshot = null;
             sessionCsrf = null;
             dashboard.setSnapshot(null);
+            if (experienceList != null) { experienceList.setSnapshot(null); experienceList.setVisibility(View.GONE); }
             navigation.setVisibility(View.GONE);
             web.clearCache(true);
             web.clearHistory();
@@ -904,6 +937,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showWeb() {
+        if (experienceList != null) experienceList.setVisibility(View.GONE);
         offlineVisible = false;
         offline.setVisibility(View.GONE);
         retry.setVisibility(View.GONE);
@@ -915,6 +949,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showNativeExport(String id) {
+        experienceList.setVisibility(View.GONE);
         exportExperienceId = id;
         activeTab = 3;
         updateNavigation();
@@ -930,7 +965,16 @@ public final class MainActivity extends Activity {
         exportGeneration++;
         exportExperienceId = null;
         exportScreen.close();
-        showWeb();
+        showExperienceList();
+    }
+
+    private void showExperienceList() {
+        showNative(false);
+        dashboard.setVisibility(View.GONE);
+        experienceList.setSnapshot(currentSnapshot);
+        experienceList.setVisibility(View.VISIBLE);
+        activeTab = 3;
+        updateNavigation();
     }
 
     private void loadExportPdf() {
@@ -952,6 +996,7 @@ public final class MainActivity extends Activity {
                 String source = ORIGIN + BASE + "/experiences/" + Uri.encode(id) + "/export.pdf?" + query;
                 connection = (HttpURLConnection) new URL(source).openConnection();
                 connection.setRequestProperty("Cookie", cookie);
+                connection.setRequestProperty("X-Awesome-Client", "android");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(20000);
                 connection.setInstanceFollowRedirects(false);
@@ -1099,7 +1144,11 @@ public final class MainActivity extends Activity {
     }
 
     private void handleBack() {
-        if (exportScreen.getVisibility() == View.VISIBLE) {
+        if (experienceList.getVisibility() == View.VISIBLE) {
+            activeTab = 0;
+            updateNavigation();
+            showNative(false);
+        } else if (exportScreen.getVisibility() == View.VISIBLE) {
             leaveExport();
         } else if (eventScreen.getVisibility() == View.VISIBLE) {
             activeTab = 1;
