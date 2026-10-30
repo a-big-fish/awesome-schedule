@@ -239,7 +239,8 @@ def personal_dashboard(
         selected = date.fromisoformat(date_value) if date_value else datetime.now(DISPLAY_ZONE).date()
     except ValueError:
         selected = datetime.now(DISPLAY_ZONE).date()
-    context = _dashboard_context(service, selected, view, show_completed=show_completed)
+    # Always render both sets once; the calendar-only toggle reuses this DOM locally.
+    context = _dashboard_context(service, selected, view)
     context["show_all"] = show_all
     return templates.TemplateResponse(request, "personal_dashboard.html", context)
 

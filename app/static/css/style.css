@@ -878,6 +878,14 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-workspace-link { margin-top: auto; }
 .event-card.is-completed, .personal-event-card.is-completed, .personal-week-event.is-completed, .personal-period-event.is-completed, .personal-side-row.is-completed .personal-upcoming-item { filter: grayscale(1); opacity: .62; }
 .personal-form-page { max-width: 900px; margin: 0 auto; }
+.personal-calendar.hide-completed .is-completed { display: none !important; }
+.personal-calendar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; }
+.personal-calendar-actions .personal-today-link { white-space: nowrap; color: var(--primary); text-decoration: none; }
+.personal-calendar-toggle { min-height: 38px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 9px; background: #fff; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.personal-calendar-toggle:hover { border-color: var(--primary); color: var(--primary); }
+body.personal-app:has(.personal-event-summary) .page main { display: flex; align-items: center; justify-content: center; }
+body.personal-app:has(.personal-event-summary) .personal-form-page { width: min(900px, 100%); }
+@media (max-width: 650px) { .personal-calendar .date-nav-row { flex-wrap: wrap; } .personal-calendar-actions { order: 3; width: 100%; justify-content: center; } }
 .personal-completed-toggle { order: 3; }
 .personal-event-summary h1 { margin: 16px 0 24px; font-size: clamp(26px, 3vw, 36px); }
 .personal-event-summary dl { margin: 0 0 24px; border-top: 1px solid var(--border); }
