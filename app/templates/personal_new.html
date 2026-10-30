@@ -5,7 +5,7 @@
   <h1 class="section-title">添加日程</h1>
   <p class="section-description">手动填写，或粘贴邀请后核对解析结果。这里无需填写候选人姓名。</p>
   {% if error %}<div class="parse-tip error">{{ error }}</div>{% endif %}
-  {% if warnings %}<div class="parse-tip warning">与已有安排重叠：{{ warnings | join('、') }}。确认后仍可保存。</div>{% endif %}
+  {% if warnings %}<dialog class="personal-overlap-dialog" data-overlap-dialog aria-labelledby="overlap-title"><h2 id="overlap-title">日程时间有重叠</h2><p>以下安排与当前日程重叠：</p><ul>{% for title in warnings %}<li>{{ title }}</li>{% endfor %}</ul><p>确认后仍可保存。</p><div class="settings-actions"><button type="button" class="btn secondary" data-overlap-close>返回调整</button><button type="button" class="btn" data-overlap-confirm>仍要保存</button></div></dialog>{% endif %}
   <label class="personal-type-selection">类型
     <select class="input" name="event_type" form="personal-event-form" required data-event-type>
     {% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type or 'interview') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -72,4 +72,4 @@
   </div>
 </dialog>
 {% endblock %}
-{% block scripts %}{{ super() }}<script src="{{ asset_url('js/personal_time_picker.js') }}" defer></script>{% endblock %}
+{% block scripts %}{{ super() }}<script src="{{ asset_url('js/personal_time_picker.js') }}" defer></script><script src="{{ asset_url('js/personal_overlap_dialog.js') }}" defer></script>{% endblock %}

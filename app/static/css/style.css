@@ -878,6 +878,19 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-workspace-link { margin-top: auto; }
 .event-card.is-completed, .personal-event-card.is-completed, .personal-week-event.is-completed, .personal-period-event.is-completed, .personal-side-row.is-completed .personal-upcoming-item { filter: grayscale(1); opacity: .62; }
 .personal-form-page { max-width: 900px; margin: 0 auto; }
+.personal-completed-toggle { order: 3; }
+.personal-event-summary h1 { margin: 16px 0 24px; font-size: clamp(26px, 3vw, 36px); }
+.personal-event-summary dl { margin: 0 0 24px; border-top: 1px solid var(--border); }
+.personal-event-summary dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 14px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+.personal-event-summary dt { color: var(--muted); }
+.personal-event-summary dd { margin: 0; overflow-wrap: anywhere; }
+.personal-summary-note { white-space: pre-wrap; }
+.personal-edit-heading .personal-type-pill { margin-bottom: 12px; }
+.personal-edit-heading .section-title { margin-top: 0; }
+.personal-overlap-dialog { width: min(520px, calc(100vw - 28px)); border: 1px solid var(--border); border-radius: 16px; padding: 26px; box-shadow: 0 24px 70px rgb(16 30 60 / 22%); }
+.personal-overlap-dialog::backdrop { background: rgb(16 30 60 / 45%); }
+.personal-overlap-dialog h2 { margin-top: 0; }
+.personal-overlap-dialog ul { max-height: 180px; overflow: auto; }
 .personal-invitation-form, .personal-event-form { display: grid; gap: 14px; margin-top: 20px; }
 .personal-type-selection { display: grid; gap: 6px; margin-top: 20px; }
 .personal-invitation-form[hidden], .personal-form-divider[hidden] { display: none; }

@@ -42,6 +42,11 @@ def test_personal_manual_create_edit_and_delete_pages():
             assert "候选人姓名" not in page.text
             detail = client.get(f"/my-schedule/events/{event.id}")
             assert detail.status_code == 200
+            assert "编辑日程" in detail.text and "教学楼 A" in detail.text
+            assert 'action="/my-schedule/events/' not in detail.text
+            edit_page = client.get(f"/my-schedule/events/{event.id}/edit")
+            assert edit_page.status_code == 200
+            assert 'name="title"' in edit_page.text
             edited = client.post(f"/my-schedule/events/{event.id}/edit", data={
                 "title": "算法笔试第二轮", "event_type": "exam",
                 "start_at": "2026-10-02T09:00", "end_at": "2026-10-02T10:00",
@@ -400,9 +405,26 @@ def test_personal_overlap_can_be_confirmed_from_form():
             warning = client.post("/my-schedule/events", data=form)
             assert warning.status_code == 409
             assert "课程" in warning.text
+            assert 'data-overlap-dialog' in warning.text
             assert len(service.list_events()) == 1
             accepted = client.post("/my-schedule/events", data={**form, "confirm_overlap": "true"}, follow_redirects=False)
             assert accepted.status_code == 303
             assert len(service.list_events()) == 2
     finally:
         app.dependency_overrides.pop(get_personal_schedule_service, None)
+
+
+def test_completed_filter_only_changes_calendar_views():
+    zone = ZoneInfo("Asia/Shanghai")
+    service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
+    event = service.create_manual(
+        title="已完成任务", event_type="personal",
+        start_at=datetime(2026, 10, 27, 9, tzinfo=zone),
+        end_at=datetime(2026, 10, 27, 10, tzinfo=zone),
+    )
+    service.set_event_completed(event.id, True)
+    for view in ("day", "week", "month"):
+        context = _dashboard_context(service, date(2026, 10, 27), view, show_completed=False)
+        assert not context["entries"]
+        assert all(not day["entries"] and not day["week_segments"] for day in context["calendar_days"])
+        assert _dashboard_context(service, date(2026, 10, 27), view)["period_title"].endswith("1 项安排")

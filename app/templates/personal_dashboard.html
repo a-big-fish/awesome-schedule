@@ -7,17 +7,19 @@
   <a class="btn" href="/my-schedule/new">＋ 添加日程</a>
 </div>
 <nav class="personal-view-switch" aria-label="日程视图">
-  <a href="/my-schedule?view=day&amp;date_value={{ selected_date.isoformat() }}" {% if selected_view == 'day' %}aria-current="page"{% endif %}>日视图</a>
-  <a href="/my-schedule?view=week&amp;date_value={{ selected_date.isoformat() }}" {% if selected_view == 'week' %}aria-current="page"{% endif %}>周视图</a>
-  <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}" {% if selected_view == 'month' %}aria-current="page"{% endif %}>月视图</a>
-  <a class="personal-today-link" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ today_date.isoformat() }}">回到今天</a>
+  {% set completed_query = '&show_completed=false' if not show_completed else '' %}
+  <a class="personal-completed-toggle" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ selected_date.isoformat() }}&amp;show_completed={{ 'false' if show_completed else 'true' }}">{{ '全部日程' if show_completed else '未完成日程' }} ▾</a>
+  <a href="/my-schedule?view=day&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'day' %}aria-current="page"{% endif %}>日视图</a>
+  <a href="/my-schedule?view=week&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'week' %}aria-current="page"{% endif %}>周视图</a>
+  <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'month' %}aria-current="page"{% endif %}>月视图</a>
+  <a class="personal-today-link" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ today_date.isoformat() }}{{ completed_query }}">回到今天</a>
 </nav>
 <div class="personal-layout">
   <section class="card personal-calendar">
     <div class="date-nav-row">
-      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a>
+      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}{{ completed_query }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a>
       <h2>{{ period_title }}</h2>
-      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ next_date }}" aria-label="下一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">›</a>
+      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ next_date }}{{ completed_query }}" aria-label="下一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">›</a>
     </div>
     {% if selected_view == 'day' %}
     <div class="time-table personal-time-table">
@@ -112,7 +114,7 @@
       <div class="personal-side-heading">
         <h2>接下来的安排</h2>
         {% if show_all %}
-        <a href="/my-schedule?view={{ selected_view }}&amp;date_value={{ selected_date.isoformat() }}">收起</a>
+        <a href="/my-schedule?view={{ selected_view }}&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}">收起</a>
         {% elif upcoming_all|length > upcoming_today|length %}
         <a href="/my-schedule?view={{ selected_view }}&amp;date_value={{ selected_date.isoformat() }}&amp;show_all=1">显示更多</a>
         {% endif %}
@@ -126,7 +128,7 @@
           </a>
           <form action="/my-schedule/events/{{ item.id }}/completion" method="post">
             {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
-            <input type="hidden" name="completed" value="true"><input type="hidden" name="view" value="{{ selected_view }}"><input type="hidden" name="date_value" value="{{ selected_date.isoformat() }}"><input type="hidden" name="show_all" value="{{ '1' if show_all else '0' }}">
+            <input type="hidden" name="completed" value="true"><input type="hidden" name="view" value="{{ selected_view }}"><input type="hidden" name="date_value" value="{{ selected_date.isoformat() }}"><input type="hidden" name="show_all" value="{{ '1' if show_all else '0' }}"><input type="hidden" name="show_completed" value="{{ 'true' if show_completed else 'false' }}">
             <button type="submit" class="personal-side-action">完成</button>
           </form>
         </div>
@@ -144,7 +146,7 @@
           </a>
           <form action="/my-schedule/events/{{ item.id }}/completion" method="post">
             {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
-            <input type="hidden" name="completed" value="false"><input type="hidden" name="view" value="{{ selected_view }}"><input type="hidden" name="date_value" value="{{ selected_date.isoformat() }}"><input type="hidden" name="show_all" value="{{ '1' if show_all else '0' }}">
+            <input type="hidden" name="completed" value="false"><input type="hidden" name="view" value="{{ selected_view }}"><input type="hidden" name="date_value" value="{{ selected_date.isoformat() }}"><input type="hidden" name="show_all" value="{{ '1' if show_all else '0' }}"><input type="hidden" name="show_completed" value="{{ 'true' if show_completed else 'false' }}">
             <button type="submit" class="personal-side-action">恢复</button>
           </form>
         </div>

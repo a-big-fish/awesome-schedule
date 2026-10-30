@@ -108,11 +108,13 @@ def _month_day_entries(events: list[dict[str, Any]], dates: list[date]) -> dict[
 
 
 def _dashboard_context(service: PersonalScheduleService, selected_date: date,
-                       selected_view: str = "day", events: list[PersonalEvent] | None = None) -> dict[str, Any]:
+                       selected_view: str = "day", events: list[PersonalEvent] | None = None,
+                       show_completed: bool = True) -> dict[str, Any]:
     now = datetime.now(DISPLAY_ZONE)
     all_events = service.list_events() if events is None else events
     event_views = [_event_view(item, now) for item in all_events]
-    views = _week_day_segments(event_views, selected_date)
+    calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"]]
+    views = _week_day_segments(calendar_views, selected_date)
     earliest = min((item["start_minutes"] // 60 for item in views), default=6)
     latest = max(((item["start_minutes"] + item["duration_minutes"] + 59) // 60
                   for item in views), default=23)
@@ -141,13 +143,13 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                                       datetime.min.time(), DISPLAY_ZONE)
         period_begin = datetime.combine(period_start, datetime.min.time(), DISPLAY_ZONE)
         week_count = sum(item["start_time"] < period_end and
-                         item["end_time"] > period_begin for item in event_views)
+                         item["end_time"] > period_begin for item in calendar_views)
         period_title = f"{period_dates[0]:%Y-%m-%d} — {period_dates[-1]:%m-%d} · {week_count} 项安排"
         week_bridges = [
             index + 1 for index, day in enumerate(period_dates[:-1])
             if any(item["start_time"] < datetime.combine(day + timedelta(days=1),
                                                           datetime.min.time(), DISPLAY_ZONE)
-                   < item["end_time"] for item in event_views)
+                   < item["end_time"] for item in calendar_views)
         ]
     elif selected_view == "month":
         first = selected_date.replace(day=1)
@@ -158,7 +160,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
         month_start = datetime.combine(first, datetime.min.time(), DISPLAY_ZONE)
         month_end = datetime.combine(next_date, datetime.min.time(), DISPLAY_ZONE)
         month_count = sum(item["start_time"] < month_end and item["end_time"] > month_start
-                          for item in event_views)
+                          for item in calendar_views)
         period_title = f"{first.year} 年 {first.month} 月 · {month_count} 项安排"
     else:
         period_dates = []
@@ -166,7 +168,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
         next_date = selected_date + timedelta(days=1)
         period_title = f"{selected_date} {WEEKDAY_NAMES[selected_date.weekday()]} · {len(views)} 项安排"
     if period_dates:
-        events_by_day = _month_day_entries(event_views, period_dates) if selected_view == "month" else {}
+        events_by_day = _month_day_entries(calendar_views, period_dates) if selected_view == "month" else {}
         month_week_lanes: dict[date, int] = {}
         if selected_view == "month":
             for offset in range(0, len(period_dates), 7):
@@ -178,7 +180,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
             "date": day,
             "entries": events_by_day.get(day, []),
             "month_lane_count": month_week_lanes.get(day, 0),
-            "week_segments": _week_day_segments(event_views, day) if selected_view == "week" else [],
+            "week_segments": _week_day_segments(calendar_views, day) if selected_view == "week" else [],
             "in_month": day.month == selected_date.month,
             "is_today": day == now.date(),
             "is_selected": day == selected_date,
@@ -187,6 +189,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
         "selected_date": selected_date,
         "today_date": now.date(),
         "selected_view": selected_view,
+        "show_completed": show_completed,
         "period_title": period_title,
         "calendar_days": calendar_days,
         "week_bridges": week_bridges,
@@ -229,13 +232,14 @@ def personal_dashboard(
     date_value: str | None = None,
     view: str = "day",
     show_all: bool = False,
+    show_completed: bool = True,
     service: PersonalScheduleService = Depends(get_personal_schedule_service),
 ):
     try:
         selected = date.fromisoformat(date_value) if date_value else datetime.now(DISPLAY_ZONE).date()
     except ValueError:
         selected = datetime.now(DISPLAY_ZONE).date()
-    context = _dashboard_context(service, selected, view)
+    context = _dashboard_context(service, selected, view, show_completed=show_completed)
     context["show_all"] = show_all
     return templates.TemplateResponse(request, "personal_dashboard.html", context)
 
@@ -260,8 +264,9 @@ async def set_personal_event_completion(
     except ValueError:
         selected = datetime.now(DISPLAY_ZONE).date()
     show_all = "&show_all=1" if str(form.get("show_all", "")) == "1" else ""
+    show_completed = "&show_completed=false" if str(form.get("show_completed", "")) == "false" else ""
     return RedirectResponse(
-        f"/my-schedule?view={view}&date_value={selected.isoformat()}{show_all}", status_code=303,
+        f"/my-schedule?view={view}&date_value={selected.isoformat()}{show_all}{show_completed}", status_code=303,
     )
 
 
@@ -363,6 +368,21 @@ def personal_event_detail(
         "event_labels": EVENT_LABELS,
         "error": None,
         "warnings": [],
+        "editing": False,
+    })
+
+
+@router.get("/events/{event_id}/edit", response_class=HTMLResponse)
+def personal_event_edit_page(
+    event_id: str, request: Request,
+    service: PersonalScheduleService = Depends(get_personal_schedule_service),
+):
+    event = service.get_event(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="日程不存在")
+    return templates.TemplateResponse(request, "personal_detail.html", {
+        "event": event, "event_labels": EVENT_LABELS,
+        "error": None, "warnings": [], "editing": True,
     })
 
 
@@ -393,7 +413,7 @@ async def edit_personal_event(
         current = service.get_event(event_id)
         return templates.TemplateResponse(request, "personal_detail.html", {
             "event": current, "event_labels": EVENT_LABELS,
-            "error": None, "warnings": exc.event_titles, "values": values,
+            "error": None, "warnings": exc.event_titles, "values": values, "editing": True,
         }, status_code=409)
     except LookupError as exc:
         if request.app.state.settings.app_mode == "public_personal":
@@ -403,7 +423,7 @@ async def edit_personal_event(
         current = service.get_event(event_id)
         return templates.TemplateResponse(request, "personal_detail.html", {
             "event": current, "event_labels": EVENT_LABELS,
-            "error": str(exc), "warnings": [], "values": values,
+            "error": str(exc), "warnings": [], "values": values, "editing": True,
         }, status_code=422)
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
     return RedirectResponse(url=f"/my-schedule?view=day&date_value={event_day}", status_code=303)
