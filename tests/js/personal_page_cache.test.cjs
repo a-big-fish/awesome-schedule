@@ -81,3 +81,26 @@ test('prefetch of expanded navigation remains sequential', async () => {
   assert.equal(app.calls.length, 4);
   assert.equal(app.calls.filter(call => !call.done).length, 0);
 });
+
+test('calendar date navigation reuses an earlier view without another request', async () => {
+  const app = browser();
+  const first = '/my-schedule?view=day&date_value=2026-10-30';
+  const second = '/my-schedule?view=day&date_value=2026-10-31';
+  await app.navigate(first); await app.reply(app.calls[0], 'first-day');
+  await app.navigate(second); await app.reply(app.calls[1], 'second-day');
+  app.age();
+  await app.navigate(first);
+  assert.equal(app.calls.length, 2);
+  assert.equal(app.rendered.at(-1), 'first-day');
+});
+
+test('calendar cache is invalidated after a write form', async () => {
+  const app = browser();
+  const day = '/my-schedule?view=day&date_value=2026-10-30';
+  await app.navigate(day); await app.reply(app.calls[0]);
+  app.events.submit({target: {method: 'post'}});
+  await app.navigate('/my-schedule?view=day&date_value=2026-10-31');
+  await app.reply(app.calls[1]);
+  await app.navigate(day);
+  assert.equal(app.calls.length, 3);
+});
