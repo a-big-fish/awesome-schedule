@@ -78,6 +78,15 @@ def test_empty_performance_dashboard_has_an_explicit_healthy_empty_state(tmp_pat
 
 
 @pytest.mark.parametrize("path,method,node", [
+    ("/my-schedule", "GET", "calendar"),
+    ("/my-schedule/new", "GET", "schedule_new"),
+    ("/my-schedule/experiences/plaza", "GET", "plaza"),
+    ("/my-schedule/experiences/plaza/private-id", "GET", "plaza_detail"),
+    ("/my-schedule/experiences", "GET", "experiences"),
+    ("/my-schedule/interviews", "GET", "interviews"),
+    ("/my-schedule/interviews/private-id", "GET", "interview_detail"),
+    ("/my-schedule/profile", "GET", "profile"),
+    ("/auth/logout", "POST", "logout"),
     ("/my-schedule/experiences/private-id/export.pdf?title=secret", "GET", "pdf"),
     ("/my-schedule/experiences/private-id/draft", "POST", "draft"),
     ("/my-schedule/experiences/private-id/parse-file", "POST", "parse"),

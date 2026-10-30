@@ -4,9 +4,10 @@
   const originalFetch = window.fetch.bind(window);
   const key = 'awesome-interview-performance-v1';
   const metrics = new Set(['request', 'ttfb', 'load', 'lcp', 'longtask', 'cache_render']);
-  const nodes = new Set(['calendar', 'event', 'event_write', 'event_parse', 'plaza', 'experiences',
+  const nodes = new Set(['calendar', 'schedule_new', 'event', 'event_write', 'event_parse', 'plaza',
+    'plaza_detail', 'experiences',
     'editor', 'draft', 'experience_write', 'parse', 'pdf', 'markdown', 'export', 'interviews',
-    'profile', 'login', 'register', 'mobile', 'resume_state', 'resume_file']);
+    'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file']);
   const nodeFor = (value, method = 'GET') => {
     try {
       const url = new URL(value, location.href);
@@ -14,18 +15,22 @@
       const path = url.pathname.replace(/\/$/, '');
       if (path === '/auth/login') return 'login';
       if (path === '/auth/register') return 'register';
+      if (path === '/auth/logout') return 'logout';
       if (path.startsWith('/api/mobile/v1/')) return 'mobile';
       if (path.startsWith('/resumes/') && /\/(pdf|download)$/.test(path)) return 'resume_file';
       if (!path.startsWith('/my-schedule')) return null;
       const tail = path.slice('/my-schedule'.length);
       if (tail === '/resume/current') return 'resume_state';
       if (tail.startsWith('/admin') || tail.startsWith('/telemetry')) return null;
-      if (tail === '' || tail === '/new') return 'calendar';
+      if (tail === '') return 'calendar';
+      if (tail === '/new') return 'schedule_new';
       if (tail === '/parse') return 'event_parse';
       if (tail.startsWith('/events')) return method === 'GET' ? 'event' : 'event_write';
-      if (tail.startsWith('/interviews') || tail === '/resume') return 'interviews';
+      if (tail === '/interviews' || tail === '/resume') return 'interviews';
+      if (tail.startsWith('/interviews/')) return 'interview_detail';
       if (tail.startsWith('/profile')) return 'profile';
-      if (tail.startsWith('/experiences/plaza')) return 'plaza';
+      if (tail === '/experiences/plaza') return 'plaza';
+      if (tail.startsWith('/experiences/plaza/')) return 'plaza_detail';
       if (tail === '/experiences') return 'experiences';
       if (tail.startsWith('/experiences/')) return ({'export.pdf': 'pdf', 'export.md': 'markdown',
         export: 'export', draft: 'draft', parse: 'parse', 'parse-file': 'parse'})[tail.split('/').pop()]

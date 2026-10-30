@@ -98,3 +98,18 @@ test('telemetry and administrator fetches never collect themselves', async () =>
   await app.context.window.fetch('/my-schedule/telemetry', {method: 'POST'});
   assert.equal(app.queued().length, 0);
 });
+
+test('top navigation pages retain separate fixed monitoring nodes', async () => {
+  const app = browser();
+  const expected = [
+    ['/my-schedule', 'calendar'], ['/my-schedule/new', 'schedule_new'],
+    ['/my-schedule/experiences/plaza', 'plaza'], ['/my-schedule/experiences', 'experiences'],
+    ['/my-schedule/interviews', 'interviews'], ['/my-schedule/profile', 'profile'],
+  ];
+  for (const [path] of expected) await app.context.window.fetch(path);
+  await app.context.window.fetch('/my-schedule/experiences/plaza/private-id');
+  await app.context.window.fetch('/my-schedule/interviews/private-id');
+  await app.fire(500);
+  assert.deepEqual(app.queued().map(sample => sample.node),
+    [...expected.map(([, node]) => node), 'plaza_detail', 'interview_detail']);
+});
