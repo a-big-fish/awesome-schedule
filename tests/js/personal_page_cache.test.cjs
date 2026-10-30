@@ -17,7 +17,7 @@ function browser({hidden = true, calendar = null} = {}) {
     querySelector(selector) {
       if (selector === '.page > main') return main;
       if (selector === '.personal-calendar[data-selected-date]') return calendar;
-      if (selector.includes('.personal-app .page-nav')) return {};
+      if (selector.includes('.personal-app .page-nav') || selector.startsWith('.page-nav a[href=')) return {};
       return null;
     },
     querySelectorAll: () => [], addEventListener: (name, callback) => {events[name] = callback;},
@@ -77,12 +77,22 @@ test('prefetch of expanded navigation remains sequential', async () => {
   const app = browser({hidden: false});
   app.prefetch(); await tick();
   assert.equal(app.calls.length, 1);
-  for (let index = 0; index < 4; index++) {
+  assert.equal(app.calls[0].url, '/my-schedule/new');
+  for (let index = 0; index < 5; index++) {
     assert.equal(app.calls.filter(call => !call.done).length, 1);
     await app.reply(app.calls[index]);
   }
-  assert.equal(app.calls.length, 4);
+  assert.equal(app.calls.length, 5);
   assert.equal(app.calls.filter(call => !call.done).length, 0);
+});
+
+test('add schedule uses a prefetched page without waiting for another request', async () => {
+  const app = browser({hidden: false});
+  app.prefetch(); await tick();
+  await app.reply(app.calls[0], 'new-form-html');
+  await app.navigate('/my-schedule/new');
+  assert.equal(app.rendered.at(-1), 'new-form-html');
+  assert.equal(app.calls.filter(call => call.url === '/my-schedule/new').length, 1);
 });
 
 test('calendar date navigation reuses an earlier view without another request', async () => {

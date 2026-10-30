@@ -1,6 +1,6 @@
 (() => {
   // Private HTML stays in this page's memory; the server sends no-store.
-  const paths = ['/my-schedule', '/my-schedule/experiences/plaza', '/my-schedule/experiences',
+  const paths = ['/my-schedule/new', '/my-schedule', '/my-schedule/experiences/plaza', '/my-schedule/experiences',
     '/my-schedule/profile', '/my-schedule/interviews'];
   const allowed = new Set(paths);
   if (!document.querySelector('.personal-app .page-nav a[href="/my-schedule/experiences/plaza"]')) return;
@@ -84,6 +84,7 @@
     try {
       for (const path of paths) {
         if (document.hidden || document.querySelector('[data-experience-editor]')) break;
+        if (!document.querySelector(`.page-nav a[href="${path}"]`)) continue;
         if (path !== location.pathname) await load(path).catch(() => {});
       }
     } finally { prefetching = false; }

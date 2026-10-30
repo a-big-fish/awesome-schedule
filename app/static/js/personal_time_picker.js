@@ -1,9 +1,11 @@
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
+function initTimePicker() {
   const eventType = document.querySelector('[data-event-type]');
   const positionField = document.querySelector('[data-position-field]');
   const invitationForm = document.querySelector('[data-invitation-form]');
   const invitationDivider = document.querySelector('[data-invitation-divider]');
-  if (eventType) {
+  if (eventType && !eventType.dataset.timePickerReady) {
+    eventType.dataset.timePickerReady = '1';
     const updateEventFields = () => {
       const isInterview = eventType.value === 'interview';
       if (positionField) {
@@ -19,7 +21,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const dialog = document.querySelector('[data-time-dialog]');
   const fields = [...document.querySelectorAll('.personal-time-field')];
-  if (!dialog || !fields.length) return;
+  if (!dialog || !fields.length || dialog.dataset.timePickerReady) return;
+  dialog.dataset.timePickerReady = '1';
 
   const heading = dialog.querySelector('[data-time-heading]');
   const progress = dialog.querySelector('[data-time-progress]');
@@ -252,4 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   dialog.querySelector('[data-time-close]').addEventListener('click', () => dialog.close());
   dialog.querySelector('[data-time-cancel]').addEventListener('click', () => dialog.close());
-});
+}
+document.addEventListener('DOMContentLoaded', initTimePicker);
+document.addEventListener('personal:navigated', initTimePicker);
+})();
