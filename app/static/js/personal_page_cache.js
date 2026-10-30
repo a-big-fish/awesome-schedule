@@ -5,6 +5,7 @@
   const allowed = new Set(paths);
   if (!document.querySelector('.personal-app .page-nav a[href="/my-schedule/experiences/plaza"]')) return;
   const ttl = 30000;
+  const calendarTtl = 18 * 60 * 60 * 1000;
   const pages = new Map();
   const calendarPages = new Map();
   const calendarLimit = 24;
@@ -24,7 +25,7 @@
     const calendar = isCalendar(new URL(url, location.href));
     const cache = calendar ? calendarPages : pages;
     const stored = cache.get(url);
-    if (!force && stored && (calendar || Date.now() - stored.time < ttl)) return stored.html;
+    if (!force && stored && Date.now() - stored.time < (calendar ? calendarTtl : ttl)) return stored.html;
     if (pending.has(url)) return pending.get(url);
     const generation = cacheGeneration;
     const task = (async () => {
@@ -51,6 +52,32 @@
   }
 
   let prefetching = false;
+  let calendarPrefetching = false;
+  let calendarPrefetchTarget = null;
+  function scheduleCalendarNeighbors() {
+    const calendar = document.querySelector('.personal-calendar[data-selected-date]');
+    if (!calendar || calendar.dataset.selectedView !== 'day') return;
+    calendarPrefetchTarget = calendar.dataset.selectedDate;
+    if (calendarPrefetching) return;
+    calendarPrefetching = true;
+    setTimeout(async () => {
+      try {
+        while (calendarPrefetchTarget) {
+          const selected = calendarPrefetchTarget;
+          calendarPrefetchTarget = null;
+          const date = new Date(`${selected}T00:00:00Z`);
+          if (Number.isNaN(date.getTime())) continue;
+          for (const offset of [-1, 1]) {
+            if (calendarPrefetchTarget || document.hidden) break;
+            const neighbor = new Date(date);
+            neighbor.setUTCDate(date.getUTCDate() + offset);
+            const key = `/my-schedule?view=day&date_value=${neighbor.toISOString().slice(0, 10)}`;
+            await load(key).catch(() => {});
+          }
+        }
+      } finally { calendarPrefetching = false; }
+    }, 150);
+  }
   const prefetch = async () => {
     if (prefetching || document.querySelector('[data-experience-editor]')) return;
     prefetching = true;
@@ -84,6 +111,7 @@
     pageEdited = false;
     if (resetScroll) window.scrollTo(0, 0);
     document.dispatchEvent(new Event('personal:navigated'));
+    scheduleCalendarNeighbors();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       window.awesomeInterviewPerformance?.recordRender(performance.now() - renderStarted);
     }));
@@ -108,7 +136,7 @@
         location.assign(target.href);
         return;
       }
-      if (calendar || Date.now() - stored.time < ttl) return;
+      if (Date.now() - stored.time < (calendar ? calendarTtl : ttl)) return;
       // The cached page is visible before this request completes.
       load(key, true).then((html) => {
         if (id !== navigationId || pageKey(new URL(location.href)) !== key || pageEdited || html === cached)
@@ -134,6 +162,7 @@
     (isCalendar(new URL(location.href)) ? calendarPages : pages).set(
       pageKey(new URL(location.href)), { html: document.documentElement.outerHTML, time: Date.now() });
   }
+  scheduleCalendarNeighbors();
   if ('requestIdleCallback' in window) requestIdleCallback(prefetch, { timeout: 1800 });
   else setTimeout(prefetch, 800);
 

@@ -13,7 +13,7 @@
   <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'month' %}aria-current="page"{% endif %}>月视图</a>
 </nav>
 <div class="personal-layout">
-  <section class="card personal-calendar" data-calendar-completed="{{ 'all' if show_completed else 'incomplete' }}">
+  <section class="card personal-calendar" data-calendar-completed="{{ 'all' if show_completed else 'incomplete' }}" data-selected-date="{{ selected_date.isoformat() }}" data-selected-view="{{ selected_view }}">
     <div class="date-nav-row">
       <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}{{ completed_query }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a>
       <h2>{{ period_title }}</h2>
