@@ -1,11 +1,67 @@
 (() => {
   const key = 'awesome-interview-calendar-completed';
+  function packOverlaps(elements, bounds, place) {
+    const rows = elements.map((element) => ({element, ...bounds(element)}))
+      .sort((a, b) => a.start - b.start || b.end - a.end);
+    let group = [], lanes = [];
+    const finish = () => {
+      const width = Math.max(1, lanes.length);
+      group.forEach((item) => place(item.element, item.lane, width));
+      group = []; lanes = [];
+    };
+    for (const item of rows) {
+      if (group.length && group.every((prior) => prior.end <= item.start)) finish();
+      let lane = lanes.findIndex((end) => end <= item.start);
+      if (lane < 0) lane = lanes.length;
+      lanes[lane] = item.end;
+      item.lane = lane;
+      group.push(item);
+    }
+    finish();
+  }
+  function repack(calendar) {
+    const visible = (selector) => [...calendar.querySelectorAll(selector)]
+      .filter((element) => !calendar.classList.contains('hide-completed') || !element.classList.contains('is-completed'));
+    packOverlaps(visible('.time-grid .event-card'), (element) => {
+      const start = Number(element.style.getPropertyValue('--start-min'));
+      return {start, end: start + Number(element.style.getPropertyValue('--duration'))};
+    }, (element, lane, width) => {
+      element.style.setProperty('--column', String(lane + 1));
+      element.style.setProperty('--columns', String(width));
+    });
+    calendar.querySelectorAll('.personal-week-day').forEach((day) => {
+      packOverlaps([...day.querySelectorAll('.personal-week-event')].filter((element) =>
+        !calendar.classList.contains('hide-completed') || !element.classList.contains('is-completed')),
+      (element) => {
+        const start = parseFloat(element.style.top);
+        return {start, end: start + parseFloat(element.style.height)};
+      }, (element, lane, width) => {
+        element.style.left = `calc(${lane * 100 / width}% + 2px)`;
+        element.style.width = `calc(${100 / width}% - 4px)`;
+      });
+    });
+    const days = [...calendar.querySelectorAll('.personal-period-month .personal-period-day')];
+    for (let offset = 0; offset < days.length; offset += 7) {
+      const week = days.slice(offset, offset + 7);
+      const items = week.flatMap((day) => [...day.querySelectorAll('.personal-period-event')]);
+      const active = items.filter((item) =>
+        !calendar.classList.contains('hide-completed') || !item.classList.contains('is-completed'));
+      const lanes = [...new Set(active.map((item) => Number(item.dataset.originalLane)))].sort((a, b) => a - b);
+      active.forEach((item) => { item.style.gridRow = String(lanes.indexOf(Number(item.dataset.originalLane)) + 1); });
+      week.forEach((day) => { day.querySelector('.personal-period-events').style.gridTemplateRows =
+        lanes.length ? `repeat(${lanes.length}, 20px)` : ''; });
+    }
+  }
   function init() {
     const calendar = document.querySelector('.personal-calendar[data-calendar-completed]');
     if (!calendar) return;
     const button = calendar.querySelector('[data-calendar-toggle]');
+    calendar.querySelectorAll('.personal-period-month .personal-period-event').forEach((item) => {
+      item.dataset.originalLane = item.style.gridRow;
+    });
     const apply = (incomplete) => {
       calendar.classList.toggle('hide-completed', incomplete);
+      repack(calendar);
       button.textContent = incomplete ? '切换全部日程' : '切换未完成日程';
       button.setAttribute('aria-pressed', String(incomplete));
     };
