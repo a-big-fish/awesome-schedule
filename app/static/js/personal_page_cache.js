@@ -13,6 +13,8 @@
   let cacheGeneration = 0;
   let navigationId = 0;
   let pageEdited = false;
+  let unavailableUntil = 0;
+  const unavailable = () => Object.assign(new Error('连接暂时不可用，请稍后重试'), {transient: true});
   const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('awesome-interview-pages') : null;
   const clearPages = () => { cacheGeneration++; pages.clear(); calendarPages.clear(); pending.clear(); };
   channel?.addEventListener('message', clearPages);
@@ -32,9 +34,20 @@
     const stored = cache.get(url);
     if (!force && isFresh(stored, calendar)) return stored.html;
     if (pending.has(url)) return pending.get(url);
+    if (Date.now() < unavailableUntil) throw unavailable();
     const generation = cacheGeneration;
     const task = (async () => {
-      const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' } });
+      let response;
+      try {
+        response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/html' } });
+      } catch {
+        unavailableUntil = Date.now() + 30000;
+        throw unavailable();
+      }
+      if (response.status >= 500) {
+        unavailableUntil = Date.now() + 30000;
+        throw unavailable();
+      }
       const resolved = new URL(response.url, location.href);
       if (resolved.pathname.startsWith('/auth/login') || response.status === 401) {
         clearPages();
@@ -165,7 +178,10 @@
       if (addHistory) history.pushState({ personalPage: true }, '', key);
       render(html, true);
       prefetch();
-    } catch { location.assign(target.href); }
+    } catch (error) {
+      if (error.transient) document.dispatchEvent(new Event('personal:unavailable'));
+      else location.assign(target.href);
+    }
     finally { document.body.classList.remove('personal-navigation-loading'); }
   }
 

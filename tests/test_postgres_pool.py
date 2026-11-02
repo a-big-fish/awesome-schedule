@@ -11,10 +11,12 @@ from app.core.performance import RequestTimings, request_timings, timed_postgres
 
 def test_all_mappers_share_three_connections_and_fixed_timeouts(monkeypatch):
     made = []
+    health_check = postgres_pool.ConnectionPool.check_connection
     def create(*args, **kwargs):
         pool = MagicMock(closed=False)
         made.append((args, kwargs, pool))
         return pool
+    create.check_connection = health_check
     monkeypatch.setattr(postgres_pool, "ConnectionPool", create)
     monkeypatch.setattr(postgres_pool, "_pools", {})
     first = postgres_pool.get_pool("dbname=test", row_factory=dict_row)
@@ -25,6 +27,7 @@ def test_all_mappers_share_three_connections_and_fixed_timeouts(monkeypatch):
     assert options["min_size"] == options["max_size"] == 3
     assert options["timeout"] == 3 and options["max_lifetime"] == 1200
     assert options["max_idle"] == 600
+    assert options["check"] is health_check
     postgres_pool.close_pools()
     first.close.assert_called_once_with(timeout=3)
     assert postgres_pool.get_pool("dbname=test", row_factory=dict_row) is not first

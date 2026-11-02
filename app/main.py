@@ -3,6 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
+from psycopg import OperationalError
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -70,6 +71,13 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     )
     application.state.settings = settings
     application.state.performance = performance
+    @application.exception_handler(OperationalError)
+    async def handle_database_unavailable(request: Request, exc: OperationalError):
+        logger.warning("Database temporarily unavailable node=%s error=%s",
+                       node_for_path(request.url.path, request.method), type(exc).__name__)
+        return JSONResponse({"detail": "数据库连接暂时不可用，请稍后重试"}, status_code=503,
+                            headers={"Retry-After": "30", "Cache-Control": "no-store"})
+
     application.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
     @application.get("/robots.txt", include_in_schema=False)

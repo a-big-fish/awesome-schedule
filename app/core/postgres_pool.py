@@ -20,6 +20,7 @@ def get_pool(conninfo: str, **kwargs) -> ConnectionPool:
         if pool is None or pool.closed:
             pool = ConnectionPool(conninfo, kwargs=kwargs, min_size=3, max_size=3,
                                   timeout=3, max_lifetime=20 * 60, max_idle=10 * 60,
+                                  check=ConnectionPool.check_connection,
                                   open=True, name="metadata")
             _pools[key] = pool
         return pool

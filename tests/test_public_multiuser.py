@@ -413,6 +413,25 @@ def test_workday_preferences_are_validated_isolated_and_used_for_new_schedules(t
         assert mapper.get_user(user.id).email == user.email
 
 
+def test_database_connection_loss_returns_503_without_revoking_session(tmp_path, monkeypatch):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email="connection-test@example.com", password_hash=hash_password("test-password"), email_verified=True)
+    mapper.create_user(user)
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "test-password")
+        original = mapper.authenticate_session
+        def disconnected(*args):
+            raise OperationalError("server closed connection")
+        monkeypatch.setattr(mapper, "authenticate_session", disconnected)
+        response = client.get("/my-schedule", follow_redirects=False)
+        assert response.status_code == 503
+        assert response.headers["retry-after"] == "30"
+        assert response.headers["cache-control"] == "no-store"
+        assert "数据库连接暂时不可用" in response.text
+        monkeypatch.setattr(mapper, "authenticate_session", original)
+        assert client.get("/my-schedule").status_code == 200
+
+
 def test_direct_email_registration_without_verification_or_mail(tmp_path):
     app, mapper, mailer, _, _, _ = _public_fixture(
         tmp_path, email_verification_required=False

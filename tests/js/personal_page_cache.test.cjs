@@ -6,10 +6,10 @@ const source = fs.readFileSync('app/static/js/personal_page_cache.js', 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 function browser({hidden = true, calendar = null} = {}) {
-  const calls = [], rendered = [], events = {}, timers = [];
+  const calls = [], rendered = [], events = {}, timers = [], assigned = [], emitted = [];
   let clock = 0;
   const location = new URL('https://test.local/my-schedule/experiences/plaza');
-  location.assign = () => {};
+  location.assign = url => assigned.push(url);
   const main = {replaceWith(next) {rendered.push(next.html);}};
   const document = {
     hidden, activeElement: null, title: 'plaza', documentElement: {outerHTML: 'initial-plaza'},
@@ -21,26 +21,26 @@ function browser({hidden = true, calendar = null} = {}) {
       return null;
     },
     querySelectorAll: () => [], addEventListener: (name, callback) => {events[name] = callback;},
-    dispatchEvent() {},
+    dispatchEvent(event) {emitted.push(event.type);},
   };
   class FakeDate extends Date { static now() { return clock; } }
   const context = {document, location, URL, Date: FakeDate,
     window: {addEventListener() {}, scrollTo() {}},
     history: {pushState(_, __, url) {location.href = new URL(url, location).href;}},
     performance: {now: () => 0}, requestAnimationFrame: callback => callback(),
-    Event: class {},
+    Event: class {constructor(type) {this.type = type;}},
     DOMParser: class {parseFromString(html) {return {title: html, body: {className: 'personal-app', classList: {contains: () => true}},
       querySelector: selector => selector === '.page > main' ? {html} : null};}},
     setTimeout(callback, delay) {timers.push({callback, delay});},
     fetch(url) {return new Promise(resolve => calls.push({url, resolve, done: false}));},
   };
   vm.runInNewContext(source, context);
-  return {calls, rendered, events, document, context,
+  return {calls, rendered, events, document, context, assigned, emitted,
     age: (milliseconds = 31000) => {clock += milliseconds;},
     async navigate(path) {assert.equal(context.window.awesomeInterviewNavigate(path), true); await tick();},
-    async reply(call, html = call.url) {
+    async reply(call, html = call.url, status = 200) {
       call.done = true;
-      call.resolve({ok: true, status: 200, url: 'https://test.local' + call.url,
+      call.resolve({ok: status < 400, status, url: 'https://test.local' + call.url,
         headers: {get: () => 'text/html'}, text: async () => html});
       await tick();
     },
@@ -59,6 +59,21 @@ test('profile and interviews use fresh cached pages without duplicate full-page 
   await app.navigate('/my-schedule/interviews');
   assert.equal(app.calls.length, 2);
   assert.equal(app.rendered.at(-1), 'interviews-html');
+});
+
+test('database outage keeps the page and pauses requests rather than reloading', async () => {
+  const app = browser();
+  await app.navigate('/my-schedule/profile');
+  await app.reply(app.calls[0], 'unavailable', 503);
+  assert.equal(app.assigned.length, 0);
+  assert.ok(app.emitted.includes('personal:unavailable'));
+  await app.navigate('/my-schedule/interviews');
+  assert.equal(app.calls.length, 1);
+  app.age(30001);
+  await app.navigate('/my-schedule/profile');
+  assert.equal(app.calls.length, 2);
+  await app.reply(app.calls[1], 'recovered-profile');
+  assert.equal(app.rendered.at(-1), 'recovered-profile');
 });
 
 test('expired page displays first but background refresh does not overwrite focused input', async () => {
