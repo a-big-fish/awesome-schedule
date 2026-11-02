@@ -60,6 +60,7 @@ function initTimePicker() {
   let selectedDate = '';
   let selectedHour = '';
   let selectedMinute = '';
+  let onlyDate = false;
   let viewYear = 0;
   let viewMonth = 0;
   let calendarMode = 'days';
@@ -88,6 +89,7 @@ function initTimePicker() {
       activeField = event.detail;
       const value = activeField.querySelector('[data-time-value]');
       step = 0;
+      onlyDate = activeField.dataset.timeMode === 'date';
       selectedDate = validValue(value.value) ? value.value.slice(0, 10) : '';
       selectedHour = validValue(value.value) ? value.value.slice(11, 13) : '';
       selectedMinute = validValue(value.value) ? value.value.slice(14, 16) : '';
@@ -110,7 +112,37 @@ function initTimePicker() {
     return button;
   }
 
+  function workTime(end = false) {
+    return document.querySelector(`meta[name="workday-${end ? 'end' : 'start'}"]`)?.content || (end ? '18:00' : '08:00');
+  }
+
+  function commitSelection(dateOnly) {
+    const value = activeField.querySelector('[data-time-value]');
+    const isEnd = ['end_at', 'reviewed_end'].includes(value.name);
+    const next = `${selectedDate}T${dateOnly ? workTime(isEnd) : selectedHour + ':' + selectedMinute}`;
+    if ((value.min && next < value.min) || (value.max && next > value.max)) {
+      options.querySelector('[data-time-error]').textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
+      return;
+    }
+    value.value = next;
+    activeField.dataset.timeMode = dateOnly ? 'date' : 'time';
+    activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
+    if (['start_at', 'reviewed_start'].includes(value.name)) {
+      const end = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]');
+      if (dateOnly && end && end.value.slice(0, 10) <= selectedDate) {
+        end.value = `${selectedDate}T${workTime(true)}`;
+        end.closest('.personal-time-field').dataset.timeMode = 'date';
+        end.dispatchEvent(new Event('change', {bubbles: true}));
+      } else if (!dateOnly) updateEndFromStart(next);
+    }
+    value.dispatchEvent(new Event('input', {bubbles: true}));
+    value.dispatchEvent(new Event('change', {bubbles: true}));
+    dialog.close();
+    activeField.querySelector('[data-time-trigger]').focus();
+  }
+
   function renderCalendar() {
+    progress.textContent = onlyDate ? '选择日期 · 使用默认工作时间' : '选择日期 → 选择时间';
     options.replaceChildren();
     const calendar = document.createElement('div');
     calendar.className = 'personal-calendar-picker';
@@ -205,19 +237,33 @@ function initTimePicker() {
       const date = `${viewYear}-${pad(viewMonth)}-${pad(day)}`;
       const choice = calendarButton(String(day), 'personal-calendar-day', () => {
         selectedDate = date;
-        step = 1;
-        render();
+        if (onlyDate) commitSelection(true);
+        else { step = 1; render(); }
       }, `${viewYear}年${viewMonth}月${day}日`);
       if (date === selectedDate) choice.classList.add('selected');
       grid.append(choice);
     }
+    const modes = document.createElement('div');
+    modes.className = 'personal-date-mode';
+    for (const [dateOnly, label] of [[true, '只选日期'], [false, '指定时间']]) {
+      const button = calendarButton(label, 'personal-date-mode-button', () => { onlyDate = dateOnly; renderCalendar(); });
+      button.classList.toggle('selected', onlyDate === dateOnly);
+      button.setAttribute('aria-pressed', String(onlyDate === dateOnly));
+      modes.append(button);
+    }
+    const hint = document.createElement('p');
+    hint.className = 'personal-date-hint';
+    hint.textContent = onlyDate ? `使用默认工作时间 ${workTime()}–${workTime(true)}，可在个人设置中修改` : '先选择日期，再选择小时和分钟';
+    const error = document.createElement('p');
+    error.dataset.timeError = '';
+    error.setAttribute('role', 'alert');
     calendar.append(header, grid);
-    options.append(calendar);
+    options.append(modes, hint, calendar, error);
 
     if (selectedDate.startsWith(`${viewYear}-${pad(viewMonth)}-`)) {
-      const next = calendarButton('下一步：选择时间', 'btn secondary personal-time-next', () => {
-        step = 1;
-        render();
+      const next = calendarButton(onlyDate ? '确认日期' : '下一步：选择时间', 'btn personal-time-next', () => {
+        if (onlyDate) commitSelection(true);
+        else { step = 1; render(); }
       });
       options.append(next);
     }
@@ -267,22 +313,9 @@ function initTimePicker() {
       columns.append(column);
     }
     const error = document.createElement('p');
+    error.dataset.timeError = '';
     error.setAttribute('role', 'alert');
-    const confirm = calendarButton('确认时间', 'btn personal-time-next', () => {
-      const value = activeField.querySelector('[data-time-value]');
-      const next = `${selectedDate}T${selectedHour}:${selectedMinute}`;
-      if ((value.min && next < value.min) || (value.max && next > value.max)) {
-        error.textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
-        return;
-      }
-      value.value = next;
-      activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
-      if (['start_at', 'reviewed_start'].includes(value.name)) updateEndFromStart(next);
-      value.dispatchEvent(new Event('input', {bubbles: true}));
-      value.dispatchEvent(new Event('change', {bubbles: true}));
-      dialog.close();
-      activeField.querySelector('[data-time-trigger]').focus();
-    });
+    const confirm = calendarButton('确认时间', 'btn personal-time-next', () => commitSelection(false));
     confirm.disabled = !selectedHour || !selectedMinute;
     options.append(columns, error, confirm);
     requestAnimationFrame(() => {

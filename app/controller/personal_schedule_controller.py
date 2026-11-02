@@ -221,13 +221,18 @@ def _new_page(request: Request, *, error: str | None = None, warnings: list[str]
               values: dict[str, Any] | None = None, preview: bool = False, status_code: int = 200):
     form_values = dict(values or {})
     now = datetime.now(DISPLAY_ZONE).replace(second=0, microsecond=0)
-    form_values.setdefault("start_at", now.strftime("%Y-%m-%dT%H:%M"))
-    form_values.setdefault("end_at", (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M"))
+    user = getattr(request.state, "user", None)
+    work_start = user.workday_start if user else "08:00"
+    work_end = user.workday_end if user else "18:00"
+    date_only = not form_values
+    form_values.setdefault("start_at", f"{now.date().isoformat()}T{work_start}")
+    form_values.setdefault("end_at", f"{now.date().isoformat()}T{work_end}")
     return templates.TemplateResponse(request, "personal_new.html", {
         "error": error,
         "warnings": warnings or [],
         "values": form_values,
         "preview": preview,
+        "date_only": date_only,
         "event_labels": EVENT_LABELS,
     }, status_code=status_code)
 

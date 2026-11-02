@@ -11,6 +11,8 @@ class AuthUser:
     email: str | None = None
     username: str | None = None
     display_name: str | None = None
+    workday_start: str = "08:00"
+    workday_end: str = "18:00"
     password_hash: str = ""
     email_verified: bool = False
     can_login_without_email_verification: bool = False

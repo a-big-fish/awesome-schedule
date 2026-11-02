@@ -85,7 +85,7 @@ def test_personal_manual_create_edit_and_delete_pages():
         app.dependency_overrides.pop(get_my_resume_mapper, None)
 
 
-def test_new_personal_event_defaults_to_current_shanghai_time():
+def test_new_personal_event_defaults_to_workday_hours():
     before = datetime.now(ZoneInfo("Asia/Shanghai")).replace(second=0, microsecond=0)
     with TestClient(app) as client:
         page = client.get("/my-schedule/new")
@@ -96,8 +96,9 @@ def test_new_personal_event_defaults_to_current_shanghai_time():
     assert start and end
     start_at = datetime.fromisoformat(start.group(1))
     end_at = datetime.fromisoformat(end.group(1))
-    assert before.replace(tzinfo=None) <= start_at <= after.replace(tzinfo=None)
-    assert end_at - start_at == timedelta(hours=1)
+    assert start_at.date() in {before.date(), after.date()}
+    assert (start_at.hour, start_at.minute) == (8, 0)
+    assert (end_at.hour, end_at.minute) == (18, 0)
 
 
 def test_non_interview_event_form_hides_invitation_parser_on_validation_error():

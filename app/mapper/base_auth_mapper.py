@@ -31,6 +31,9 @@ class BaseAuthMapper(ABC):
     def update_display_name(self, user_id: str, display_name: str) -> None: ...
 
     @abstractmethod
+    def update_preferences(self, user_id: str, display_name: str, workday_start: str, workday_end: str) -> None: ...
+
+    @abstractmethod
     def mark_verified(self, user_id: str) -> None: ...
 
     @abstractmethod

@@ -397,6 +397,22 @@ def test_display_name_settings_allow_duplicates_without_changing_login_email(tmp
         assert mapper.get_user(alice.id).display_name == "同名用户"
 
 
+def test_workday_preferences_are_validated_isolated_and_used_for_new_schedules(tmp_path):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email="workday@example.com", display_name="工作时间", password_hash=hash_password("test-password"), email_verified=True)
+    mapper.create_user(user)
+    with TestClient(app, base_url="https://testserver") as client:
+        csrf = _login(client, user.email, "test-password")
+        for start, end in [("18:00", "08:00"), ("08:00", "08:00"), ("25:00", "18:00")]:
+            assert client.post("/my-schedule/profile", data={"csrf_token": csrf, "display_name": "工作时间", "workday_start": start, "workday_end": end}).status_code == 422
+        assert mapper.get_user(user.id).workday_start == "08:00"
+        assert client.post("/my-schedule/profile", data={"csrf_token": csrf, "display_name": "工作时间", "workday_start": "09:30", "workday_end": "17:30"}).status_code == 200
+        page = client.get("/my-schedule/new").text
+        assert 'T09:30"' in page and 'T17:30"' in page
+        assert 'data-time-mode="date"' in page
+        assert mapper.get_user(user.id).email == user.email
+
+
 def test_direct_email_registration_without_verification_or_mail(tmp_path):
     app, mapper, mailer, _, _, _ = _public_fixture(
         tmp_path, email_verification_required=False

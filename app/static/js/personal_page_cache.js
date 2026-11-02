@@ -112,6 +112,11 @@
       throw new Error('页面结构已变化');
     document.title = page.title;
     document.body.className = page.body.className;
+    for (const name of ['workday-start', 'workday-end']) {
+      const latest = page.querySelector(`meta[name="${name}"]`);
+      const current = document.querySelector(`meta[name="${name}"]`);
+      if (latest && current) current.content = latest.content;
+    }
     currentMain.replaceWith(nextMain);
     setNavState(page);
     pageEdited = false;

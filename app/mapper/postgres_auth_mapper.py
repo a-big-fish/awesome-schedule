@@ -53,6 +53,8 @@ class PostgresAuthMapper(BaseAuthMapper):
             connection.execute(
                 "ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS display_name TEXT"
             )
+            connection.execute("ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS workday_start TEXT NOT NULL DEFAULT '08:00'")
+            connection.execute("ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS workday_end TEXT NOT NULL DEFAULT '18:00'")
             connection.execute(
                 "ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS "
                 "is_disabled BOOLEAN NOT NULL DEFAULT FALSE"
@@ -87,12 +89,12 @@ class PostgresAuthMapper(BaseAuthMapper):
             cursor = connection.execute("""
                 INSERT INTO personal_users
                     (id, email, username, display_name, password_hash, email_verified,
-                     can_login_without_email_verification, is_admin, is_disabled, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     can_login_without_email_verification, is_admin, is_disabled, created_at, workday_start, workday_end)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
             """, (user.id, user.email, user.username, user.display_name, user.password_hash,
                   user.email_verified, user.can_login_without_email_verification,
-                  user.is_admin, user.is_disabled, user.created_at))
+                  user.is_admin, user.is_disabled, user.created_at, user.workday_start, user.workday_end))
             created = cursor.rowcount == 1
             connection.commit()
         return created
@@ -125,6 +127,12 @@ class PostgresAuthMapper(BaseAuthMapper):
                 "COUNT(*) AS count FROM personal_users GROUP BY day"
             ).fetchall()
         return {row["day"]: row["count"] for row in rows}
+
+    def update_preferences(self, user_id: str, display_name: str, workday_start: str, workday_end: str) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE personal_users SET display_name = %s, workday_start = %s, workday_end = %s WHERE id = %s",
+                               (display_name, workday_start, workday_end, user_id))
+            connection.commit()
 
     def update_display_name(self, user_id: str, display_name: str) -> None:
         with self._connect() as connection:

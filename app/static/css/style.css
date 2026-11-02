@@ -952,6 +952,18 @@ body.personal-app:has(.personal-event-summary) .personal-form-page { width: min(
 .personal-clock-columns h3 { margin: 0 0 10px; font-size: 15px; text-align: center; }
 .personal-clock-columns .personal-time-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: min(300px, 40dvh); padding: 2px; }
 .personal-clock-columns .personal-time-choice { min-height: 40px; }
+.personal-date-range { align-items: end; }
+.personal-date-range .personal-time-trigger { background: #f9fafb; border-radius: 8px; border: 1px solid #d1d5db; font-weight: 400; text-align: left; }
+.personal-date-mode { display: flex; gap: 4px; padding: 4px; border-radius: 8px; background: #f3f4f6; }
+.personal-date-mode-button { flex: 1; border: 0; padding: 8px 12px; border-radius: 6px; background: transparent; color: #4b5563; font: inherit; cursor: pointer; }
+.personal-date-mode-button.selected { background: #fff; color: #1d4ed8; box-shadow: 0 1px 3px rgb(0 0 0 / 10%); }
+.personal-date-hint { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.personal-time-dialog.is-calendar { width: min(400px, calc(100vw - 28px)); }
+.personal-calendar-picker .personal-calendar-day { min-height: 36px; border-radius: 8px; }
+.personal-calendar-picker .personal-calendar-day.selected { background: #1d4ed8; color: #fff; }
+.personal-calendar-picker .personal-calendar-day-grid { gap: 4px; }
+.personal-time-options [role="alert"] { color: #b42318; }
+.account-workday { padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
 .personal-time-choice { min-height: 42px; border: 1px solid var(--border); border-radius: 8px; background: #fbfcfe; color: var(--text); font: inherit; cursor: pointer; }
 .personal-time-choice:hover, .personal-time-choice:focus-visible, .personal-time-choice.selected { border-color: var(--primary); background: #edf3ff; }
 .personal-time-actions { justify-content: flex-end; margin-top: 18px; }

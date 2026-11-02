@@ -55,6 +55,11 @@ class MemoryAuthMapper(BaseAuthMapper):
         with self._lock:
             self._users[user_id] = replace(self._users[user_id], display_name=display_name)
 
+    def update_preferences(self, user_id: str, display_name: str, workday_start: str, workday_end: str) -> None:
+        with self._lock:
+            self._users[user_id] = replace(self._users[user_id], display_name=display_name,
+                                          workday_start=workday_start, workday_end=workday_end)
+
     def mark_verified(self, user_id: str) -> None:
         with self._lock:
             self._users[user_id] = replace(self._users[user_id], email_verified=True)

@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="workday-start" content="{{ request.state.user.workday_start if request.state.user is defined else '08:00' }}">
+  <meta name="workday-end" content="{{ request.state.user.workday_end if request.state.user is defined else '18:00' }}">
   <title>{% block title %}会议日程规划器{% endblock %}</title>
   <link rel="icon" type="image/png" href="{{ asset_url('img/logo2.png') }}">
   <link rel="stylesheet" href="{{ asset_url('css/style.css') }}">

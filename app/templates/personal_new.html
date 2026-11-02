@@ -24,18 +24,19 @@
     {% if preview %}<textarea name="raw_text" hidden>{{ values.raw_text }}</textarea>{% endif %}
     {% if warnings %}<input type="hidden" name="confirm_overlap" value="true">{% endif %}
     <label>事件标题 <input class="input" name="title" required value="{{ values.title or '' }}"></label>
-    <div class="personal-form-pair">
-      <div class="personal-time-field">
+    <div class="personal-form-pair personal-date-range">
+      <div class="personal-time-field" data-time-mode="{{ 'date' if date_only else 'time' }}">
         <span>开始时间</span>
         <input type="hidden" name="start_at" value="{{ values.start_at or '' }}" data-time-value>
         <button class="input personal-time-trigger" type="button" data-time-trigger aria-haspopup="dialog" aria-label="选择开始时间"></button>
       </div>
-      <div class="personal-time-field">
+      <div class="personal-time-field" data-time-mode="{{ 'date' if date_only else 'time' }}">
         <span>结束时间</span>
         <input type="hidden" name="end_at" value="{{ values.end_at or '' }}" data-time-value>
         <button class="input personal-time-trigger" type="button" data-time-trigger aria-haspopup="dialog" aria-label="选择结束时间"></button>
       </div>
     </div>
+    <p class="muted-text personal-date-hint">只选日期时，使用默认工作时间；需要精确安排可切换“指定时间”。默认时段可在个人设置中修改。</p>
     <label>时区 <input class="input personal-timezone-input" name="timezone" list="personal-timezones" required value="{{ values.timezone or 'Asia/Shanghai' }}"></label>
     <fieldset class="personal-reminder-options"><legend>系统提醒（可选，默认关闭）</legend>
       {% set selected_reminders = values.reminder_offsets_minutes or [] %}
