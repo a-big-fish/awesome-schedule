@@ -968,6 +968,7 @@ body.personal-app:has(.personal-event-summary) .personal-form-page { width: min(
 .personal-time-choice { min-height: 42px; border: 1px solid var(--border); border-radius: 8px; background: #fbfcfe; color: var(--text); font: inherit; cursor: pointer; }
 .personal-time-choice:hover, .personal-time-choice:focus-visible, .personal-time-choice.selected { border-color: var(--primary); background: #edf3ff; }
 .personal-time-actions { justify-content: flex-end; margin-top: 18px; }
+.personal-time-now { margin-right: auto; }
 .personal-time-actions [hidden] { display: none; }
 .personal-form-divider { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--border); font-weight: 700; }
 .personal-delete-form { margin-top: 24px; }

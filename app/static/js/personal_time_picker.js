@@ -121,7 +121,14 @@ function initTimePicker() {
     const isEnd = ['end_at', 'reviewed_end'].includes(value.name);
     const next = `${selectedDate}T${dateOnly ? workTime(isEnd) : selectedHour + ':' + selectedMinute}`;
     if ((value.min && next < value.min) || (value.max && next > value.max)) {
-      options.querySelector('[data-time-error]').textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
+      let error = options.querySelector('[data-time-error]');
+      if (!error) {
+        error = document.createElement('p');
+        error.dataset.timeError = '';
+        error.setAttribute('role', 'alert');
+        options.append(error);
+      }
+      error.textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
       return;
     }
     value.value = next;
@@ -324,6 +331,18 @@ function initTimePicker() {
     });
   }
 
+  dialog.querySelector('[data-time-now]').addEventListener('click', () => {
+    const requestedZone = activeField.closest('form')?.querySelector('[name="timezone"]')?.value || 'Asia/Shanghai';
+    const settings = {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'};
+    let formatter;
+    try { formatter = new Intl.DateTimeFormat('en-GB', {...settings, timeZone: requestedZone}); }
+    catch { formatter = new Intl.DateTimeFormat('en-GB', {...settings, timeZone: 'Asia/Shanghai'}); }
+    const parts = Object.fromEntries(formatter.formatToParts(new Date()).map(part => [part.type, part.value]));
+    selectedDate = `${parts.year}-${parts.month}-${parts.day}`;
+    selectedHour = parts.hour;
+    selectedMinute = parts.minute;
+    commitSelection(false);
+  });
   back.addEventListener('click', () => {
     if (step > 0) {
       step -= 1;
