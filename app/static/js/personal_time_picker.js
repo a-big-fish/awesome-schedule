@@ -20,7 +20,34 @@ function initTimePicker() {
   }
 
   const dialog = document.querySelector('[data-time-dialog]');
+  document.querySelectorAll('input[type="datetime-local"]').forEach(input => {
+    const field = document.createElement('div');
+    field.className = 'personal-time-field';
+    const label = document.createElement('span');
+    label.hidden = true;
+    label.textContent = input.closest('label')?.childNodes[0]?.textContent.trim() || '日期和时间';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'input personal-time-trigger';
+    trigger.dataset.timeTrigger = '';
+    trigger.setAttribute('aria-label', `选择${label.textContent}`);
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    input.before(field);
+    input.dataset.timeValue = '';
+    input.dataset.timeRequired = input.required ? '1' : '';
+    input.type = 'hidden';
+    field.append(label, input, trigger);
+  });
   const fields = [...document.querySelectorAll('.personal-time-field')];
+  fields.forEach(field => {
+    if (field.dataset.timeBound) return;
+    field.dataset.timeBound = '1';
+    const input = field.querySelector('[data-time-value]');
+    const trigger = field.querySelector('[data-time-trigger]');
+    trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间';
+    input.addEventListener('change', () => { trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间'; });
+    trigger.addEventListener('click', () => dialog.dispatchEvent(new CustomEvent('time:open', {detail: field})));
+  });
   if (!dialog || !fields.length || dialog.dataset.timePickerReady) return;
   dialog.dataset.timePickerReady = '1';
 
@@ -32,6 +59,7 @@ function initTimePicker() {
   let step = 0;
   let selectedDate = '';
   let selectedHour = '';
+  let selectedMinute = '';
   let viewYear = 0;
   let viewMonth = 0;
   let calendarMode = 'days';
@@ -42,10 +70,8 @@ function initTimePicker() {
   const formatValue = value => validValue(value)
     ? `${value.slice(0, 4)}/${value.slice(5, 7)}/${value.slice(8, 10)} ${value.slice(11)}`
     : value || '请选择日期和时间';
-  const startField = fields.find(field => field.querySelector('[name="start_at"]'));
-  const endField = fields.find(field => field.querySelector('[name="end_at"]'));
-
   function updateEndFromStart(startValue) {
+    const endField = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]')?.closest('.personal-time-field');
     if (!validValue(startValue) || !endField) return;
     const year = Number(startValue.slice(0, 4));
     const month = Number(startValue.slice(5, 7)) - 1;
@@ -58,15 +84,13 @@ function initTimePicker() {
     endField.querySelector('[data-time-trigger]').textContent = formatValue(endValue);
   }
 
-  fields.forEach(field => {
-    const value = field.querySelector('[data-time-value]');
-    const trigger = field.querySelector('[data-time-trigger]');
-    trigger.textContent = formatValue(value.value);
-    trigger.addEventListener('click', () => {
-      activeField = field;
+  dialog.addEventListener('time:open', event => {
+      activeField = event.detail;
+      const value = activeField.querySelector('[data-time-value]');
       step = 0;
       selectedDate = validValue(value.value) ? value.value.slice(0, 10) : '';
       selectedHour = validValue(value.value) ? value.value.slice(11, 13) : '';
+      selectedMinute = validValue(value.value) ? value.value.slice(14, 16) : '';
       const today = new Date();
       const shownDate = selectedDate || `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
       viewYear = Number(shownDate.slice(0, 4));
@@ -74,7 +98,6 @@ function initTimePicker() {
       calendarMode = 'days';
       render();
       dialog.showModal();
-    });
   });
 
   function calendarButton(label, className, onClick, ariaLabel = label) {
@@ -192,7 +215,7 @@ function initTimePicker() {
     options.append(calendar);
 
     if (selectedDate.startsWith(`${viewYear}-${pad(viewMonth)}-`)) {
-      const next = calendarButton('下一步：选择小时', 'btn secondary personal-time-next', () => {
+      const next = calendarButton('下一步：选择时间', 'btn secondary personal-time-next', () => {
         step = 1;
         render();
       });
@@ -201,7 +224,7 @@ function initTimePicker() {
   }
 
   function render() {
-    const labels = ['选择年月日', '选择小时', '选择分钟'];
+    const labels = ['选择日期', '选择时间'];
     heading.textContent = `${activeField.querySelector('span').textContent} · ${labels[step]}`;
     progress.textContent = labels.map((label, index) => index === step ? `● ${label}` : label).join('  →  ');
     back.hidden = step === 0;
@@ -213,38 +236,59 @@ function initTimePicker() {
       return;
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'personal-time-grid';
-    const count = step === 1 ? 24 : 60;
-    for (let index = 0; index < count; index += 1) {
-      const number = pad(index);
-      const choice = document.createElement('button');
-      choice.type = 'button';
-      choice.className = 'personal-time-choice';
-      choice.textContent = step === 1 ? `${number} 时` : `${number} 分`;
-      if (step === 1 && number === selectedHour) choice.classList.add('selected');
-      if (step === 2 && validValue(activeField.querySelector('[data-time-value]').value)
-          && number === activeField.querySelector('[data-time-value]').value.slice(14, 16)) {
-        choice.classList.add('selected');
+    const columns = document.createElement('div');
+    columns.className = 'personal-clock-columns';
+    for (const [kind, count, title] of [['hour', 24, '小时'], ['minute', 60, '分钟']]) {
+      const column = document.createElement('section');
+      const caption = document.createElement('h3');
+      caption.textContent = title;
+      const grid = document.createElement('div');
+      grid.className = 'personal-time-grid';
+      grid.setAttribute('role', 'group');
+      grid.setAttribute('aria-label', title);
+      for (let index = 0; index < count; index += 1) {
+        const number = pad(index);
+        const choice = calendarButton(number, 'personal-time-choice', () => {
+          if (kind === 'hour') selectedHour = number;
+          else selectedMinute = number;
+          grid.querySelectorAll('button').forEach(button => {
+            const selected = button === choice;
+            button.classList.toggle('selected', selected);
+            button.setAttribute('aria-pressed', String(selected));
+          });
+          confirm.disabled = !selectedHour || !selectedMinute;
+        }, `${number}${title === '小时' ? '时' : '分'}`);
+        const selected = number === (kind === 'hour' ? selectedHour : selectedMinute);
+        choice.classList.toggle('selected', selected);
+        choice.setAttribute('aria-pressed', String(selected));
+        grid.append(choice);
       }
-      choice.addEventListener('click', () => {
-        if (step === 1) {
-          selectedHour = number;
-          step = 2;
-          render();
-          return;
-        }
-        const value = activeField.querySelector('[data-time-value]');
-        value.value = `${selectedDate}T${selectedHour}:${number}`;
-        activeField.querySelector('[data-time-trigger]').textContent = formatValue(value.value);
-        if (activeField === startField) updateEndFromStart(value.value);
-        dialog.close();
-        activeField.querySelector('[data-time-trigger]').focus();
-      });
-      grid.append(choice);
+      column.append(caption, grid);
+      columns.append(column);
     }
-    options.append(grid);
-    grid.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+    const error = document.createElement('p');
+    error.setAttribute('role', 'alert');
+    const confirm = calendarButton('确认时间', 'btn personal-time-next', () => {
+      const value = activeField.querySelector('[data-time-value]');
+      const next = `${selectedDate}T${selectedHour}:${selectedMinute}`;
+      if ((value.min && next < value.min) || (value.max && next > value.max)) {
+        error.textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
+        return;
+      }
+      value.value = next;
+      activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
+      if (['start_at', 'reviewed_start'].includes(value.name)) updateEndFromStart(next);
+      value.dispatchEvent(new Event('input', {bubbles: true}));
+      value.dispatchEvent(new Event('change', {bubbles: true}));
+      dialog.close();
+      activeField.querySelector('[data-time-trigger]').focus();
+    });
+    confirm.disabled = !selectedHour || !selectedMinute;
+    options.append(columns, error, confirm);
+    requestAnimationFrame(() => {
+      columns.querySelectorAll('.selected').forEach(choice => choice.scrollIntoView({block: 'nearest'}));
+      (columns.querySelector('.personal-time-grid .selected') || columns.querySelector('button'))?.focus();
+    });
   }
 
   back.addEventListener('click', () => {
@@ -258,4 +302,15 @@ function initTimePicker() {
 }
 document.addEventListener('DOMContentLoaded', initTimePicker);
 document.addEventListener('personal:navigated', initTimePicker);
+if (typeof MutationObserver === 'function') new MutationObserver(records => {
+  if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 &&
+    (node.matches?.('input[type="datetime-local"]') || node.querySelector?.('input[type="datetime-local"]'))))) initTimePicker();
+}).observe(document.documentElement, {childList: true, subtree: true});
+document.addEventListener('submit', event => {
+  const missing = [...event.target.querySelectorAll('[data-time-required="1"]')].find(input => !input.value);
+  if (missing) {
+    event.preventDefault();
+    missing.closest('.personal-time-field').querySelector('[data-time-trigger]').click();
+  }
+}, true);
 })();

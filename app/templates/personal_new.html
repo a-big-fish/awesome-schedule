@@ -8,16 +8,16 @@
   {% if warnings %}<dialog class="personal-overlap-dialog" data-overlap-dialog aria-labelledby="overlap-title"><h2 id="overlap-title">日程时间有重叠</h2><p>以下安排与当前日程重叠：</p><ul>{% for title in warnings %}<li>{{ title }}</li>{% endfor %}</ul><p>确认后仍可保存。</p><div class="settings-actions"><button type="button" class="btn secondary" data-overlap-close>返回调整</button><button type="button" class="btn" data-overlap-confirm>仍要保存</button></div></dialog>{% endif %}
   <label class="personal-type-selection">类型
     <select class="input" name="event_type" form="personal-event-form" required data-event-type>
-    {% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type or 'interview') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    {% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type or 'personal') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </label>
-  <form action="/my-schedule/parse" method="post" class="personal-invitation-form" data-invitation-form {% if (values.event_type or 'interview') != 'interview' %}hidden{% endif %}>
+  <form action="/my-schedule/parse" method="post" class="personal-invitation-form" data-invitation-form {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>
     {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
     <label class="form-label" for="personal-raw">解析会议邀请</label>
     <textarea id="personal-raw" class="textarea" name="raw_text" placeholder="粘贴面试或普通会议邀请文本">{{ values.raw_text or '' }}</textarea>
     <button class="btn secondary" type="submit">解析并预览</button>
   </form>
-  <div class="personal-form-divider" data-invitation-divider {% if (values.event_type or 'interview') != 'interview' %}hidden{% endif %}>{{ '确认解析结果' if preview else '手动添加' }}</div>
+  <div class="personal-form-divider" data-invitation-divider {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>{{ '确认解析结果' if preview else '手动添加' }}</div>
   <form id="personal-event-form" action="/my-schedule/events" method="post" class="personal-event-form">
     {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
     <input type="hidden" name="source" value="{{ 'invitation' if preview else 'manual' }}">
@@ -45,7 +45,7 @@
       <p>提醒设置会同步到手机；是否能收到通知取决于该设备的系统权限。</p>
     </fieldset>
     <datalist id="personal-timezones"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"></datalist>
-    <label class="personal-position-field" data-position-field {% if (values.event_type or 'interview') != 'interview' %}hidden{% endif %}>应聘岗位（面试可选） <input class="input" name="position" value="{{ values.position or '' }}"></label>
+    <label class="personal-position-field" data-position-field {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>应聘岗位（面试可选） <input class="input" name="position" value="{{ values.position or '' }}"></label>
     <label>地点 <input class="input" name="location_text" value="{{ values.location_text or '' }}" placeholder="地址、楼宇或线上"></label>
     {% if preview %}
     <div class="personal-form-pair">
@@ -59,17 +59,6 @@
     <div class="settings-actions"><a class="btn secondary" href="/my-schedule">取消</a><button class="btn" type="submit">{{ '仍保存日程' if warnings else '保存日程' }}</button></div>
   </form>
 </section>
-<dialog class="personal-time-dialog" data-time-dialog aria-label="选择日期和时间">
-  <div class="personal-time-dialog-heading">
-    <strong data-time-heading></strong>
-    <button type="button" class="personal-time-close" data-time-close aria-label="关闭">×</button>
-  </div>
-  <div class="personal-time-progress" aria-live="polite" data-time-progress></div>
-  <div class="personal-time-options" data-time-options></div>
-  <div class="personal-time-actions">
-    <button type="button" class="btn secondary" data-time-back>上一步</button>
-    <button type="button" class="btn secondary" data-time-cancel>取消</button>
-  </div>
-</dialog>
+
 {% endblock %}
 {% block scripts %}{{ super() }}<script src="{{ asset_url('js/personal_overlap_dialog.js') }}" defer></script>{% endblock %}

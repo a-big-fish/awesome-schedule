@@ -25,6 +25,19 @@
     <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
     {% block footer %}{% endblock %}
   </div>
+  <dialog class="personal-time-dialog" data-time-dialog aria-label="选择日期和时间">
+  <div class="personal-time-dialog-heading">
+    <strong data-time-heading></strong>
+    <button type="button" class="personal-time-close" data-time-close aria-label="关闭">×</button>
+  </div>
+  <div class="personal-time-progress" aria-live="polite" data-time-progress></div>
+  <div class="personal-time-options" data-time-options></div>
+  <div class="personal-time-actions">
+    <button type="button" class="btn secondary" data-time-back>上一步</button>
+    <button type="button" class="btn secondary" data-time-cancel>取消</button>
+  </div>
+</dialog>
+  <script src="{{ asset_url('js/personal_time_picker.js') }}" defer></script>
   {% block scripts %}{% endblock %}
   <script src="{{ asset_url('js/app.js') }}"></script>
 </body>

@@ -111,6 +111,14 @@ def test_non_interview_event_form_hides_invitation_parser_on_validation_error():
     assert 'name="event_type" form="personal-event-form"' in page.text
 
 
+def test_add_schedule_defaults_to_personal_and_keeps_shared_picker():
+    with TestClient(app) as client:
+        page = client.get("/my-schedule/new").text
+    assert 'value="personal" selected' in page
+    assert 'data-invitation-form hidden' in page
+    assert page.count('data-time-dialog aria-label=') == 1
+
+
 def test_personal_calendar_has_live_time_line_and_hides_it_on_other_dates():
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     with TestClient(app) as client:

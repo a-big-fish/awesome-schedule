@@ -948,6 +948,10 @@ body.personal-app:has(.personal-event-summary) .personal-form-page { width: min(
 .personal-calendar-return { display: block; margin: 14px auto 0; border: 0; background: transparent; color: var(--primary); font: inherit; cursor: pointer; }
 .personal-time-next { width: 100%; margin-top: 14px; }
 .personal-time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-height: min(440px, 55dvh); overflow-y: auto; }
+.personal-clock-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.personal-clock-columns h3 { margin: 0 0 10px; font-size: 15px; text-align: center; }
+.personal-clock-columns .personal-time-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: min(300px, 40dvh); padding: 2px; }
+.personal-clock-columns .personal-time-choice { min-height: 40px; }
 .personal-time-choice { min-height: 42px; border: 1px solid var(--border); border-radius: 8px; background: #fbfcfe; color: var(--text); font: inherit; cursor: pointer; }
 .personal-time-choice:hover, .personal-time-choice:focus-visible, .personal-time-choice.selected { border-color: var(--primary); background: #edf3ff; }
 .personal-time-actions { justify-content: flex-end; margin-top: 18px; }

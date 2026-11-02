@@ -17,6 +17,7 @@
       const now = new Date(Date.now() + 8 * 3600000 + 60000).toISOString().slice(0, 16);
       input.min = input.min > now ? input.min : now;
       input.value = input.min;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
       dialog.showModal();
     }
     if (event.target.closest('[data-defer-close]')) event.target.closest('dialog').close();
