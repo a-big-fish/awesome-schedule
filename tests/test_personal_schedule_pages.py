@@ -16,6 +16,27 @@ from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.resume_parser_service import ResumeParserService
 
 
+def test_overdue_module_actions_and_calendar_cancelled_style():
+    service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    event = service.create_manual(title="逾期样本", event_type="personal",
+                                  start_at=now - timedelta(hours=2), end_at=now - timedelta(hours=1))
+    app.dependency_overrides[get_personal_schedule_service] = lambda: service
+    try:
+        with TestClient(app) as client:
+            page = client.get("/my-schedule").text
+            assert "未完成日程" in page and f'data-defer-open="defer-{event.id}"' in page
+            invalid = client.post(f"/my-schedule/events/{event.id}/overdue", data={
+                "action": "defer", "end_at": (now - timedelta(hours=3)).isoformat()})
+            assert invalid.status_code == 422
+            response = client.post(f"/my-schedule/events/{event.id}/overdue", data={"action": "cancel"})
+            assert response.status_code == 200
+            assert "is-cancelled" in response.text and "已废除" in response.text
+            assert service.get_event(event.id).cancelled_at is not None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_personal_manual_create_edit_and_delete_pages():
     profile = MemoryMyResumeMapper()
     service = PersonalScheduleService(MemoryPersonalEventMapper(), profile)

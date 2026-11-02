@@ -857,6 +857,18 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-week-event:hover { outline: 2px solid #9ab1ff; }
 .personal-week-bridge { position: absolute; z-index: 2; top: 4px; bottom: 4px; width: 12px; transform: translateX(-50%); border-left: 2px solid #c0cff6; border-right: 2px solid #c0cff6; border-radius: 45% / 3%; opacity: .8; pointer-events: none; }
 .personal-upcoming { display: flex; flex-direction: column; gap: 10px; }
+.personal-overdue-section { min-height: 0; display: flex; flex-direction: column; gap: 10px; flex: 1 1 30%; overflow: hidden; }
+.personal-overdue-section h2 { margin: 0; font-size: 18px; }
+.personal-overdue-section .personal-side-list { overflow-y: auto; max-height: 320px; }
+.personal-overdue-row { display: grid; gap: 6px; }
+.personal-overdue-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.personal-overdue-actions form { display: flex; }
+.personal-defer-dialog { width: min(480px, calc(100vw - 32px)); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+.personal-defer-dialog::backdrop { background: rgb(15 23 42 / 40%); }
+.personal-defer-dialog label { display: grid; gap: 8px; }
+.personal-defer-dialog [role="alert"] { color: #b42318; }
+.personal-calendar .is-cancelled { background: #fff1dc; color: #804800; border-color: #bf7a20; text-decoration: line-through; }
+.personal-calendar.hide-completed .is-cancelled { display: none !important; }
 .personal-upcoming-item { display: grid; gap: 4px; }
 .personal-upcoming-item span { font-size: 12px; color: var(--muted); }
 .personal-side-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

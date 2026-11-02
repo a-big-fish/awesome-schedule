@@ -13,7 +13,7 @@
   <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'month' %}aria-current="page"{% endif %}>月视图</a>
 </nav>
 <div class="personal-layout">
-  <section class="card personal-calendar" data-calendar-completed="{{ 'all' if show_completed else 'incomplete' }}" data-selected-date="{{ selected_date.isoformat() }}" data-selected-view="{{ selected_view }}">
+  <section class="card personal-calendar" data-next-deadline="{{ next_deadline.isoformat() if next_deadline else '' }}" data-calendar-completed="{{ 'all' if show_completed else 'incomplete' }}" data-selected-date="{{ selected_date.isoformat() }}" data-selected-view="{{ selected_view }}">
     <div class="date-nav-row">
       <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}{{ completed_query }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a>
       <h2>{{ period_title }}</h2>
@@ -29,9 +29,9 @@
         <div class="time-grid" data-now-grid data-calendar-date="{{ selected_date.isoformat() }}" data-time-zone="Asia/Shanghai" data-start-minute="{{ start_hour * 60 }}" data-end-minute="{{ end_hour * 60 }}" style="height: {{ grid_height }}px;">
           <div class="now-line" data-now-line {% if not show_now_line %}hidden{% endif %} style="top: {{ (now_minutes - start_hour * 60) / 60 * 88 }}px;"><span class="now-line-label">当前时间 {{ now_time }}</span></div>
           {% for item in entries %}
-          <a class="event-card type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}" href="/my-schedule/events/{{ item.id }}"
+          <a class="event-card type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" href="/my-schedule/events/{{ item.id }}"
              style="--start-min: {{ item.start_minutes }}; --duration: {{ item.duration_minutes }}; --column: {{ item.column }}; --columns: {{ item.columns }};">
-            <div class="event-head"><span class="event-title">{{ item.title }}</span><span>{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
+            <div class="event-head"><span class="event-title">{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</span><span>{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
             <div class="event-meta">{{ item.type_label }}{% if item.completed_at %} · 已完成{% endif %}{% if item.location_text %} · {{ item.location_text }}{% endif %}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}</div>
           </a>
           {% endfor %}
@@ -40,10 +40,10 @@
     </div>
     <div class="personal-event-list{% if entries %} has-timeline-events{% endif %}">
     {% for item in entries %}
-      <a class="personal-event-card type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}" href="/my-schedule/events/{{ item.id }}">
+      <a class="personal-event-card type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" href="/my-schedule/events/{{ item.id }}">
         <span class="personal-type-pill">{{ item.type_label }}</span>
         <span class="personal-event-time">{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span>
-        <strong>{{ item.title }}{% if item.completed_at %} · 已完成{% endif %}</strong>
+        <strong>{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}{% if item.completed_at %} · 已完成{% endif %}</strong>
         {% if item.location_text %}<span class="muted-text">{{ item.location_text }}</span>{% endif %}
       </a>
     {% else %}
@@ -67,11 +67,11 @@
             {% for day in calendar_days %}
             <div class="personal-week-day" data-calendar-date="{{ day.date.isoformat() }}">
               {% for item in day.week_segments %}
-              <a class="personal-week-event type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
+              <a class="personal-week-event type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
                  href="/my-schedule/events/{{ item.id }}"
                  style="top: {{ item.start_minutes * 100 / 1440 }}%; height: {{ item.duration_minutes * 100 / 1440 }}%; left: calc({{ (item.column - 1) * 100 / item.columns }}% + 2px); width: calc({{ 100 / item.columns }}% - 4px);"
-                 title="{{ item.title }} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · {{ '上周延续' if day.date.weekday() == 0 else '前一天延续' }}{% endif %}{% if item.continues_after %} · {{ '延续到下周' if day.date.weekday() == 6 else '延续到次日' }}{% endif %}">
-                <strong>{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.duration_minutes < 90 %}{% if item.continues_before %} ↖{% elif item.continues_after %} ↘{% endif %}{% endif %}</strong>
+                 title="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · {{ '上周延续' if day.date.weekday() == 0 else '前一天延续' }}{% endif %}{% if item.continues_after %} · {{ '延续到下周' if day.date.weekday() == 6 else '延续到次日' }}{% endif %}">
+                <strong>{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}{% if item.duration_minutes < 90 %}{% if item.continues_before %} ↖{% elif item.continues_after %} ↘{% endif %}{% endif %}</strong>
                 {% if item.duration_minutes >= 90 %}
                   {% if item.continues_before %}<span class="personal-week-tail">↖ {{ '上周延续' if day.date.weekday() == 0 else '前一天延续' }}</span>{% else %}<span>{{ item.start_time.strftime('%H:%M') }}</span>{% endif %}
                   {% if item.continues_after %}<span class="personal-week-tail">{{ '延续到下周' if day.date.weekday() == 6 else '延续到次日' }} ↘</span>{% endif %}
@@ -96,10 +96,10 @@
           <a class="personal-period-date" href="/my-schedule?view=day&amp;date_value={{ day.date.isoformat() }}" aria-label="查看 {{ day.date.isoformat() }} 的日程">{{ day.date.strftime('%m/%d') if selected_view == 'week' or not day.in_month else day.date.day }}</a>
           <div class="personal-period-events"{% if day.month_lane_count %} style="grid-template-rows: repeat({{ day.month_lane_count }}, 20px);"{% endif %}>
             {% for item in day.entries %}
-            <a class="personal-period-event type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
+            <a class="personal-period-event type-{{ item.type }}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
                style="grid-row: {{ item.month_lane + 1 }};" href="/my-schedule/events/{{ item.id }}"
-               aria-label="{{ item.title }} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.completed_at %} · 已完成{% endif %}"
-               title="{{ item.title }} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}{% if item.completed_at %} · 已完成{% endif %}">{% if item.continues_before %}← {% endif %}{% if item.completed_at %}✓ {% endif %}{{ item.title }}</a>
+               aria-label="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.completed_at %} · 已完成{% endif %}"
+               title="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}{% if item.completed_at %} · 已完成{% endif %}">{% if item.continues_before %}← {% endif %}{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</a>
             {% endfor %}
           </div>
         </div>
@@ -123,7 +123,7 @@
         <div class="personal-side-row">
           <a href="/my-schedule/events/{{ item.id }}" class="personal-upcoming-item">
             <span>{{ item.start_time.strftime('%m-%d %H:%M') }} · {{ item.type_label }}</span>
-            <strong>{{ item.title }}</strong>
+            <strong>{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</strong>
           </a>
           <form action="/my-schedule/events/{{ item.id }}/completion" method="post">
             {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
@@ -134,6 +134,38 @@
         {% else %}<p class="muted-text">{{ '暂无后续安排' if show_all else '今天暂无待完成安排' }}</p>{% endfor %}
       </div>
     </section>
+    <section class="personal-overdue-section" aria-label="未完成日程">
+      <div class="personal-side-heading"><h2>未完成日程 <span class="muted-text">{{ overdue|length }}</span></h2></div>
+      <div class="personal-side-list">
+        {% for item in overdue %}
+        <div class="personal-overdue-row">
+          <a href="/my-schedule/events/{{ item.id }}" class="personal-upcoming-item"><strong>{{ item.title }}</strong><span>已到期 · {{ item.end_time.strftime('%m-%d %H:%M') }}</span></a>
+          <div class="personal-overdue-actions">
+            <button type="button" class="personal-side-action" data-defer-open="defer-{{ item.id }}">延期</button>
+            <form action="/my-schedule/events/{{ item.id }}/completion" method="post">
+              {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+              <input type="hidden" name="completed" value="true"><button class="personal-side-action" type="submit">完成</button>
+            </form>
+            <form action="/my-schedule/events/{{ item.id }}/overdue" method="post">
+              {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+              <input type="hidden" name="action" value="cancel"><button class="personal-side-action" type="submit">废除</button>
+            </form>
+          </div>
+          <dialog id="defer-{{ item.id }}" class="personal-defer-dialog" aria-labelledby="defer-title-{{ item.id }}">
+            <h2 id="defer-title-{{ item.id }}">延期：{{ item.title }}</h2>
+            <p>请选择新的结束时间，不可早于原结束时间或当前时间。开始时间保持原设置。</p>
+            <form action="/my-schedule/events/{{ item.id }}/overdue" method="post" data-defer-form>
+              {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+              <input type="hidden" name="action" value="defer">
+              <label>新的结束时间（北京时间）<input class="input" type="datetime-local" name="end_at" required min="{{ item.end_time.strftime('%Y-%m-%dT%H:%M') }}"></label>
+              <p role="alert" data-defer-error></p>
+              <div class="settings-actions"><button type="button" class="btn secondary" data-defer-close>取消</button><button class="btn" type="submit">确认延期</button></div>
+            </form>
+          </dialog>
+        </div>
+        {% else %}<p class="muted-text">没有到期未完成的日程</p>{% endfor %}
+      </div>
+    </section>
     <details class="personal-completed-section" {% if completed_today %}open{% endif %}>
       <summary>今日已完成{% if completed_today %} <span>{{ completed_today|length }}</span>{% endif %}</summary>
       <div class="personal-side-list" aria-label="今天完成的安排">
@@ -141,7 +173,7 @@
         <div class="personal-side-row is-completed">
           <a href="/my-schedule/events/{{ item.id }}" class="personal-upcoming-item">
             <span>{{ item.start_time.strftime('%m-%d %H:%M') }} · {{ item.type_label }}</span>
-            <strong>{{ item.title }}</strong>
+            <strong>{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</strong>
           </a>
           <form action="/my-schedule/events/{{ item.id }}/completion" method="post">
             {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}

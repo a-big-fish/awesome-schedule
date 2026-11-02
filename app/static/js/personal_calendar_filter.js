@@ -21,7 +21,7 @@
   }
   function repack(calendar) {
     const visible = (selector) => [...calendar.querySelectorAll(selector)]
-      .filter((element) => !calendar.classList.contains('hide-completed') || !element.classList.contains('is-completed'));
+      .filter((element) => !calendar.classList.contains('hide-completed') || (!element.classList.contains('is-completed') && !element.classList.contains('is-cancelled')));
     packOverlaps(visible('.time-grid .event-card'), (element) => {
       const start = Number(element.style.getPropertyValue('--start-min'));
       return {start, end: start + Number(element.style.getPropertyValue('--duration'))};
@@ -31,7 +31,7 @@
     });
     calendar.querySelectorAll('.personal-week-day').forEach((day) => {
       packOverlaps([...day.querySelectorAll('.personal-week-event')].filter((element) =>
-        !calendar.classList.contains('hide-completed') || !element.classList.contains('is-completed')),
+        !calendar.classList.contains('hide-completed') || (!element.classList.contains('is-completed') && !element.classList.contains('is-cancelled'))),
       (element) => {
         const start = parseFloat(element.style.top);
         return {start, end: start + parseFloat(element.style.height)};
@@ -45,7 +45,7 @@
       const week = days.slice(offset, offset + 7);
       const items = week.flatMap((day) => [...day.querySelectorAll('.personal-period-event')]);
       const active = items.filter((item) =>
-        !calendar.classList.contains('hide-completed') || !item.classList.contains('is-completed'));
+        !calendar.classList.contains('hide-completed') || (!item.classList.contains('is-completed') && !item.classList.contains('is-cancelled')));
       const lanes = [...new Set(active.map((item) => Number(item.dataset.originalLane)))].sort((a, b) => a - b);
       active.forEach((item) => { item.style.gridRow = String(lanes.indexOf(Number(item.dataset.originalLane)) + 1); });
       week.forEach((day) => { day.querySelector('.personal-period-events').style.gridTemplateRows =

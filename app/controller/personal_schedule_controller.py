@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from app.controller.page_controller import WEEKDAY_NAMES, _assign_entry_columns, templates
 from app.core.dependencies import (
@@ -113,7 +114,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
     now = datetime.now(DISPLAY_ZONE)
     all_events = service.list_events() if events is None else events
     event_views = [_event_view(item, now) for item in all_events]
-    calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"]]
+    calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"] and not item["cancelled_at"]]
     views = _week_day_segments(calendar_views, selected_date)
     earliest = min((item["start_minutes"] // 60 for item in views), default=6)
     latest = max(((item["start_minutes"] + item["duration_minutes"] + 59) // 60
@@ -124,7 +125,10 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
     today_start = datetime.combine(now.date(), datetime.min.time(), DISPLAY_ZONE)
     tomorrow_start = today_start + timedelta(days=1)
     remaining = [item for item in event_views
-                 if not item["completed_at"] and item["end_time"] > today_start]
+                 if not item["completed_at"] and not item["cancelled_at"] and item["end_time"] > now]
+    overdue = sorted((item for item in event_views if not item["completed_at"]
+                      and not item["cancelled_at"] and item["end_time"] <= now),
+                     key=lambda item: item["end_time"])
     upcoming_today = [item for item in remaining if item["start_time"] < tomorrow_start]
     completed_today = sorted(
         (item for item in event_views if item["completed_time"] and
@@ -198,6 +202,8 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
         "next_date": next_date.isoformat(),
         "entries": views,
         "upcoming_today": upcoming_today,
+        "overdue": overdue,
+        "next_deadline": min((item["end_time"] for item in remaining), default=None),
         "upcoming_all": remaining,
         "completed_today": completed_today,
         "time_labels": [f"{hour:02d}:00" for hour in range(start_hour, end_hour + 1)],
@@ -258,6 +264,8 @@ async def set_personal_event_completion(
         service.set_event_completed(event_id, completed == "true")
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="日程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     view = str(form.get("view", "day"))
     view = view if view in {"day", "week", "month"} else "day"
     try:
@@ -269,6 +277,24 @@ async def set_personal_event_completion(
     return RedirectResponse(
         f"/my-schedule?view={view}&date_value={selected.isoformat()}{show_all}{show_completed}", status_code=303,
     )
+
+
+@router.post("/events/{event_id}/overdue")
+async def resolve_personal_overdue(
+    event_id: str, request: Request,
+    service: PersonalScheduleService = Depends(get_personal_schedule_service),
+):
+    form = await request.form()
+    try:
+        end_at = datetime.fromisoformat(str(form["end_at"])) if form.get("end_at") else None
+        if end_at is not None and end_at.tzinfo is None:
+            end_at = end_at.replace(tzinfo=DISPLAY_ZONE)
+        await run_in_threadpool(service.resolve_overdue, event_id, str(form.get("action", "")), end_at)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="日程不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return RedirectResponse("/my-schedule", status_code=303)
 
 
 @router.get("/new", response_class=HTMLResponse)

@@ -20,12 +20,17 @@
     [...target.searchParams.keys()].every((key) => ['view', 'date_value', 'show_completed', 'show_all'].includes(key));
   const canNavigate = (target) => allowed.has(target.pathname) && (!target.search || isCalendar(target));
   const pageKey = (target) => target.pathname + target.search;
+  const isFresh = (stored, calendar) => {
+    if (!stored || Date.now() - stored.time >= (calendar ? calendarTtl : ttl)) return false;
+    const deadline = calendar && stored.html.match(/data-next-deadline="([^"]+)"/);
+    return !deadline || Date.parse(deadline[1]) > Date.now();
+  };
 
   async function load(url, force = false) {
     const calendar = isCalendar(new URL(url, location.href));
     const cache = calendar ? calendarPages : pages;
     const stored = cache.get(url);
-    if (!force && stored && Date.now() - stored.time < (calendar ? calendarTtl : ttl)) return stored.html;
+    if (!force && isFresh(stored, calendar)) return stored.html;
     if (pending.has(url)) return pending.get(url);
     const generation = cacheGeneration;
     const task = (async () => {
@@ -137,7 +142,7 @@
         location.assign(target.href);
         return;
       }
-      if (Date.now() - stored.time < (calendar ? calendarTtl : ttl)) return;
+      if (isFresh(stored, calendar)) return;
       // The cached page is visible before this request completes.
       load(key, true).then((html) => {
         if (id !== navigationId || pageKey(new URL(location.href)) !== key || pageEdited || html === cached)

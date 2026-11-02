@@ -107,6 +107,20 @@ test('calendar date navigation reuses an earlier view without another request', 
   assert.equal(app.rendered.at(-1), 'first-day');
 });
 
+test('a deadline invalidates calendar freshness before its 18 hour TTL', async () => {
+  const app = browser();
+  const day = '/my-schedule?view=day&date_value=2026-10-30';
+  await app.navigate(day);
+  await app.reply(app.calls[0], '<section data-next-deadline="1970-01-01T00:01:00Z">old</section>');
+  await app.navigate('/my-schedule/experiences/plaza');
+  app.age(61000);
+  await app.navigate(day);
+  assert.ok(app.rendered.at(-1).includes('old'));
+  assert.equal(app.calls.length, 2);
+  await app.reply(app.calls[1], 'updated-overdue-list');
+  assert.equal(app.rendered.at(-1), 'updated-overdue-list');
+});
+
 test('calendar cache is invalidated after a write form', async () => {
   const app = browser();
   const day = '/my-schedule?view=day&date_value=2026-10-30';

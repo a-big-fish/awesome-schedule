@@ -42,6 +42,7 @@ class PersonalScheduleService:
         return [
             event for event in self.list_events()
             if event.id != proposed.id
+            and event.cancelled_at is None
             and proposed.start_at < event.end_at
             and proposed.end_at > event.start_at
         ]
@@ -162,10 +163,35 @@ class PersonalScheduleService:
         event = self.get_event(event_id)
         if event is None:
             raise LookupError("日程不存在")
+        if event.cancelled_at is not None:
+            raise ValueError("废除日程不能标记完成")
         if (event.completed_at is not None) == completed:
             return event
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
         event.completed_at = now if completed else None
+        event.updated_at = now
+        return self.mapper.save(event)
+
+    def resolve_overdue(self, event_id: str, action: str, end_at: datetime | None = None) -> PersonalEvent:
+        """Defer or cancel an owned, overdue and unfinished event."""
+        event = self.get_event(event_id)
+        if event is None:
+            raise LookupError("日程不存在")
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        if event.completed_at or event.cancelled_at or event.end_at > now:
+            raise ValueError("仅可处理已到期且未完成的日程")
+        if action == "defer":
+            if end_at is None:
+                raise ValueError("请选择新的结束时间")
+            end_at = _localize(end_at, event.timezone)
+            if end_at < event.end_at or end_at < now:
+                raise ValueError("新结束时间不可早于原结束时间或当前时间")
+            event.end_at = end_at
+        elif action == "cancel":
+            event.cancelled_at = now
+            event.reminder_offsets_minutes = []
+        else:
+            raise ValueError("日程操作无效")
         event.updated_at = now
         return self.mapper.save(event)
 
