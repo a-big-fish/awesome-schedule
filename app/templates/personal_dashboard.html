@@ -134,6 +134,7 @@
         {% else %}<p class="muted-text">{{ '暂无后续安排' if show_all else '今天暂无待完成安排' }}</p>{% endfor %}
       </div>
     </section>
+    {% if overdue %}
     <section class="personal-overdue-section" aria-label="未完成日程">
       <div class="personal-side-heading"><h2>未完成日程 <span class="muted-text">{{ overdue|length }}</span></h2></div>
       <div class="personal-side-list">
@@ -163,9 +164,10 @@
             </form>
           </dialog>
         </div>
-        {% else %}<p class="muted-text">没有到期未完成的日程</p>{% endfor %}
+        {% endfor %}
       </div>
     </section>
+    {% endif %}
     <details class="personal-completed-section" {% if completed_today %}open{% endif %}>
       <summary>今日已完成{% if completed_today %} <span>{{ completed_today|length }}</span>{% endif %}</summary>
       <div class="personal-side-list" aria-label="今天完成的安排">

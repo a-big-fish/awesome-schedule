@@ -32,6 +32,7 @@ def test_overdue_module_actions_and_calendar_cancelled_style():
             response = client.post(f"/my-schedule/events/{event.id}/overdue", data={"action": "cancel"})
             assert response.status_code == 200
             assert "is-cancelled" in response.text and "已废除" in response.text
+            assert 'class="personal-overdue-section"' not in response.text
             assert service.get_event(event.id).cancelled_at is not None
     finally:
         app.dependency_overrides.clear()
