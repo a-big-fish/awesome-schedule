@@ -899,8 +899,6 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-calendar-actions .personal-today-link:hover, .personal-calendar-toggle:hover { border-color: var(--primary); background: var(--primary-soft); }
 .personal-calendar .date-nav-row > .date-nav:last-child { grid-column: 4; }
 @media (max-width: 1100px) { .personal-calendar .date-nav-row { grid-template-columns: 40px minmax(0, 1fr) 40px; row-gap: 12px; } .personal-calendar .date-nav-row h2 { position: static; grid-column: 2; transform: none; max-width: 100%; white-space: normal; } .personal-calendar .date-nav-row > .date-nav:last-child { grid-column: 3; grid-row: 1; } .personal-calendar-actions { grid-column: 1 / -1; grid-row: 2; justify-content: center; } }
-body.personal-app:has(.personal-event-summary) .page main { display: flex; align-items: center; justify-content: center; }
-body.personal-app:has(.personal-event-summary) .personal-form-page { width: min(900px, 100%); }
 @media (max-width: 650px) { .personal-calendar-actions { flex-wrap: wrap; } }
 .personal-completed-toggle { order: 3; }
 .personal-event-summary h1 { margin: 16px 0 24px; font-size: clamp(26px, 3vw, 36px); }
@@ -2363,6 +2361,22 @@ body.page-wide.personal-scroll-page .page {
 body.page-wide.personal-scroll-page .page main {
   min-width: 0;
   padding-bottom: 48px;
+}
+
+/* Let the detail card center in the viewport space between header and footer. */
+body.page-wide.personal-event-detail-page .page main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  padding: 24px;
+}
+body.personal-event-detail-page .personal-form-page {
+  width: min(900px, 100%);
+  margin: auto;
+}
+body.personal-event-detail-page .personal-event-summary h1 { overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+  body.page-wide.personal-event-detail-page .page main { padding: 16px; }
 }
 
 @media (min-width: 1001px) {
