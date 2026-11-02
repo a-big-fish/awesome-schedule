@@ -1,0 +1,17 @@
+<fieldset class="personal-references-editor" data-reference-editor>
+  <legend>参考资料（可选）</legend>
+  <p class="muted-text">视频、文章或文档链接，最多 20 条。名称可留空，展示时后台尝试获取网页标题。</p>
+  {% set links = values.reference_links if values is defined and values and values.reference_links is defined else (event.reference_links if event is defined else []) %}
+  <div data-reference-rows>
+    {% for link in links or [{'title': '', 'url': ''}] %}
+    <div class="personal-reference-row" data-reference-row>
+      <label>名称（可选）<input class="input" name="reference_title" maxlength="200" value="{{ link.title }}" placeholder="例如：简历制作教程"></label>
+      <label>链接<input class="input" type="url" name="reference_url" maxlength="2048" value="{{ link.url }}" placeholder="https://..."></label>
+      <button class="btn secondary" type="button" data-reference-remove aria-label="移除此条参考资料">移除</button>
+    </div>
+    {% endfor %}
+  </div>
+  <button class="btn secondary" type="button" data-reference-add>添加链接</button>
+  <details><summary>批量粘贴链接</summary><label>每行一个链接<textarea class="textarea" data-reference-bulk placeholder="https://example.com/video&#10;https://example.com/article" rows="3"></textarea></label><button class="btn secondary" type="button" data-reference-import>分条加入</button></details>
+  <p role="status" data-reference-status></p>
+</fieldset>

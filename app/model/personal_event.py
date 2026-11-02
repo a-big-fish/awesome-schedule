@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
@@ -10,6 +11,27 @@ from interviewschedule.utils.time_utils import ensure_timezone
 PersonalEventType = Literal[
     "interview", "exam", "course", "recruiting", "meeting", "personal"
 ]
+
+
+def is_map_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    return host in {"map.baidu.com", "maps.baidu.com", "amap.com", "www.amap.com", "uri.amap.com",
+                    "ditu.amap.com", "surl.amap.com", "j.map.baidu.com", "map.qq.com", "maps.apple.com",
+                    "maps.google.com", "maps.app.goo.gl"} or (
+        host in {"google.com", "www.google.com", "www.google.cn"} and parsed.path.startswith("/maps"))
+
+
+class ReferenceLink(BaseModel):
+    title: str = Field(default="", max_length=200)
+    url: HttpUrl = Field(max_length=2048)
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        self.title = self.title.strip()
+        if self.url.username or self.url.password:
+            raise ValueError("参考链接不能包含账号或密码")
+        return self
 
 
 class PersonalEvent(BaseModel):
@@ -24,6 +46,7 @@ class PersonalEvent(BaseModel):
     timezone: str = "Asia/Shanghai"
     location_text: str | None = None
     location_url: HttpUrl | None = None
+    reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
     note: str | None = None
     source: Literal["manual", "invitation", "migrated"] = "manual"
     raw_invitation: str | None = None
@@ -39,6 +62,19 @@ class PersonalEvent(BaseModel):
     cancelled_at: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_link(cls, data):
+        if isinstance(data, dict) and data.get("location_url") and not is_map_url(str(data["location_url"])):
+            data = dict(data)
+            links = list(data.get("reference_links") or [])
+            url = str(data["location_url"])
+            if not any(str(link.url if isinstance(link, ReferenceLink) else link.get("url")) == url for link in links):
+                links.append({"url": url})
+            data["reference_links"] = links
+            data["location_url"] = None
+        return data
 
     @model_validator(mode="after")
     def validate_event(self) -> "PersonalEvent":

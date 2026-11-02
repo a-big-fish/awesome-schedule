@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta
 from typing import Any
+from itertools import zip_longest
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
@@ -33,6 +34,12 @@ EVENT_LABELS = {
     "meeting": "普通会议",
     "personal": "个人事项",
 }
+
+
+def _reference_form(form) -> list[dict[str, str]]:
+    return [{"title": str(title).strip(), "url": str(url).strip()}
+            for title, url in zip_longest(form.getlist("reference_title"), form.getlist("reference_url"), fillvalue="")
+            if str(title).strip() or str(url).strip()]
 
 
 def _event_view(event: PersonalEvent, now: datetime) -> dict[str, Any]:
@@ -339,6 +346,7 @@ async def create_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     preview = values.get("source") == "invitation"
     try:
@@ -364,6 +372,7 @@ async def create_personal_event(
                 platform=values.get("platform") or None,
                 meeting_url=values.get("meeting_url") or None,
                 location_text=values.get("location_text") or None,
+                reference_links=values["reference_links"],
             )
         else:
             event = service.create_manual(
@@ -371,6 +380,7 @@ async def create_personal_event(
                 start_at=start, end_at=end, timezone=common["timezone"],
                 location_text=values.get("location_text") or None,
                 location_url=values.get("location_url") or None,
+                reference_links=values["reference_links"],
                 note=common["note"], position=common["position"],
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 confirm_overlap=confirmed,
@@ -404,6 +414,19 @@ def personal_event_detail(
     })
 
 
+@router.get("/events/{event_id}/reference-titles")
+def personal_reference_titles(event_id: str, request: Request,
+                              service: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    event = service.get_event(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="日程不存在")
+    rows = []
+    for index, link in enumerate(event.reference_links):
+        title, pending = (link.title, False) if link.title else request.app.state.reference_titles.lookup(str(link.url))
+        rows.append({"index": index, "title": title, "pending": pending})
+    return JSONResponse({"links": rows}, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/events/{event_id}/edit", response_class=HTMLResponse)
 def personal_event_edit_page(
     event_id: str, request: Request,
@@ -425,6 +448,7 @@ async def edit_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     try:
         event = service.update_event(
@@ -437,6 +461,7 @@ async def edit_personal_event(
             timezone=values.get("timezone") or "Asia/Shanghai",
             location_text=values.get("location_text") or None,
             location_url=values.get("location_url") or None,
+            reference_links=values["reference_links"],
             note=values.get("note") or None,
             position=values.get("position") or None,
             reminder_offsets_minutes=[int(value) for value in values["reminder_offsets_minutes"]],

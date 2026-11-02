@@ -9,7 +9,8 @@
     <h1>{{ event.title }}</h1>
     <dl>
       <div><dt>时间</dt><dd>{{ event.start_at.strftime('%Y-%m-%d %H:%M') }} — {{ event.end_at.strftime('%Y-%m-%d %H:%M') }}</dd></div>
-      <div><dt>地点</dt><dd>{{ event.location_text or '未填写' }}{% if event.location_url %} · <a href="{{ event.location_url }}" target="_blank" rel="noopener noreferrer">查看地点</a>{% endif %}</dd></div>
+      {% if event.location_text or event.location_url %}<div><dt>地点</dt><dd>{{ event.location_text or '' }}{% if event.location_url %} <a href="{{ event.location_url }}" target="_blank" rel="noopener noreferrer">查看地图</a>{% endif %}</dd></div>{% endif %}
+      {% if event.reference_links %}<div><dt>参考资料</dt><dd><ol class="personal-reference-list" data-reference-titles="{{ event.id }}">{% for link in event.reference_links %}<li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" data-reference-index="{{ loop.index0 }}">{{ link.title or ('参考资料 ' ~ loop.index) }}</a><span>{{ link.url.host }} · 新窗口打开</span></li>{% endfor %}</ol></dd></div>{% endif %}
       <div><dt>备注</dt><dd class="personal-summary-note">{{ event.note or '未填写' }}</dd></div>
     </dl>
     <div class="settings-actions"><a class="btn" href="/my-schedule/events/{{ event.id }}/edit">编辑日程</a><a class="btn secondary" href="/my-schedule">返回日程表</a></div>
@@ -38,7 +39,8 @@
     </fieldset>
     <label class="personal-position-field" data-position-field {% if (values.event_type if values else event.type) != 'interview' %}hidden{% endif %}>应聘岗位（面试可选） <input class="input" name="position" value="{{ values.position if values else (event.position or '') }}"></label>
     <label>地点 <input class="input" name="location_text" value="{{ values.location_text if values else (event.location_text or '') }}"></label>
-    <label>地点链接 <input class="input" name="location_url" value="{{ values.location_url if values else (event.location_url or '') }}"></label>
+    <label>地图链接（可选） <input class="input" name="location_url" value="{{ values.location_url if values else (event.location_url or '') }}"></label>
+    {% include '_personal_reference_links.html' %}
     <label>备注 <textarea class="textarea" name="note" rows="3">{{ values.note if values else (event.note or '') }}</textarea></label>
     <div class="settings-actions"><button class="btn" type="submit">保存修改</button></div>
   </form>

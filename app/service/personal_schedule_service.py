@@ -66,6 +66,7 @@ class PersonalScheduleService:
         timezone: str = "Asia/Shanghai",
         location_text: str | None = None,
         location_url: str | None = None,
+        reference_links: list[dict] | None = None,
         note: str | None = None,
         position: str | None = None,
         reminder_offsets_minutes: list[int] | None = None,
@@ -81,6 +82,7 @@ class PersonalScheduleService:
             timezone=timezone,
             location_text=location_text or None,
             location_url=location_url or None,
+            reference_links=reference_links or [],
             note=note or None,
             position=position or None if event_type == "interview" else None,
             resume_id=profile.resume_id if profile else None,
@@ -102,6 +104,7 @@ class PersonalScheduleService:
         platform: str | None = None,
         meeting_url: str | None = None,
         location_text: str | None = None,
+        reference_links: list[dict] | None = None,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
         """Preview a shared parser result as a personal event without persisting it."""
@@ -124,6 +127,7 @@ class PersonalScheduleService:
             room_number=facts.room_number,
             meeting_url=meeting_url or facts.meeting_url,
             location_text=location_text or None,
+            reference_links=reference_links or [],
             note=note or None,
             resume_id=profile.resume_id if profile and resolved_type == "interview" else None,
             reminder_offsets_minutes=reminder_offsets_minutes or [],
@@ -151,8 +155,7 @@ class PersonalScheduleService:
         for key in ("start_at", "end_at"):
             if key in changes and isinstance(changes[key], datetime):
                 changes[key] = _localize(changes[key], timezone)
-        updated = current.model_copy(update=changes)
-        updated = PersonalEvent.model_validate(updated.model_dump())
+        updated = PersonalEvent.model_validate({**current.model_dump(), **changes})
         return self.save_event(updated, confirm_overlap)
 
     def delete_event(self, event_id: str) -> bool:

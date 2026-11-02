@@ -7,7 +7,7 @@
   const nodes = new Set(['calendar', 'schedule_new', 'event', 'event_write', 'event_parse', 'plaza',
     'plaza_detail', 'experiences',
     'editor', 'draft', 'experience_write', 'parse', 'pdf', 'markdown', 'export', 'interviews',
-    'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file']);
+    'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file', 'reference_titles']);
   const nodeFor = (value, method = 'GET') => {
     try {
       const url = new URL(value, location.href);
@@ -25,7 +25,7 @@
       if (tail === '') return 'calendar';
       if (tail === '/new') return 'schedule_new';
       if (tail === '/parse') return 'event_parse';
-      if (tail.startsWith('/events')) return method === 'GET' ? 'event' : 'event_write';
+      if (tail.startsWith('/events')) return tail.endsWith('/reference-titles') ? 'reference_titles' : method === 'GET' ? 'event' : 'event_write';
       if (tail === '/interviews' || tail === '/resume') return 'interviews';
       if (tail.startsWith('/interviews/')) return 'interview_detail';
       if (tail.startsWith('/profile')) return 'profile';

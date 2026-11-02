@@ -907,6 +907,16 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-event-summary dt { color: var(--muted); }
 .personal-event-summary dd { margin: 0; overflow-wrap: anywhere; }
 .personal-summary-note { white-space: pre-wrap; }
+.personal-references-editor { border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.personal-references-editor legend { font-weight: 600; }
+.personal-reference-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(150px, 2fr) auto; align-items: end; gap: 10px; margin-bottom: 12px; }
+.personal-reference-row label { min-width: 0; display: grid; gap: 6px; }
+.personal-references-editor details { margin-top: 12px; }
+.personal-references-editor summary { cursor: pointer; color: var(--primary); }
+.personal-reference-list { margin: 0; padding-left: 22px; }
+.personal-reference-list li { padding: 4px 0 10px; overflow-wrap: anywhere; }
+.personal-reference-list li span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+@media (max-width: 650px) { .personal-reference-row { grid-template-columns: minmax(0, 1fr) auto; } .personal-reference-row label { grid-column: 1 / -1; } .personal-reference-row button { grid-column: 2; } }
 .personal-edit-heading .personal-type-pill { margin-bottom: 12px; }
 .personal-edit-heading .section-title { margin-top: 0; }
 .personal-overlap-dialog { width: min(520px, calc(100vw - 28px)); border: 1px solid var(--border); border-radius: 16px; padding: 26px; box-shadow: 0 24px 70px rgb(16 30 60 / 22%); }

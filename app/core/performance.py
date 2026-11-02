@@ -20,6 +20,7 @@ NODE_LABELS = {
     "profile": "个人设置",
     "login": "登录", "register": "注册", "logout": "退出登录", "mobile": "客户端同步/API",
     "resume_state": "当前简历状态", "resume_file": "简历文件",
+    "reference_titles": "参考资料标题状态",
 }
 METRIC_LABELS = {
     "request": "请求", "auth": "会话鉴权", "db_connect": "数据库连接",
@@ -75,6 +76,8 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
     if tail == "/parse":
         return "event_parse"
     if tail.startswith("/events"):
+        if tail.endswith("/reference-titles"):
+            return "reference_titles"
         return "event" if method == "GET" else "event_write"
     if tail == "/interviews" or tail == "/resume":
         return "interviews"

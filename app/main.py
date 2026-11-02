@@ -31,6 +31,7 @@ from app.core.postgres_pool import close_pools
 from app.mapper.postgres_auth_mapper import PostgresAuthMapper
 from app.service.auth_service import AuthService
 from app.service.performance_service import PerformanceService
+from app.service.reference_title_service import ReferenceTitleService
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
             raise RuntimeError("邀请码注册必须配置 REGISTRATION_INVITE_CODE")
     performance = PerformanceService(Path(settings.performance_db_path),
                                      enabled=public and settings.performance_enabled)
+    reference_titles = ReferenceTitleService()
 
     @asynccontextmanager
     async def lifespan(_application):
@@ -59,6 +61,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
             yield
         finally:
             performance.stop()
+            reference_titles.close()
             close_pools()
 
     application = FastAPI(
@@ -71,6 +74,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     )
     application.state.settings = settings
     application.state.performance = performance
+    application.state.reference_titles = reference_titles
     @application.exception_handler(OperationalError)
     async def handle_database_unavailable(request: Request, exc: OperationalError):
         logger.warning("Database temporarily unavailable node=%s error=%s",
