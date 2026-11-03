@@ -3100,5 +3100,16 @@ button:disabled {
 @media (max-width: 720px) { .portal-options { grid-template-columns: 1fr; } .portal-option { min-height: 300px; } }
 .personal-position-field[hidden] { display: none; }
 
-.personal-weekend-option { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; }
-.personal-weekend-option span { color: #64748b; }
+.personal-date-options { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.personal-date-options .personal-date-hint { flex: 1; margin: 0; }
+.personal-event-form .personal-weekend-option { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0; font-size: 14px; line-height: 1.6; }
+.personal-date-options .personal-weekend-option { flex: 0 0 auto; max-width: 220px; }
+.personal-weekend-option input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: #2855ff; }
+.personal-weekend-label { white-space: nowrap; }
+.personal-weekend-option [data-weekend-hint] { flex-basis: 100%; color: #64748b; font-size: 12px; text-align: right; }
+.personal-weekend-option [data-weekend-hint]:empty { display: none; }
+@media (max-width: 600px) {
+  .personal-date-options { flex-wrap: wrap; }
+  .personal-date-options .personal-date-hint { flex-basis: 100%; }
+  .personal-date-options .personal-weekend-option { margin-left: auto; }
+}
