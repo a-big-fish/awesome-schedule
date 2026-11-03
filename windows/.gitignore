@@ -3,3 +3,7 @@
 .vs/
 publish/
 *.zip
+
+.tools/
+NativeDemo-package/
+*.zip

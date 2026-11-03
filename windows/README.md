@@ -1,3 +1,5 @@
+> 新增独立 Windows 原生 Demo **1.1-W**：见 [原生 Demo 安装与构建说明](NativeDemo-README.md)。下文为旧 1.0-W WebView2 客户端，二者保留独立工程。
+
 # Awesome Interview for Windows · App 1.0-W
 
 Windows 10/11 x64 测试版。运行 `AwesomeInterview.exe` 前，先设置自己的 HTTPS 服务地址。首次在线登录后，应用会同步个人日程与面经；服务器暂时不可用时可查看最近一次同步的只读副本。
