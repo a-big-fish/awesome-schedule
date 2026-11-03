@@ -21,7 +21,20 @@
   const isCalendar = (target) => target.pathname === '/my-schedule' &&
     [...target.searchParams.keys()].every((key) => ['view', 'date_value', 'show_completed', 'show_all'].includes(key));
   const canNavigate = (target) => allowed.has(target.pathname) && (!target.search || isCalendar(target));
-  const pageKey = (target) => target.pathname + target.search;
+  const today = () => {
+    const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'})
+      .formatToParts(new Date()).reduce((result, part) => ({...result, [part.type]: part.value}), {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const pageKey = (target) => {
+    if (!isCalendar(target)) return target.pathname + target.search;
+    // Default URLs, parameter order and the local completion filter share one snapshot.
+    const query = new URLSearchParams();
+    query.set('view', target.searchParams.get('view') || 'day');
+    query.set('date_value', target.searchParams.get('date_value') || today());
+    if (['true', '1', 'on', 'yes'].includes((target.searchParams.get('show_all') || '').toLowerCase())) query.set('show_all', 'true');
+    return target.pathname + '?' + query.toString();
+  };
   const isFresh = (stored, calendar) => {
     if (!stored || Date.now() - stored.time >= (calendar ? calendarTtl : ttl)) return false;
     const deadline = calendar && stored.html.match(/data-next-deadline="([^"]+)"/);
@@ -29,6 +42,7 @@
   };
 
   async function load(url, force = false) {
+    url = pageKey(new URL(url, location.href));
     const calendar = isCalendar(new URL(url, location.href));
     const cache = calendar ? calendarPages : pages;
     const stored = cache.get(url);

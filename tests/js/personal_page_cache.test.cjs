@@ -5,10 +5,10 @@ const vm = require('node:vm');
 const source = fs.readFileSync('app/static/js/personal_page_cache.js', 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function browser({hidden = true, calendar = null} = {}) {
+function browser({hidden = true, calendar = null, initialPath = '/my-schedule/experiences/plaza'} = {}) {
   const calls = [], rendered = [], events = {}, timers = [], assigned = [], emitted = [];
   let clock = 0;
-  const location = new URL('https://test.local/my-schedule/experiences/plaza');
+  const location = new URL('https://test.local' + initialPath);
   location.assign = url => assigned.push(url);
   const main = {replaceWith(next) {rendered.push(next.html);}};
   const document = {
@@ -24,7 +24,7 @@ function browser({hidden = true, calendar = null} = {}) {
     dispatchEvent(event) {emitted.push(event.type);},
   };
   class FakeDate extends Date { static now() { return clock; } }
-  const context = {document, location, URL, Date: FakeDate,
+  const context = {document, location, URL, URLSearchParams, Date: FakeDate,
     window: {addEventListener() {}, scrollTo() {}},
     history: {pushState(_, __, url) {location.href = new URL(url, location).href;}},
     performance: {now: () => 0}, requestAnimationFrame: callback => callback(),
@@ -171,4 +171,42 @@ test('day view warms the previous and next days without rendering them', async (
   await app.reply(app.calls[1]);
   await task;
   assert.equal(app.rendered.length, 0);
+});
+
+
+test('equivalent calendar query forms and completion filters reuse one snapshot', async () => {
+  const app = browser();
+  await app.navigate('/my-schedule?view=day&date_value=2026-11-03');
+  await app.reply(app.calls[0], 'same-day');
+  await app.navigate('/my-schedule?date_value=2026-11-03&show_completed=false');
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.rendered.at(-1), 'same-day');
+});
+
+test('prefetched neighbor is reused when clicked and on repeated prefetch', async () => {
+  const app = browser({hidden: false, calendar: {dataset: {selectedView: 'day', selectedDate: '2026-10-30'}}});
+  const task = app.prefetchDays(); await tick();
+  await app.reply(app.calls[0], 'previous-day');
+  await app.reply(app.calls[1], 'next-day'); await task;
+  await app.navigate('/my-schedule?date_value=2026-10-31&view=day');
+  assert.equal(app.rendered.at(-1), 'next-day');
+  assert.equal(app.calls.length, 2);
+});
+
+
+test('show more remains a distinct snapshot and accepts the server numeric flag', async () => {
+  const app = browser();
+  await app.navigate('/my-schedule?view=day&date_value=2026-11-03'); await app.reply(app.calls[0], 'today-only');
+  await app.navigate('/my-schedule?view=day&date_value=2026-11-03&show_all=1');
+  assert.ok(app.calls[1].url.endsWith('show_all=true'));
+  await app.reply(app.calls[1], 'all-upcoming');
+  assert.equal(app.rendered.at(-1), 'all-upcoming');
+});
+
+
+test('initial default calendar URL shares the explicit today cache key', async () => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date()).map(part => [part.type, part.value]));
+  const app = browser({initialPath: '/my-schedule'});
+  await app.navigate(`/my-schedule?view=day&date_value=${parts.year}-${parts.month}-${parts.day}`);
+  assert.equal(app.calls.length, 0);
 });
