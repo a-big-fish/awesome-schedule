@@ -9,6 +9,8 @@
     <h1>{{ event.title }}</h1>
     <dl>
       <div><dt>时间</dt><dd>{{ event.start_at.strftime('%Y-%m-%d %H:%M') }} — {{ event.end_at.strftime('%Y-%m-%d %H:%M') }}</dd></div>
+      {% if event.room_number %}<div><dt>会议号</dt><dd>{{ event.room_number }}</dd></div>{% endif %}
+      {% if event.meeting_url %}<div><dt>会议链接</dt><dd><a class="btn" href="{{ event.meeting_url }}" target="_blank" rel="noopener noreferrer">点击入会</a></dd></div>{% endif %}
       {% if event.location_text or event.location_url %}<div><dt>地点</dt><dd>{{ event.location_text or '' }}{% if event.location_url %} <a href="{{ event.location_url }}" target="_blank" rel="noopener noreferrer">查看地图</a>{% endif %}</dd></div>{% endif %}
       {% if event.reference_links %}<div><dt>参考资料</dt><dd><ol class="personal-reference-list" data-reference-titles="{{ event.id }}">{% for link in event.reference_links %}<li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" data-reference-index="{{ loop.index0 }}">{{ link.title or ('参考资料 ' ~ loop.index) }}</a><span>{{ link.url.host }} · 新窗口打开</span></li>{% endfor %}</ol></dd></div>{% endif %}
       <div><dt>备注</dt><dd class="personal-summary-note">{{ event.note or '未填写' }}</dd></div>

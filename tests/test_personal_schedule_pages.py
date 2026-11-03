@@ -486,8 +486,36 @@ def test_ordinary_meeting_invitation_has_no_resume():
             detail = client.get(f"/my-schedule/events/{event.id}")
             assert detail.status_code == 200
             assert 'data-resume-cache' not in detail.text
+            assert 'href="https://xin.asiainfo.com/t/QGVBnUvx" target="_blank" rel="noopener noreferrer">点击入会</a>' in detail.text
+            assert '564391942' in detail.text
             redirected = client.get(f"/my-schedule/interviews/{event.id}", follow_redirects=False)
             assert redirected.status_code == 303
             assert redirected.headers["location"] == f"/my-schedule/events/{event.id}"
+    finally:
+        app.dependency_overrides.pop(get_personal_schedule_service, None)
+
+
+def test_meeting_link_survives_invitation_save_and_edit():
+    service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
+    app.dependency_overrides[get_personal_schedule_service] = lambda: service
+    raw = "会议主题: 示例会议\n会议时间: 2026/11/03 10:00-11:00\nhttps://example.com/join\n会议 ID: 123 456 789"
+    try:
+        with TestClient(app) as client:
+            fields = {"source": "invitation", "raw_text": raw, "title": "示例会议", "event_type": "meeting",
+                      "start_at": "2026-11-03T10:00", "end_at": "2026-11-03T11:00",
+                      "meeting_url": "https://example.com/join"}
+            assert client.post("/my-schedule/events", data=fields, follow_redirects=False).status_code == 303
+            event = service.list_events()[0]
+            assert str(event.meeting_url) == "https://example.com/join"
+            detail = client.get(f"/my-schedule/events/{event.id}")
+            assert 'href="https://example.com/join"' in detail.text and "点击入会" in detail.text
+            assert "123456789" in detail.text
+            assert 'data-resume-cache' not in detail.text
+            assert client.post(f"/my-schedule/events/{event.id}/edit", data={**fields, "title": "更新会议"}, follow_redirects=False).status_code == 303
+            assert str(service.get_event(event.id).meeting_url) == "https://example.com/join"
+            assert "点击入会" in client.get(f"/my-schedule/events/{event.id}").text
+            plain = service.create_manual(title="无链接会议", event_type="meeting",
+                       start_at=datetime(2026,11,4,10), end_at=datetime(2026,11,4,11))
+            assert "点击入会" not in client.get(f"/my-schedule/events/{plain.id}").text
     finally:
         app.dependency_overrides.pop(get_personal_schedule_service, None)
