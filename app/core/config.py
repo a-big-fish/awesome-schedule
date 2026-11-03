@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     pg_user: str = "postgres"
     pg_password: str = ""
     pg_connect_timeout_seconds: float = 3.0
+    log_dir: str = "data/logs"
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
     performance_enabled: bool = True
     performance_db_path: str = "data/performance.sqlite3"
 

@@ -3,6 +3,7 @@
 import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
+from uuid import uuid4
 from psycopg import OperationalError
 
 from fastapi import Depends, FastAPI, Request
@@ -28,6 +29,7 @@ from app.core.auth_guard import AuthRequired, InvalidCsrf, require_current_user
 from app.core.config import Settings, get_settings
 from app.core.performance import RequestTimings, node_for_path, request_timings, channel_for_request
 from app.core.postgres_pool import close_pools
+from app.core.logging_setup import ApplicationLogs
 from app.mapper.postgres_auth_mapper import PostgresAuthMapper
 from app.service.auth_service import AuthService
 from app.service.performance_service import PerformanceService
@@ -53,9 +55,11 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     performance = PerformanceService(Path(settings.performance_db_path),
                                      enabled=public and settings.performance_enabled)
     reference_titles = ReferenceTitleService()
+    application_logs = ApplicationLogs(settings.log_dir, settings.log_max_bytes, settings.log_backup_count)
 
     @asynccontextmanager
     async def lifespan(_application):
+        application_logs.start()
         performance.start()
         try:
             yield
@@ -63,6 +67,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
             performance.stop()
             reference_titles.close()
             close_pools()
+            application_logs.stop()
 
     application = FastAPI(
         title="Awesome Interview" if public else "会议日程规划器",
@@ -77,7 +82,8 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     application.state.reference_titles = reference_titles
     @application.exception_handler(OperationalError)
     async def handle_database_unavailable(request: Request, exc: OperationalError):
-        logger.warning("Database temporarily unavailable node=%s error=%s",
+        logger.error("Database temporarily unavailable request_id=%s node=%s error=%s",
+                       getattr(request.state, "request_id", "unknown"),
                        node_for_path(request.url.path, request.method), type(exc).__name__)
         return JSONResponse({"detail": "数据库连接暂时不可用，请稍后重试"}, status_code=503,
                             headers={"Retry-After": "30", "Cache-Control": "no-store"})
@@ -116,6 +122,32 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
             if elapsed_ms >= 500:
                 logger.warning("Slow request node=%s method=%s status=%s duration_ms=%.1f",
                                node, request.method, status, elapsed_ms)
+    @application.middleware("http")
+    async def log_http_requests(request: Request, call_next):
+        request_id = uuid4().hex
+        request.state.request_id = request_id
+        started = perf_counter()
+        status = 500
+        failure = None
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as exc:
+            failure = exc
+            raise
+        finally:
+            route = request.scope.get("route")
+            path = getattr(route, "path", "unmatched")
+            logger.log(logging.ERROR if status >= 500 else logging.INFO,
+                       "HTTP request_id=%s method=%s route=%s status=%s duration_ms=%.1f error=%s",
+                       request_id, request.method, path, status,
+                       (perf_counter() - started) * 1000,
+                       type(failure).__name__ if failure else "none",
+                       exc_info=(type(failure), failure, failure.__traceback__) if failure else None,
+                       extra={"request_status": status})
+
     if public:
         application.state.auth_service = auth_service or AuthService(PostgresAuthMapper(settings), settings)
 

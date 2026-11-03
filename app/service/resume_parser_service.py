@@ -49,7 +49,7 @@ def _configure_photo_logging(log_dir: Path) -> None:
     if logger.handlers:
         return
     logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+    logger.propagate = True
     log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = _AppendFileHandler(log_dir / "resume_parser.log")
     file_handler.setLevel(logging.DEBUG)
