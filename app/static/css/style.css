@@ -3099,3 +3099,6 @@ button:disabled {
 .portal-arrow { margin-top: auto; padding-top: 24px; font-weight: 700; }
 @media (max-width: 720px) { .portal-options { grid-template-columns: 1fr; } .portal-option { min-height: 300px; } }
 .personal-position-field[hidden] { display: none; }
+
+.personal-weekend-option { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; }
+.personal-weekend-option span { color: #64748b; }

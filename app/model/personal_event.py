@@ -44,6 +44,7 @@ class PersonalEvent(BaseModel):
     start_at: datetime
     end_at: datetime
     timezone: str = "Asia/Shanghai"
+    skip_weekends: bool = False
     location_text: str | None = None
     location_url: HttpUrl | None = None
     reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
@@ -90,6 +91,8 @@ class PersonalEvent(BaseModel):
             self.completed_at = ensure_timezone(self.completed_at)
         if self.cancelled_at is not None:
             self.cancelled_at = ensure_timezone(self.cancelled_at)
+        if self.start_at.astimezone(ZoneInfo(self.timezone)).weekday() >= 5:
+            self.skip_weekends = False
         if self.end_at <= self.start_at:
             raise ValueError("结束时间必须晚于开始时间")
         if self.type != "interview" and self.resume_id:

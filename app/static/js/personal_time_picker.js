@@ -39,6 +39,25 @@ function initTimePicker() {
     input.type = 'hidden';
     field.append(label, input, trigger);
   });
+  document.querySelectorAll('[data-skip-weekends]').forEach(checkbox => {
+    if (checkbox.dataset.bound) return;
+    checkbox.dataset.bound = '1';
+    const form = checkbox.closest('form');
+    const start = form.querySelector('[name="start_at"]');
+    const hint = form.querySelector('[data-weekend-hint]');
+    let wasWeekend = false;
+    const update = () => {
+      const day = new Date(`${start.value.slice(0, 10)}T00:00:00Z`).getUTCDay();
+      const weekend = day === 0 || day === 6;
+      checkbox.disabled = weekend;
+      if (weekend) checkbox.checked = false;
+      else if (wasWeekend) checkbox.checked = true;
+      hint.textContent = weekend ? '周末开始的任务不能跳过周末' : '';
+      wasWeekend = weekend;
+    };
+    start.addEventListener('change', update);
+    update();
+  });
   const fields = [...document.querySelectorAll('.personal-time-field')];
   fields.forEach(field => {
     if (field.dataset.timeBound) return;

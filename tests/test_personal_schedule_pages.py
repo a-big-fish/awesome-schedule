@@ -235,12 +235,12 @@ def test_month_calendar_keeps_multiday_tasks_continuous_across_weeks_and_months(
     zone = ZoneInfo("Asia/Shanghai")
     service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
     event = service.create_manual(
-        title="连续任务", event_type="personal",
+        title="连续任务", event_type="personal", skip_weekends=False,
         start_at=datetime(2026, 9, 30, 9, tzinfo=zone),
         end_at=datetime(2026, 10, 6, 0, tzinfo=zone),
     )
     service.create_manual(
-        title="重叠事项", event_type="personal", confirm_overlap=True,
+        title="重叠事项", event_type="personal", skip_weekends=False, confirm_overlap=True,
         start_at=datetime(2026, 10, 2, 10, tzinfo=zone),
         end_at=datetime(2026, 10, 4, 11, tzinfo=zone),
     )
@@ -272,12 +272,12 @@ def test_month_calendar_shows_later_lanes_even_when_earlier_tasks_have_ended():
     service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
     for index in range(4):
         service.create_manual(
-            title=f"周内任务 {index}", event_type="personal", confirm_overlap=True,
+            title=f"周内任务 {index}", event_type="personal", skip_weekends=False, confirm_overlap=True,
             start_at=datetime(2026, 10, 26, 9, tzinfo=zone),
             end_at=datetime(2026, 10, 31, 0, tzinfo=zone),
         )
     continuing = service.create_manual(
-        title="周末仍持续的任务", event_type="personal", confirm_overlap=True,
+        title="周末仍持续的任务", event_type="personal", skip_weekends=False, confirm_overlap=True,
         start_at=datetime(2026, 10, 27, 9, tzinfo=zone),
         end_at=datetime(2026, 11, 6, 18, tzinfo=zone),
     )
@@ -517,5 +517,37 @@ def test_meeting_link_survives_invitation_save_and_edit():
             plain = service.create_manual(title="无链接会议", event_type="meeting",
                        start_at=datetime(2026,11,4,10), end_at=datetime(2026,11,4,11))
             assert "点击入会" not in client.get(f"/my-schedule/events/{plain.id}").text
+    finally:
+        app.dependency_overrides.pop(get_personal_schedule_service, None)
+
+
+def test_skip_weekends_form_and_calendar_roundtrip():
+    service = PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
+    app.dependency_overrides[get_personal_schedule_service] = lambda: service
+    try:
+        with TestClient(app) as client:
+            fields = {"event_type": "personal", "title": "工作日任务", "start_at": "2026-11-06T08:00",
+                      "end_at": "2026-11-10T18:00", "skip_weekends": "true"}
+            assert client.post("/my-schedule/events", data=fields, follow_redirects=False).status_code == 303
+            task = service.list_events()[0]
+            assert task.skip_weekends
+            for view in ["day", "week", "month"]:
+                ctx = _dashboard_context(service, date(2026,11,7), view)
+                if view == "day":
+                    assert not ctx["entries"]
+                else:
+                    for day in ctx["calendar_days"]:
+                        if day["date"].weekday() >= 5:
+                            assert not day["entries"] and not day["week_segments"]
+            assert _dashboard_context(service, date(2026,11,9))["entries"]
+            # A weekend task does not conflict with a task that skips weekends.
+            weekend = service.create_manual(title="周末任务", event_type="personal",
+                      start_at=datetime(2026,11,7,10), end_at=datetime(2026,11,7,11), skip_weekends=True)
+            assert weekend.skip_weekends is False
+            fields.pop("skip_weekends")
+            fields["confirm_overlap"] = "true"
+            assert client.post(f"/my-schedule/events/{task.id}/edit", data=fields, follow_redirects=False).status_code == 303
+            assert not service.get_event(task.id).skip_weekends
+            assert len(_dashboard_context(service, date(2026,11,7))["entries"]) == 2
     finally:
         app.dependency_overrides.pop(get_personal_schedule_service, None)

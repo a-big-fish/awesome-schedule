@@ -32,6 +32,7 @@
       <label>开始 <input class="input" type="datetime-local" name="start_at" required value="{{ values.start_at if values else event.start_at.strftime('%Y-%m-%dT%H:%M') }}"></label>
       <label>结束 <input class="input" type="datetime-local" name="end_at" required value="{{ values.end_at if values else event.end_at.strftime('%Y-%m-%dT%H:%M') }}"></label>
     </div>
+    {% include '_personal_skip_weekends.html' %}
     <label>时区 <input class="input" name="timezone" required value="{{ values.timezone if values else event.timezone }}"></label>
     <fieldset class="personal-reminder-options"><legend>系统提醒（可选）</legend>
       {% set selected_reminders = values.reminder_offsets_minutes if values else event.reminder_offsets_minutes %}

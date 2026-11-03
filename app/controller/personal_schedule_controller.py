@@ -68,7 +68,7 @@ def _week_day_segments(events: list[dict[str, Any]], day: date) -> list[dict[str
     for event in events:
         start = event["start_time"]
         end = event["end_time"]
-        if start >= day_end or end <= day_start:
+        if (event.get("skip_weekends") and day.weekday() >= 5) or start >= day_end or end <= day_start:
             continue
         clipped_start = max(start, day_start)
         clipped_end = min(end, day_end)
@@ -106,6 +106,8 @@ def _month_day_entries(events: list[dict[str, Any]], dates: list[date]) -> dict[
             else:
                 lane_ends[lane] = last
             for index in range(first, last + 1):
+                if item.get("skip_weekends") and week[index].weekday() >= 5:
+                    continue
                 day_start = week_start + timedelta(days=index)
                 entries[week[index]].append({
                     **item, "month_lane": lane,
@@ -136,7 +138,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
     overdue = sorted((item for item in event_views if not item["completed_at"]
                       and not item["cancelled_at"] and item["end_time"] <= now),
                      key=lambda item: item["end_time"])
-    upcoming_today = [item for item in remaining if item["start_time"] < tomorrow_start]
+    upcoming_today = [item for item in remaining if item["start_time"] < tomorrow_start and not (item.get("skip_weekends") and now.weekday() >= 5)]
     completed_today = sorted(
         (item for item in event_views if item["completed_time"] and
          item["completed_time"].date() == now.date()),
@@ -160,7 +162,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
             index + 1 for index, day in enumerate(period_dates[:-1])
             if any(item["start_time"] < datetime.combine(day + timedelta(days=1),
                                                           datetime.min.time(), DISPLAY_ZONE)
-                   < item["end_time"] for item in calendar_views)
+                   < item["end_time"] and not (item.get("skip_weekends") and (day.weekday() >= 4)) for item in calendar_views)
         ]
     elif selected_view == "month":
         first = selected_date.replace(day=1)
@@ -234,6 +236,11 @@ def _new_page(request: Request, *, error: str | None = None, warnings: list[str]
     date_only = not form_values
     form_values.setdefault("start_at", f"{now.date().isoformat()}T{work_start}")
     form_values.setdefault("end_at", f"{now.date().isoformat()}T{work_end}")
+    if "skip_weekends" not in form_values:
+        try:
+            form_values["skip_weekends"] = datetime.fromisoformat(form_values["start_at"]).weekday() < 5
+        except ValueError:
+            form_values["skip_weekends"] = False
     return templates.TemplateResponse(request, "personal_new.html", {
         "error": error,
         "warnings": warnings or [],
@@ -346,6 +353,7 @@ async def create_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["skip_weekends"] = form.get("skip_weekends") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     preview = values.get("source") == "invitation"
@@ -355,6 +363,7 @@ async def create_personal_event(
         common = {
             "title": values["title"],
             "event_type": values["event_type"],
+            "skip_weekends": values["skip_weekends"],
             "timezone": values.get("timezone") or "Asia/Shanghai",
             "position": values.get("position") or None,
             "note": values.get("note") or None,
@@ -365,7 +374,7 @@ async def create_personal_event(
             event = service.create_from_invitation(
                 values.get("raw_text", ""),
                 confirm_overlap=confirmed,
-                title=common["title"], event_type=common["event_type"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"],
                 timezone=common["timezone"], position=common["position"], note=common["note"],
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 start_at=start, end_at=end,
@@ -376,7 +385,7 @@ async def create_personal_event(
             )
         else:
             event = service.create_manual(
-                title=common["title"], event_type=common["event_type"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"],
                 start_at=start, end_at=end, timezone=common["timezone"],
                 location_text=values.get("location_text") or None,
                 location_url=values.get("location_url") or None,
@@ -448,6 +457,7 @@ async def edit_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["skip_weekends"] = form.get("skip_weekends") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     try:
@@ -456,6 +466,7 @@ async def edit_personal_event(
             confirm_overlap=values.get("confirm_overlap") == "true",
             title=values["title"].strip(),
             type=values["event_type"],
+            skip_weekends=values["skip_weekends"],
             start_at=datetime.fromisoformat(values["start_at"]),
             end_at=datetime.fromisoformat(values["end_at"]),
             timezone=values.get("timezone") or "Asia/Shanghai",

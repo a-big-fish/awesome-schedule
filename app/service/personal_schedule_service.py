@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.exceptions import PersonalEventConflictWarning
@@ -45,7 +45,24 @@ class PersonalScheduleService:
             and event.cancelled_at is None
             and proposed.start_at < event.end_at
             and proposed.end_at > event.start_at
+            and self._shares_active_day(proposed, event)
         ]
+
+    @staticmethod
+    def _shares_active_day(first: PersonalEvent, second: PersonalEvent) -> bool:
+        if not first.skip_weekends and not second.skip_weekends:
+            return True
+        zone = ZoneInfo("Asia/Shanghai")
+        start = max(first.start_at, second.start_at).astimezone(zone)
+        end = min(first.end_at, second.end_at).astimezone(zone)
+        day = start.date()
+        for offset in range(7):
+            candidate = day + timedelta(days=offset)
+            if datetime.combine(candidate, datetime.min.time(), zone) >= end:
+                break
+            if candidate.weekday() < 5:
+                return True
+        return False
 
     def save_event(self, event: PersonalEvent, confirm_overlap: bool = False) -> PersonalEvent:
         if event.owner_id != self.owner_id:
@@ -69,6 +86,7 @@ class PersonalScheduleService:
         reference_links: list[dict] | None = None,
         note: str | None = None,
         position: str | None = None,
+        skip_weekends: bool | None = None,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
     ) -> PersonalEvent:
@@ -76,6 +94,7 @@ class PersonalScheduleService:
         event = PersonalEvent(
             owner_id=self.owner_id,
             type=event_type,
+            skip_weekends=skip_weekends if skip_weekends is not None else start_at.weekday() < 5,
             title=title.strip(),
             start_at=_localize(start_at, timezone),
             end_at=_localize(end_at, timezone),
@@ -105,6 +124,7 @@ class PersonalScheduleService:
         meeting_url: str | None = None,
         location_text: str | None = None,
         reference_links: list[dict] | None = None,
+        skip_weekends: bool | None = None,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
         """Preview a shared parser result as a personal event without persisting it."""
@@ -116,6 +136,7 @@ class PersonalScheduleService:
         return PersonalEvent(
             owner_id=self.owner_id,
             type=resolved_type,
+            skip_weekends=skip_weekends if skip_weekends is not None else (start_at or facts.start_time).weekday() < 5,
             title=(title or facts.subject or ("未命名面试" if resolved_type == "interview" else "未命名会议")).strip(),
             start_at=_localize(start_at, timezone) if start_at else facts.start_time,
             end_at=_localize(end_at, timezone) if end_at else facts.end_time,
