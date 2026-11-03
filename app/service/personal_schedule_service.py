@@ -112,7 +112,7 @@ class PersonalScheduleService:
         resolved_type: PersonalEventType = event_type or (
             "interview" if facts.kind_hint == "interview" else "meeting"
         )
-        profile = self.profile_mapper.get(self.profile_id)
+        profile = self.profile_mapper.get(self.profile_id) if resolved_type == "interview" else None
         return PersonalEvent(
             owner_id=self.owner_id,
             type=resolved_type,

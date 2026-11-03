@@ -12,8 +12,9 @@ function initTimePicker() {
         positionField.hidden = !isInterview;
         positionField.querySelector('input').disabled = !isInterview;
       }
-      if (invitationForm) invitationForm.hidden = !isInterview;
-      if (invitationDivider) invitationDivider.hidden = !isInterview;
+      const supportsInvitation = isInterview || eventType.value === 'meeting';
+      if (invitationForm) invitationForm.hidden = !supportsInvitation;
+      if (invitationDivider) invitationDivider.hidden = !supportsInvitation;
     };
     eventType.addEventListener('change', updateEventFields);
     updateEventFields();

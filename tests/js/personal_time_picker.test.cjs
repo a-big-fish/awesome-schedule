@@ -24,6 +24,11 @@ test('cached add schedule page initializes its type switch once after navigation
   assert.equal(position.hidden, true);
   assert.equal(input.disabled, true);
   assert.equal(invitation.hidden, true);
+  eventType.value = 'meeting';
+  eventType.changes[0]();
+  assert.equal(invitation.hidden, false);
+  assert.equal(divider.hidden, false);
+  assert.equal(position.hidden, true);
   eventType.value = 'interview';
   eventType.changes[0]();
   assert.equal(position.hidden, false);

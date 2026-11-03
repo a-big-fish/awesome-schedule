@@ -459,3 +459,35 @@ def test_completed_filter_only_changes_calendar_views():
         assert not context["entries"]
         assert all(not day["entries"] and not day["week_segments"] for day in context["calendar_days"])
         assert _dashboard_context(service, date(2026, 10, 27), view)["period_title"].endswith("1 项安排")
+
+
+def test_ordinary_meeting_invitation_has_no_resume():
+    from unittest.mock import Mock
+    profile = Mock()
+    service = PersonalScheduleService(MemoryPersonalEventMapper(), profile)
+    raw = ("会议主题: aistack产品介绍\n会议时间: 2026/11/03 10:00-11:00\n"
+           "点击链接直接加入会议:\nhttps://xin.asiainfo.com/t/QGVBnUvx\n会议 ID: 564 391 942")
+    event = service.from_invitation(raw)
+    assert event.title == "aistack产品介绍"
+    assert event.type == "meeting"
+    assert event.start_at.isoformat() == "2026-11-03T10:00:00+08:00"
+    assert event.end_at.isoformat() == "2026-11-03T11:00:00+08:00"
+    assert str(event.meeting_url) == "https://xin.asiainfo.com/t/QGVBnUvx"
+    assert event.room_number == "564391942"
+    assert event.resume_id is None and event.position is None
+    profile.get.assert_not_called()
+    service.save_event(event)
+    app.dependency_overrides[get_personal_schedule_service] = lambda: service
+    try:
+        with TestClient(app) as client:
+            preview = client.post("/my-schedule/parse", data={"raw_text": raw})
+            assert preview.status_code == 200
+            assert re.search(r'data-invitation-form\s*>', preview.text)
+            detail = client.get(f"/my-schedule/events/{event.id}")
+            assert detail.status_code == 200
+            assert 'data-resume-cache' not in detail.text
+            redirected = client.get(f"/my-schedule/interviews/{event.id}", follow_redirects=False)
+            assert redirected.status_code == 303
+            assert redirected.headers["location"] == f"/my-schedule/events/{event.id}"
+    finally:
+        app.dependency_overrides.pop(get_personal_schedule_service, None)

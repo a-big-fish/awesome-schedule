@@ -11,13 +11,13 @@
     {% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type or 'personal') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </label>
-  <form action="/my-schedule/parse" method="post" class="personal-invitation-form" data-invitation-form {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>
+  <form action="/my-schedule/parse" method="post" class="personal-invitation-form" data-invitation-form {% if (values.event_type or 'personal') not in ['interview', 'meeting'] %}hidden{% endif %}>
     {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
     <label class="form-label" for="personal-raw">解析会议邀请</label>
     <textarea id="personal-raw" class="textarea" name="raw_text" placeholder="粘贴面试或普通会议邀请文本">{{ values.raw_text or '' }}</textarea>
     <button class="btn secondary" type="submit">解析并预览</button>
   </form>
-  <div class="personal-form-divider" data-invitation-divider {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>{{ '确认解析结果' if preview else '手动添加' }}</div>
+  <div class="personal-form-divider" data-invitation-divider {% if (values.event_type or 'personal') not in ['interview', 'meeting'] %}hidden{% endif %}>{{ '确认解析结果' if preview else '手动添加' }}</div>
   <form id="personal-event-form" action="/my-schedule/events" method="post" class="personal-event-form">
     {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
     <input type="hidden" name="source" value="{{ 'invitation' if preview else 'manual' }}">
