@@ -1,5 +1,6 @@
 (() => {
-  const key = 'awesome-interview-calendar-completed';
+  let incompletePreference = true;
+  const boundCalendars = new WeakSet();
   function packOverlaps(elements, bounds, place) {
     const rows = elements.map((element) => ({element, ...bounds(element)}))
       .sort((a, b) => a.start - b.start || b.end - a.end);
@@ -54,10 +55,11 @@
   }
   function init() {
     const calendar = document.querySelector('.personal-calendar[data-calendar-completed]');
-    if (!calendar) return;
+    if (!calendar || boundCalendars.has(calendar)) return;
+    boundCalendars.add(calendar);
     const button = calendar.querySelector('[data-calendar-toggle]');
     calendar.querySelectorAll('.personal-period-month .personal-period-event').forEach((item) => {
-      item.dataset.originalLane = item.style.gridRow;
+      item.dataset.originalLane ||= item.style.gridRow;
     });
     const apply = (incomplete) => {
       calendar.classList.toggle('hide-completed', incomplete);
@@ -65,14 +67,11 @@
       button.textContent = incomplete ? '切换全部日程' : '切换未完成日程';
       button.setAttribute('aria-pressed', String(incomplete));
     };
-    let stored;
-    try { stored = sessionStorage.getItem(key); } catch (_) { /* Private mode. */ }
-    apply(stored === null || stored === undefined
-      ? calendar.dataset.calendarCompleted === 'incomplete' : stored === 'incomplete');
+    apply(incompletePreference);
     button.addEventListener('click', () => {
       const incomplete = !calendar.classList.contains('hide-completed');
       apply(incomplete);
-      try { sessionStorage.setItem(key, incomplete ? 'incomplete' : 'all'); } catch (_) { /* Private mode. */ }
+      incompletePreference = incomplete;
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
