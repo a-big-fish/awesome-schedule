@@ -40,6 +40,7 @@
       <p class="muted-text personal-date-hint">只选日期时，使用默认工作时间；需要精确安排可切换“指定时间”。默认时段可在个人设置中修改。</p>
       {% include '_personal_skip_weekends.html' %}
     </div>
+    {% include '_personal_repeat_options.html' %}
     <label>时区 <input class="input personal-timezone-input" name="timezone" list="personal-timezones" required value="{{ values.timezone or 'Asia/Shanghai' }}"></label>
     <fieldset class="personal-reminder-options"><legend>系统提醒（可选，默认关闭）</legend>
       {% set selected_reminders = values.reminder_offsets_minutes or [] %}

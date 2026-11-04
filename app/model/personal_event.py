@@ -45,6 +45,11 @@ class PersonalEvent(BaseModel):
     end_at: datetime
     timezone: str = "Asia/Shanghai"
     skip_weekends: bool = False
+    repeat_weekdays: list[int] = Field(default_factory=list)
+    repeat_closed_on: str | None = None
+    repeat_completions: dict[str, datetime] = Field(default_factory=dict)
+    repeat_streak: int = 0
+    repeat_missed: int = 0
     location_text: str | None = None
     location_url: HttpUrl | None = None
     reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
@@ -97,6 +102,14 @@ class PersonalEvent(BaseModel):
             raise ValueError("结束时间必须晚于开始时间")
         if self.type != "interview" and self.resume_id:
             raise ValueError("只有面试事件可以关联简历")
+        if self.repeat_weekdays:
+            if len(set(self.repeat_weekdays)) != len(self.repeat_weekdays) or any(day not in range(7) for day in self.repeat_weekdays):
+                raise ValueError("重复日期必须为周一至周日")
+            local_start = self.start_at.astimezone(ZoneInfo(self.timezone))
+            local_end = self.end_at.astimezone(ZoneInfo(self.timezone))
+            if local_start.date() != local_end.date():
+                raise ValueError("重复任务的开始和结束时间必须在同一天")
+            self.skip_weekends = False
         allowed_reminders = {10, 60, 1440}
         if len(self.reminder_offsets_minutes) != len(set(self.reminder_offsets_minutes)) or not set(self.reminder_offsets_minutes) <= allowed_reminders:
             raise ValueError("提醒时间无效")

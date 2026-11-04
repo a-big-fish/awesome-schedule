@@ -7,6 +7,7 @@
   <div class="personal-event-summary">
     <span class="personal-type-pill">{{ event_labels[event.type] }}</span>
     <h1>{{ event.title }}</h1>
+    {% if event.repeat_weekdays %}<p class="personal-repeat-stats">重复任务 · 连续完成 {{ event.repeat_streak }} 天 · 累积未完成 {{ event.repeat_missed }} 天</p>{% endif %}
     <dl>
       <div><dt>时间</dt><dd>{{ event.start_at.strftime('%Y-%m-%d %H:%M') }} — {{ event.end_at.strftime('%Y-%m-%d %H:%M') }}</dd></div>
       {% if event.room_number %}<div><dt>会议号</dt><dd>{{ event.room_number }}</dd></div>{% endif %}
@@ -16,6 +17,7 @@
       <div><dt>备注</dt><dd class="personal-summary-note">{{ event.note or '未填写' }}</dd></div>
     </dl>
     <div class="settings-actions"><a class="btn" href="/my-schedule/events/{{ event.id }}/edit">编辑日程</a><a class="btn secondary" href="/my-schedule">返回日程表</a></div>
+    {% if event.repeat_weekdays and not event.repeat_closed_on %}<form action="/my-schedule/events/{{ event.id }}/close-repeat" method="post">{% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}<button class="btn secondary" type="submit">关闭该重复任务</button></form>{% endif %}
   </div>
   {% else %}
   <div class="personal-toolbar personal-edit-heading"><div><span class="personal-type-pill">{{ event_labels[event.type] }}</span><h1 class="section-title">编辑日程</h1></div><a class="btn secondary" href="/my-schedule/events/{{ event.id }}">返回详情</a></div>
@@ -33,6 +35,7 @@
       <label>结束 <input class="input" type="datetime-local" name="end_at" required value="{{ values.end_at if values else event.end_at.strftime('%Y-%m-%dT%H:%M') }}"></label>
     </div>
     {% include '_personal_skip_weekends.html' %}
+    {% include '_personal_repeat_options.html' %}
     <label>时区 <input class="input" name="timezone" required value="{{ values.timezone if values else event.timezone }}"></label>
     <fieldset class="personal-reminder-options"><legend>系统提醒（可选）</legend>
       {% set selected_reminders = values.reminder_offsets_minutes if values else event.reminder_offsets_minutes %}

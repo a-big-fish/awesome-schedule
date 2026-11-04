@@ -122,7 +122,19 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                        show_completed: bool = True) -> dict[str, Any]:
     now = datetime.now(DISPLAY_ZONE)
     all_events = service.list_events() if events is None else events
-    event_views = [_event_view(item, now) for item in all_events]
+    first = selected_date.replace(day=1)
+    grid_start = first - timedelta(days=first.weekday())
+    days = {grid_start + timedelta(days=offset) for offset in range(42)}
+    days.update(now.date() + timedelta(days=offset) for offset in range(8))
+    days.add(selected_date)
+    expanded = []
+    for item in all_events:
+        if item.repeat_weekdays:
+            expanded.extend(occurrence for day in sorted(days)
+                            if (occurrence := service.repeat_occurrence(item, day)) is not None)
+        else:
+            expanded.append(item)
+    event_views = [_event_view(item, now) for item in expanded]
     calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"] and not item["cancelled_at"]]
     views = _week_day_segments(calendar_views, selected_date)
     earliest = min((item["start_minutes"] // 60 for item in views), default=6)
@@ -134,9 +146,9 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
     today_start = datetime.combine(now.date(), datetime.min.time(), DISPLAY_ZONE)
     tomorrow_start = today_start + timedelta(days=1)
     remaining = [item for item in event_views
-                 if not item["completed_at"] and not item["cancelled_at"] and item["end_time"] > now]
+                 if not item["completed_at"] and not item["cancelled_at"] and (item["end_time"] > now or (item["repeat_weekdays"] and item["start_time"].date() == now.date()))]
     overdue = sorted((item for item in event_views if not item["completed_at"]
-                      and not item["cancelled_at"] and item["end_time"] <= now),
+                      and not item["cancelled_at"] and not item["repeat_weekdays"] and item["end_time"] <= now),
                      key=lambda item: item["end_time"])
     upcoming_today = [item for item in remaining if item["start_time"] < tomorrow_start and not (item.get("skip_weekends") and now.weekday() >= 5)]
     completed_today = sorted(
@@ -353,6 +365,9 @@ async def create_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["repeat_weekdays"] = [int(day) for day in form.getlist("repeat_weekdays") if str(day).isdigit()] if form.get("repeat_enabled") == "true" else []
+    if form.get("repeat_enabled") == "true" and not values["repeat_weekdays"]:
+        values["repeat_weekdays"] = [-1]
     values["skip_weekends"] = form.get("skip_weekends") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
@@ -364,6 +379,7 @@ async def create_personal_event(
             "title": values["title"],
             "event_type": values["event_type"],
             "skip_weekends": values["skip_weekends"],
+            "repeat_weekdays": values["repeat_weekdays"],
             "timezone": values.get("timezone") or "Asia/Shanghai",
             "position": values.get("position") or None,
             "note": values.get("note") or None,
@@ -374,7 +390,7 @@ async def create_personal_event(
             event = service.create_from_invitation(
                 values.get("raw_text", ""),
                 confirm_overlap=confirmed,
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], repeat_weekdays=common["repeat_weekdays"],
                 timezone=common["timezone"], position=common["position"], note=common["note"],
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 start_at=start, end_at=end,
@@ -385,7 +401,7 @@ async def create_personal_event(
             )
         else:
             event = service.create_manual(
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], repeat_weekdays=common["repeat_weekdays"],
                 start_at=start, end_at=end, timezone=common["timezone"],
                 location_text=values.get("location_text") or None,
                 location_url=values.get("location_url") or None,
@@ -423,6 +439,15 @@ def personal_event_detail(
     })
 
 
+@router.post("/events/{event_id}/close-repeat")
+def close_personal_repeat(event_id: str, service: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    try:
+        service.close_repeat(event_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return RedirectResponse("/my-schedule", status_code=303)
+
+
 @router.get("/events/{event_id}/reference-titles")
 def personal_reference_titles(event_id: str, request: Request,
                               service: PersonalScheduleService = Depends(get_personal_schedule_service)):
@@ -441,7 +466,7 @@ def personal_event_edit_page(
     event_id: str, request: Request,
     service: PersonalScheduleService = Depends(get_personal_schedule_service),
 ):
-    event = service.get_event(event_id)
+    event = service.get_event(event_id.split("~", 1)[0])
     if not event:
         raise HTTPException(status_code=404, detail="日程不存在")
     return templates.TemplateResponse(request, "personal_detail.html", {
@@ -457,6 +482,9 @@ async def edit_personal_event(
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
+    values["repeat_weekdays"] = [int(day) for day in form.getlist("repeat_weekdays") if str(day).isdigit()] if form.get("repeat_enabled") == "true" else []
+    if form.get("repeat_enabled") == "true" and not values["repeat_weekdays"]:
+        values["repeat_weekdays"] = [-1]
     values["skip_weekends"] = form.get("skip_weekends") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
@@ -467,6 +495,7 @@ async def edit_personal_event(
             title=values["title"].strip(),
             type=values["event_type"],
             skip_weekends=values["skip_weekends"],
+            repeat_weekdays=values["repeat_weekdays"],
             start_at=datetime.fromisoformat(values["start_at"]),
             end_at=datetime.fromisoformat(values["end_at"]),
             timezone=values.get("timezone") or "Asia/Shanghai",

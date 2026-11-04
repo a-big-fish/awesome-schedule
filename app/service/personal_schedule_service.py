@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.exceptions import PersonalEventConflictWarning
@@ -36,7 +36,49 @@ class PersonalScheduleService:
         return self.mapper.list_all(self.owner_id)
 
     def get_event(self, event_id: str) -> PersonalEvent | None:
+        if "~" in event_id:
+            parent_id, day_text = event_id.rsplit("~", 1)
+            parent = self.mapper.find_by_id(parent_id, self.owner_id)
+            try:
+                day = date.fromisoformat(day_text)
+            except ValueError:
+                return None
+            return self.repeat_occurrence(parent, day) if parent else None
         return self.mapper.find_by_id(event_id, self.owner_id)
+
+    @staticmethod
+    def repeat_occurrence(event: PersonalEvent, day: date) -> PersonalEvent | None:
+        zone = ZoneInfo(event.timezone)
+        start, end = event.start_at.astimezone(zone), event.end_at.astimezone(zone)
+        if (not event.repeat_weekdays or day.weekday() not in event.repeat_weekdays or day < start.date()
+                or (event.repeat_closed_on and day.isoformat() >= event.repeat_closed_on)):
+            return None
+        today = datetime.now(zone).date()
+        streak = missed = 0
+        cursor = start.date()
+        while cursor <= min(day, today):
+            if cursor.weekday() in event.repeat_weekdays:
+                if cursor.isoformat() in event.repeat_completions:
+                    streak += 1
+                elif datetime.combine(cursor, end.time(), zone) < datetime.now(zone):
+                    missed += 1
+                    streak = 0
+            cursor += timedelta(days=1)
+        return event.model_copy(update={
+            "id": f"{event.id}~{day.isoformat()}",
+            "start_at": datetime.combine(day, start.time(), zone),
+            "end_at": datetime.combine(day, end.time(), zone),
+            "completed_at": event.repeat_completions.get(day.isoformat()),
+            "repeat_streak": streak, "repeat_missed": missed,
+        })
+
+    def close_repeat(self, event_id: str) -> PersonalEvent:
+        parent = self.get_event(event_id.split("~", 1)[0])
+        if not parent or not parent.repeat_weekdays:
+            raise LookupError("重复任务不存在")
+        parent.repeat_closed_on = (datetime.now(ZoneInfo(parent.timezone)).date() + timedelta(days=1)).isoformat()
+        parent.updated_at = datetime.now(ZoneInfo(parent.timezone))
+        return self.mapper.save(parent)
 
     def conflicting_events(self, proposed: PersonalEvent) -> list[PersonalEvent]:
         return [
@@ -86,6 +128,7 @@ class PersonalScheduleService:
         reference_links: list[dict] | None = None,
         note: str | None = None,
         position: str | None = None,
+        repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
@@ -94,6 +137,7 @@ class PersonalScheduleService:
         event = PersonalEvent(
             owner_id=self.owner_id,
             type=event_type,
+            repeat_weekdays=repeat_weekdays or [],
             skip_weekends=skip_weekends if skip_weekends is not None else start_at.weekday() < 5,
             title=title.strip(),
             start_at=_localize(start_at, timezone),
@@ -124,6 +168,7 @@ class PersonalScheduleService:
         meeting_url: str | None = None,
         location_text: str | None = None,
         reference_links: list[dict] | None = None,
+        repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
@@ -136,6 +181,7 @@ class PersonalScheduleService:
         return PersonalEvent(
             owner_id=self.owner_id,
             type=resolved_type,
+            repeat_weekdays=repeat_weekdays or [],
             skip_weekends=skip_weekends if skip_weekends is not None else (start_at or facts.start_time).weekday() < 5,
             title=(title or facts.subject or ("未命名面试" if resolved_type == "interview" else "未命名会议")).strip(),
             start_at=_localize(start_at, timezone) if start_at else facts.start_time,
@@ -163,7 +209,7 @@ class PersonalScheduleService:
         return self.save_event(event, confirm_overlap)
 
     def update_event(self, event_id: str, confirm_overlap: bool = False, **changes) -> PersonalEvent:
-        current = self.get_event(event_id)
+        current = self.get_event(event_id.split("~", 1)[0])
         if not current:
             raise LookupError("日程不存在")
         timezone = changes.get("timezone", current.timezone)
@@ -180,13 +226,31 @@ class PersonalScheduleService:
         return self.save_event(updated, confirm_overlap)
 
     def delete_event(self, event_id: str) -> bool:
-        return self.mapper.delete(event_id, self.owner_id)
+        return self.mapper.delete(event_id.split("~", 1)[0], self.owner_id)
 
     def set_event_completed(self, event_id: str, completed: bool) -> PersonalEvent:
         """Mark an owned event complete or restore it without changing its schedule."""
+        if "~" in event_id:
+            occurrence = self.get_event(event_id)
+            if occurrence is None:
+                raise LookupError("日程不存在")
+            parent_id, day_text = event_id.rsplit("~", 1)
+            parent = self.get_event(parent_id)
+            if occurrence.start_at.date() > datetime.now(ZoneInfo(parent.timezone)).date():
+                raise ValueError("不能提前完成未来的重复任务")
+            if completed:
+                parent.repeat_completions.setdefault(day_text, datetime.now(ZoneInfo(parent.timezone)))
+            else:
+                parent.repeat_completions.pop(day_text, None)
+            parent.updated_at = datetime.now(ZoneInfo(parent.timezone))
+            self.mapper.save(parent)
+            return self.get_event(event_id)
         event = self.get_event(event_id)
         if event is None:
             raise LookupError("日程不存在")
+        if event.repeat_weekdays:
+            today = datetime.now(ZoneInfo(event.timezone)).date().isoformat()
+            return self.set_event_completed(f"{event.id}~{today}", completed)
         if event.cancelled_at is not None:
             raise ValueError("废除日程不能标记完成")
         if (event.completed_at is not None) == completed:

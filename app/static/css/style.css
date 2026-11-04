@@ -3113,3 +3113,12 @@ button:disabled {
   .personal-date-options .personal-date-hint { flex-basis: 100%; }
   .personal-date-options .personal-weekend-option { margin-left: auto; }
 }
+
+.personal-repeat-options { border: 1px solid #d8dff0; border-radius: 12px; padding: 14px; }
+.personal-repeat-days { display: flex; flex-wrap: wrap; gap: 12px 18px; }
+.personal-event-form .personal-repeat-options label { display: inline-flex; align-items: center; gap: 6px; }
+.personal-repeat-options input { width: 16px; height: 16px; margin: 0; }
+.is-repeating:not(.is-completed) { background: #eefbf5 !important; border-left-color: #16866b !important; }
+.personal-repeat-stats { color: #12705a; font-size: 12px; font-weight: normal; }
+
+.personal-repeat-days[hidden], .personal-event-form .personal-weekend-option[hidden] { display: none; }
