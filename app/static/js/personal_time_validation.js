@@ -5,7 +5,7 @@
     if (!skip?.checked || skip.disabled || repeat?.checked || !startValue || !endValue || endValue <= startValue) return true;
     const weekday = value => new Date(`${value.slice(0, 10)}T00:00:00Z`).getUTCDay();
     if (![1, 2, 3, 4, 5].includes(weekday(startValue)) || ![0, 6].includes(weekday(endValue))) return true;
-    return window.confirm('是否确认周末不展示日程？');
+    return window.confirm('日程结束时间处于周末，是否确认该日程周末不展示');
   }
   function validate(form) {
     const start = form.querySelector('[name="start_at"], [name="reviewed_start"]');
