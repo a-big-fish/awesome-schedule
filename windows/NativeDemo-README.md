@@ -23,3 +23,7 @@ Compress-Archive -Path windows/NativeDemo-package/* -DestinationPath windows/pub
 PRD 位于本机忽略目录 `docs/APP-PRD-1.1-Windows原生版.md`，独立版本号 1.1-W。原生 Demo 后续先拆分 MVVM 与 API/缓存服务，再接入正式数据。
 
 本轮验收：SDK 10.0.403 Release 自包含发布成功；安装脚本已实际安装并创建开始菜单快捷方式；原生窗口和控件经 UI Automation 树确认。窗口截图/点击工具在当前环境超时，交互、卸载、干净机器和多DPI仍待验收。
+
+## 1.1.1-W 外观与清晰度更新（2026-11-04）
+
+启用 PerMonitorV2 DPI manifest、UseLayoutRounding、SnapsToDevicePixels、Display 文字格式与 ClearType。改为浅色侧栏、蓝色选中态、圆角按钮与输入框，统一字体、留白及卡片边框，接入项目logo。构建和覆盖安装、启动通过；当前窗口截图工具超时，多DPI与视觉清晰度仍需实机确认。安装包版本为1.1.1-W，沿用原数据目录。
