@@ -4,7 +4,7 @@
     '/my-schedule/profile', '/my-schedule/interviews'];
   const allowed = new Set(paths);
   if (!document.querySelector('.personal-app .page-nav a[href="/my-schedule/experiences/plaza"]')) return;
-  const ttl = 30000;
+  const ttl = 5 * 60 * 1000;
   const calendarTtl = 18 * 60 * 60 * 1000;
   const pages = new Map();
   const calendarPages = new Map();
@@ -20,7 +20,8 @@
   channel?.addEventListener('message', clearPages);
   const isCalendar = (target) => target.pathname === '/my-schedule' &&
     [...target.searchParams.keys()].every((key) => ['view', 'date_value', 'show_completed', 'show_all'].includes(key));
-  const canNavigate = (target) => allowed.has(target.pathname) && (!target.search || isCalendar(target));
+  const isEventPage = target => /^\/my-schedule\/events\/[^/]+(?:\/edit)?$/.test(target.pathname) && !target.search;
+  const canNavigate = (target) => (allowed.has(target.pathname) && (!target.search || isCalendar(target))) || isEventPage(target);
   const today = () => {
     const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'})
       .formatToParts(new Date()).reduce((result, part) => ({...result, [part.type]: part.value}), {});
@@ -84,6 +85,7 @@
   }
 
   let prefetching = false;
+  let prefetched = false;
   let calendarPrefetching = false;
   let calendarPrefetchTarget = null;
   function scheduleCalendarNeighbors() {
@@ -111,10 +113,11 @@
     }, 150);
   }
   const prefetch = async () => {
-    if (prefetching || document.querySelector('[data-experience-editor]')) return;
+    if (prefetching || prefetched || document.querySelector('[data-experience-editor]')) return;
+    prefetched = true;
     prefetching = true;
     try {
-      for (const path of paths) {
+      for (const path of ['/my-schedule/new', '/my-schedule']) {
         if (document.hidden || document.querySelector('[data-experience-editor]')) break;
         if (!document.querySelector(`.page-nav a[href="${path}"]`)) continue;
         if (path !== location.pathname) await load(path).catch(() => {});
@@ -218,14 +221,21 @@
     return true;
   };
 
+  document.addEventListener('pointerover', event => {
+    const link = event.target.closest('.page-nav a[href]');
+    if (!link || document.hidden || document.querySelector('[data-experience-editor]')) return;
+    const target = new URL(link.href, location.href);
+    if (target.origin === location.origin && canNavigate(target) && pageKey(target) !== pageKey(new URL(location.href)))
+      load(pageKey(target)).catch(() => {});
+  });
   document.addEventListener('click', (event) => {
-    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-view-switch a[href]');
+    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-view-switch a[href], .personal-form-page a[href], .personal-side-list a[href]');
     if (!link || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
         link.target || document.querySelector('[data-experience-editor]')) return;
     const target = new URL(link.href, location.href);
-    if (target.origin !== location.origin || !canNavigate(target) ||
-        pageKey(target) === pageKey(new URL(location.href))) return;
+    if (target.origin !== location.origin || !canNavigate(target)) return;
     event.preventDefault();
+    if (pageKey(target) === pageKey(new URL(location.href))) return;
     navigate(target.href);
   });
   window.addEventListener('popstate', () => {

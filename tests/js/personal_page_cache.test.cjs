@@ -36,7 +36,7 @@ function browser({hidden = true, calendar = null, initialPath = '/my-schedule/ex
   };
   vm.runInNewContext(source, context);
   return {calls, rendered, events, document, context, assigned, emitted,
-    age: (milliseconds = 31000) => {clock += milliseconds;},
+    age: (milliseconds = 301000) => {clock += milliseconds;},
     async navigate(path) {assert.equal(context.window.awesomeInterviewNavigate(path), true); await tick();},
     async reply(call, html = call.url, status = 200) {
       call.done = true;
@@ -88,16 +88,16 @@ test('expired page displays first but background refresh does not overwrite focu
   assert.equal(app.rendered.at(-1), 'old-profile');
 });
 
-test('prefetch of expanded navigation remains sequential', async () => {
+test('initial prefetch only warms add form and calendar sequentially', async () => {
   const app = browser({hidden: false});
   app.prefetch(); await tick();
   assert.equal(app.calls.length, 1);
   assert.equal(app.calls[0].url, '/my-schedule/new');
-  for (let index = 0; index < 5; index++) {
+  for (let index = 0; index < 2; index++) {
     assert.equal(app.calls.filter(call => !call.done).length, 1);
     await app.reply(app.calls[index]);
   }
-  assert.equal(app.calls.length, 5);
+  assert.equal(app.calls.length, 2);
   assert.equal(app.calls.filter(call => !call.done).length, 0);
 });
 
@@ -209,4 +209,29 @@ test('initial default calendar URL shares the explicit today cache key', async (
   const app = browser({initialPath: '/my-schedule'});
   await app.navigate(`/my-schedule?view=day&date_value=${parts.year}-${parts.month}-${parts.day}`);
   assert.equal(app.calls.length, 0);
+});
+
+
+test('detail and edit navigation keep the calendar cache alive', async () => {
+  const app = browser();
+  const day='/my-schedule?view=day&date_value=2026-11-04';
+  await app.navigate(day);await app.reply(app.calls[0],'calendar');
+  await app.navigate('/my-schedule/events/example');await app.reply(app.calls[1],'detail');
+  await app.navigate('/my-schedule/events/example/edit');await app.reply(app.calls[2],'edit');
+  await app.navigate(day);
+  assert.equal(app.calls.length,3);assert.equal(app.rendered.at(-1),'calendar');
+});
+
+test('navigation prefetch runs once instead of rescanning expired modules', async () => {
+  const app=browser({hidden:false});
+  const pending=app.prefetch();await tick();
+  for(let index=0;index<2;index++) await app.reply(app.calls[index]);
+  await pending;app.age(600000);
+  await app.prefetch();assert.equal(app.calls.length,2);
+});
+
+test('active navigation link is prevented without another request', () => {
+  const app=browser();let prevented=false;
+  app.events.click({target:{closest:()=>({href:app.context.location.href})},preventDefault(){prevented=true;}});
+  assert.ok(prevented);assert.equal(app.calls.length,0);
 });
