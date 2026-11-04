@@ -1,4 +1,27 @@
 (() => {
+  const confirmedWeekends = new WeakMap();
+  function confirmWeekend(form, startValue, endValue) {
+    const skip = form.querySelector('[data-skip-weekends]');
+    const repeat = form.querySelector('[data-repeat-enabled]');
+    if (!skip?.checked || skip.disabled || repeat?.checked || !startValue || !endValue || endValue <= startValue) return true;
+    const weekday = value => new Date(`${value.slice(0, 10)}T00:00:00Z`).getUTCDay();
+    if (![1, 2, 3, 4, 5].includes(weekday(startValue)) || ![0, 6].includes(weekday(endValue))) return true;
+    const signature = `${startValue}|${endValue}`;
+    if (confirmedWeekends.get(form) === signature) return true;
+    if (!window.confirm('是否确认周末不展示日程？')) return false;
+    confirmedWeekends.set(form, signature);
+    return true;
+  }
+  document.addEventListener('personal:before-time-commit', event => {
+    const {form, name, value} = event.detail;
+    if (!form) return;
+    const start = form.querySelector('[name="start_at"], [name="reviewed_start"]');
+    const end = form.querySelector('[name="end_at"], [name="reviewed_end"]');
+    if (!start || !end) return;
+    const startValue = ['start_at', 'reviewed_start'].includes(name) ? value : start.value;
+    const endValue = ['end_at', 'reviewed_end'].includes(name) ? value : end.value;
+    if (!confirmWeekend(form, startValue, endValue)) event.preventDefault();
+  });
   function validate(form) {
     const start = form.querySelector('[name="start_at"], [name="reviewed_start"]');
     const end = form.querySelector('[name="end_at"], [name="reviewed_end"]');
@@ -27,7 +50,11 @@
     if (form && ['start_at', 'end_at', 'reviewed_start', 'reviewed_end', 'repeat_enabled'].includes(event.target.name)) validate(form);
   });
   document.addEventListener('submit', event => {
-    if (!validate(event.target)) {
+    const form = event.target;
+    const valid = validate(form);
+    const start = form.querySelector('[name="start_at"], [name="reviewed_start"]');
+    const end = form.querySelector('[name="end_at"], [name="reviewed_end"]');
+    if (!valid || (start && end && !confirmWeekend(form, start.value, end.value))) {
       event.preventDefault();
       event.stopImmediatePropagation();
       event.target.querySelector('[name="end_at"], [name="reviewed_end"]')?.closest('.personal-time-field')?.querySelector('[data-time-trigger]')?.focus();
