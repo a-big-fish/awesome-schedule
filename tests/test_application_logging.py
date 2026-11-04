@@ -35,7 +35,7 @@ def test_console_access_timestamp_tabs_and_formatter_restoration(tmp_path, use_c
         if use_colors:
             assert "\x1b[32mINFO\x1b[0m" in rendered
             assert "\x1b[32m200 OK\x1b[0m" in rendered
-        assert click.unstyle(rendered) == ('INFO:\t11.04:18:13\t203.149.240.173:0 - '
+        assert click.unstyle(rendered) == ('INFO:\t11.04 18:13\t203.149.240.173:0 - '
                                      '"GET /static/test.js?v=1 HTTP/1.1" 200 OK\n')
     finally:
         logs.stop()

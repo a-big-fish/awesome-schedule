@@ -18,7 +18,7 @@ class TimestampedAccessFormatter(AccessFormatter):
     def __init__(self, use_colors=None):
         super().__init__(
             '%(level_label)s:\t%(asctime)s\t%(client_addr)s - "%(request_line)s" %(status_code)s',
-            datefmt="%m.%d:%H:%M", use_colors=use_colors,
+            datefmt="%m.%d %H:%M", use_colors=use_colors,
         )
 
     def formatMessage(self, record):
@@ -29,7 +29,7 @@ class TimestampedAccessFormatter(AccessFormatter):
 
     def formatTime(self, record, datefmt=None):
         return datetime.fromtimestamp(record.created, ZoneInfo("Asia/Shanghai")).strftime(
-            datefmt or "%m.%d:%H:%M"
+            datefmt or "%m.%d %H:%M"
         )
 
 
