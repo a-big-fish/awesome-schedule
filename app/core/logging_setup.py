@@ -4,8 +4,27 @@ import copy
 import logging
 import queue
 import traceback
+from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from uvicorn.logging import AccessFormatter
+
+
+class TimestampedAccessFormatter(AccessFormatter):
+    """Console access logs with tab separators and Beijing timestamps."""
+
+    def __init__(self):
+        super().__init__(
+            '%(levelname)s:\t%(asctime)s\t%(client_addr)s - "%(request_line)s" %(status_code)s',
+            datefmt="%m.%d:%H:%M", use_colors=False,
+        )
+
+    def formatTime(self, record, datefmt=None):
+        return datetime.fromtimestamp(record.created, ZoneInfo("Asia/Shanghai")).strftime(
+            datefmt or "%m.%d:%H:%M"
+        )
 
 
 class SafeFormatter(logging.Formatter):
@@ -76,6 +95,11 @@ class ApplicationLogs:
 
     def start(self):
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.console_formatters = []
+        for handler in logging.getLogger("uvicorn.access").handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                self.console_formatters.append((handler, handler.formatter))
+                handler.setFormatter(TimestampedAccessFormatter())
         formatter = SafeFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         self.files = []
         for name in ("app.log", "error.log"):
@@ -103,6 +127,8 @@ class ApplicationLogs:
             return
         for logger in self.loggers:
             logger.removeHandler(self.handler)
+        for handler, formatter in self.console_formatters:
+            handler.setFormatter(formatter)
         # Drain before the sentinel, including when the bounded queue was full.
         self.queue.join()
         self.listener.stop()

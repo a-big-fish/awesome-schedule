@@ -1,4 +1,7 @@
 import logging
+import io
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from psycopg import OperationalError
@@ -6,6 +9,30 @@ from psycopg import OperationalError
 from app.core.config import Settings
 from app.core.logging_setup import ApplicationLogs
 from app.main import create_app
+
+
+def test_console_access_timestamp_tabs_and_formatter_restoration(tmp_path):
+    logger = logging.getLogger("uvicorn.access")
+    output = io.StringIO()
+    handler = logging.StreamHandler(output)
+    original = logging.Formatter("%(message)s")
+    handler.setFormatter(original)
+    logger.addHandler(handler)
+    logs = ApplicationLogs(str(tmp_path), 100000, 2)
+    try:
+        logs.start()
+        record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1,
+                                   '%s - "%s %s HTTP/%s" %d',
+                                   ("203.149.240.173:0", "GET", "/static/test.js?v=1", "1.1", 200), None)
+        record.created = datetime(2026, 11, 4, 18, 13, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
+        handler.handle(record)
+        assert output.getvalue() == ('INFO:\t11.04:18:13\t203.149.240.173:0 - '
+                                     '"GET /static/test.js?v=1 HTTP/1.1" 200 OK\n')
+    finally:
+        logs.stop()
+        logger.removeHandler(handler)
+        handler.close()
+    assert handler.formatter is original
 
 
 def test_files_split_errors_and_strip_access_query_and_exception_values(tmp_path):
