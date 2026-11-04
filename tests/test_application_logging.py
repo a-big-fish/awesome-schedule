@@ -1,21 +1,25 @@
 import logging
 import io
+import click
+import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 from psycopg import OperationalError
+from uvicorn.logging import AccessFormatter
 
 from app.core.config import Settings
 from app.core.logging_setup import ApplicationLogs
 from app.main import create_app
 
 
-def test_console_access_timestamp_tabs_and_formatter_restoration(tmp_path):
+@pytest.mark.parametrize("use_colors", [False, True])
+def test_console_access_timestamp_tabs_and_formatter_restoration(tmp_path, use_colors):
     logger = logging.getLogger("uvicorn.access")
     output = io.StringIO()
     handler = logging.StreamHandler(output)
-    original = logging.Formatter("%(message)s")
+    original = AccessFormatter(use_colors=use_colors)
     handler.setFormatter(original)
     logger.addHandler(handler)
     logs = ApplicationLogs(str(tmp_path), 100000, 2)
@@ -26,7 +30,12 @@ def test_console_access_timestamp_tabs_and_formatter_restoration(tmp_path):
                                    ("203.149.240.173:0", "GET", "/static/test.js?v=1", "1.1", 200), None)
         record.created = datetime(2026, 11, 4, 18, 13, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp()
         handler.handle(record)
-        assert output.getvalue() == ('INFO:\t11.04:18:13\t203.149.240.173:0 - '
+        rendered = output.getvalue()
+        assert ("\x1b[" in rendered) is use_colors
+        if use_colors:
+            assert "\x1b[32mINFO\x1b[0m" in rendered
+            assert "\x1b[32m200 OK\x1b[0m" in rendered
+        assert click.unstyle(rendered) == ('INFO:\t11.04:18:13\t203.149.240.173:0 - '
                                      '"GET /static/test.js?v=1 HTTP/1.1" 200 OK\n')
     finally:
         logs.stop()

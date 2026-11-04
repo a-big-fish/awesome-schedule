@@ -15,11 +15,17 @@ from uvicorn.logging import AccessFormatter
 class TimestampedAccessFormatter(AccessFormatter):
     """Console access logs with tab separators and Beijing timestamps."""
 
-    def __init__(self):
+    def __init__(self, use_colors=None):
         super().__init__(
-            '%(levelname)s:\t%(asctime)s\t%(client_addr)s - "%(request_line)s" %(status_code)s',
-            datefmt="%m.%d:%H:%M", use_colors=False,
+            '%(level_label)s:\t%(asctime)s\t%(client_addr)s - "%(request_line)s" %(status_code)s',
+            datefmt="%m.%d:%H:%M", use_colors=use_colors,
         )
+
+    def formatMessage(self, record):
+        record = copy.copy(record)
+        record.level_label = (self.color_level_name(record.levelname, record.levelno)
+                              if self.use_colors else record.levelname)
+        return super().formatMessage(record)
 
     def formatTime(self, record, datefmt=None):
         return datetime.fromtimestamp(record.created, ZoneInfo("Asia/Shanghai")).strftime(
@@ -99,7 +105,8 @@ class ApplicationLogs:
         for handler in logging.getLogger("uvicorn.access").handlers:
             if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
                 self.console_formatters.append((handler, handler.formatter))
-                handler.setFormatter(TimestampedAccessFormatter())
+                use_colors = getattr(handler.formatter, "use_colors", handler.stream.isatty())
+                handler.setFormatter(TimestampedAccessFormatter(use_colors=use_colors))
         formatter = SafeFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         self.files = []
         for name in ("app.log", "error.log"):
