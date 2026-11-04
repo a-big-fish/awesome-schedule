@@ -151,9 +151,6 @@ function initTimePicker() {
       error.textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
       return;
     }
-    const beforeCommit = new CustomEvent('personal:before-time-commit', {cancelable: true,
-      detail: {form: activeField.closest('form'), name: value.name, value: next}});
-    if (!document.dispatchEvent(beforeCommit)) return;
     value.value = next;
     activeField.dataset.timeMode = dateOnly ? 'date' : 'time';
     activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
