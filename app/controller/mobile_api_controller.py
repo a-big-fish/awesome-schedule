@@ -33,7 +33,7 @@ class NativeEventInput(BaseModel):
     reminder_offsets_minutes: list[int] = Field(default_factory=list)
     confirm_overlap: bool = False
     raw_invitation: str | None = None
-    skip_weekends: bool = False
+    skip_weekends: bool | None = None
     repeat_weekdays: list[int] = Field(default_factory=list)
     location_url: str | None = None
     reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
@@ -166,6 +166,10 @@ def _author(owner_id: str, users: dict) -> str:
         return user.display_name
     if user and user.email:
         return f"热心用户_{user.email.split('@', 1)[0][:3]}"
+    if user and user.username:
+        return user.username
+    if owner_id == "local":
+        return "本地用户"
     return f"用户 #{owner_id.replace('-', '')[:8]}"
 
 

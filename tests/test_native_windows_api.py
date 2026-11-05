@@ -65,6 +65,8 @@ def test_native_event_extended_fields_and_legacy_update_preservation(tmp_path):
         updated = client.put(f"/api/mobile/v1/events/{event_id}", json=legacy, headers=headers)
         assert updated.status_code == 200 and updated.json()["skip_weekends"] is True
         assert updated.json()["reference_links"][0]["title"] == "教程"
+        defaulted = client.post("/api/mobile/v1/events", json={**legacy, "title": "保持默认跳过周末", "confirm_overlap": True}, headers=headers)
+        assert defaulted.status_code == 201 and defaulted.json()["skip_weekends"] is True
         client.post(f"/api/mobile/v1/events/{event_id}/completion", json={"completed": True}, headers=headers)
         # Existing recurrence/cancellation validation errors must remain controlled 422s.
         invalid = client.post("/api/mobile/v1/events", json={**payload, "title": "无效重复", "repeat_weekdays": [9]}, headers=headers)
