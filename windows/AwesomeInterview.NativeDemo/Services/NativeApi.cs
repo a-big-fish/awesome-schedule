@@ -1,0 +1,89 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace AwesomeInterview.NativeDemo.Data;
+
+public sealed class ApiFailure : Exception
+{
+    public int Status { get; }
+    public ApiFailure(int status, string message) : base(message) => Status = status;
+}
+
+public sealed class NativeApi : IDisposable
+{
+    readonly CookieContainer cookies = new();
+    readonly HttpClient http;
+    public Uri Server { get; }
+    public SessionInfo? Session { get; private set; }
+    public NativeApi(string address, HttpMessageHandler? transport = null)
+    {
+        var uri = new Uri(address.Trim());
+        if (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback)) throw new ArgumentException("服务地址必须使用 HTTPS；本机调试可用 HTTP。");
+        if (!string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query != "" || uri.Fragment != "") throw new ArgumentException("请填写网站根地址，不包含路径、参数或账号。");
+        Server = uri;
+        http = new HttpClient(transport ?? new HttpClientHandler { CookieContainer = cookies, AllowAutoRedirect = false }) { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(15) };
+    }
+    public string? SessionCookie => cookies.GetCookies(Server)["schedule_session"]?.Value;
+    public void RestoreCookie(string value) => cookies.Add(Server, new Cookie("schedule_session", value, "/") { Secure = Server.Scheme == "https", HttpOnly = true });
+    public async Task LoginAsync(string identifier, string password, CancellationToken cancellation = default)
+    {
+        using var page = await http.GetAsync("auth/login", cancellation);
+        if (page.StatusCode != HttpStatusCode.OK && page.StatusCode != HttpStatusCode.SeeOther) throw Failure((int)page.StatusCode);
+        var csrf = cookies.GetCookies(Server)["schedule_guest_csrf"]?.Value;
+        if (csrf == null) throw new ApiFailure(403, "无法建立登录会话，请重试。");
+        using var response = await http.PostAsync("auth/login", new FormUrlEncodedContent(new Dictionary<string,string> {
+            ["identifier"] = identifier, ["password"] = password, ["csrf_token"] = csrf, ["next"] = "/my-schedule"
+        }), cancellation);
+        if (response.StatusCode != HttpStatusCode.SeeOther) throw Failure((int)response.StatusCode);
+        await ConnectAsync(cancellation);
+    }
+    public async Task ConnectAsync(CancellationToken cancellation = default)
+    {
+        var session = await GetAsync<SessionInfo>("api/mobile/v1/session", cancellation);
+        if (string.IsNullOrWhiteSpace(session.UserId) || string.IsNullOrWhiteSpace(session.CsrfToken)) throw new InvalidDataException("服务端会话格式无效。");
+        Session = session;
+    }
+    public async Task<Snapshot> SnapshotAsync(CancellationToken cancellation = default)
+    {
+        var owner = Session?.UserId ?? throw new ApiFailure(401, "请先登录。");
+        var snapshot = await GetAsync<Snapshot>("api/mobile/v1/snapshot", cancellation);
+        snapshot.Validate(owner); return snapshot;
+    }
+    public async Task<T> GetAsync<T>(string path, CancellationToken cancellation = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        return await SendAsync<T>(request, cancellation);
+    }
+    public async Task<T> WriteAsync<T>(HttpMethod method, string path, object payload, CancellationToken cancellation = default)
+    {
+        using var request = new HttpRequestMessage(method, path) { Content = new StringContent(JsonSerializer.Serialize(payload, Wire.Json), Encoding.UTF8, "application/json") };
+        request.Headers.Add("X-CSRF-Token", Session?.CsrfToken ?? throw new ApiFailure(401, "请先登录。"));
+        return await SendAsync<T>(request, cancellation);
+    }
+    async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken cancellation)
+    {
+        using var response = await http.SendAsync(request, cancellation);
+        if (!response.IsSuccessStatusCode) throw Failure((int)response.StatusCode);
+        if (response.Content.Headers.ContentType?.MediaType != "application/json") throw new ApiFailure(401, "会话失效或服务未返回 JSON，请重新登录。");
+        var text = await response.Content.ReadAsStringAsync(cancellation);
+        return Wire.Read<T>(text);
+    }
+    public async Task LogoutAsync()
+    {
+        if (Session != null) { using var response = await http.PostAsync("auth/logout", new FormUrlEncodedContent(new Dictionary<string,string> { ["csrf_token"] = Session.CsrfToken })); }
+        Session = null;
+    }
+    static ApiFailure Failure(int status) => new(status, status switch {
+        301 or 302 or 303 or 307 or 401 => "登录已过期，请重新登录。", 403 => "会话校验失败，请重新登录。",
+        404 => "内容已删除或服务器尚未支持此接口。", 409 => "与已有日程重叠，请核对后确认保存。",
+        422 => "提交的数据不符合要求，请检查时间和内容。", 429 => "请求过于频繁，请稍后再试。",
+        503 => "数据库暂时不可用；保留缓存，可稍后手动同步。", _ => $"服务请求失败（{status}），请稍后重试。" });
+    public void Dispose() => http.Dispose();
+}
