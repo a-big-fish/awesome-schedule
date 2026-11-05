@@ -10,6 +10,7 @@ from app.core.dependencies import (get_interview_experience_service, get_persona
 from app.core.exceptions import PersonalEventConflictWarning
 from app.core.exceptions import MeetingParseError
 from app.model.personal_event import PersonalEventType
+from app.model.personal_event import ReferenceLink
 from app.service.interview_experience_service import InterviewExperienceService
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.personal_todo_service import PersonalTodoService
@@ -32,6 +33,10 @@ class NativeEventInput(BaseModel):
     reminder_offsets_minutes: list[int] = Field(default_factory=list)
     confirm_overlap: bool = False
     raw_invitation: str | None = None
+    skip_weekends: bool = False
+    repeat_weekdays: list[int] = Field(default_factory=list)
+    location_url: str | None = None
+    reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
 
 
 class NativeInvitationInput(BaseModel):
@@ -67,6 +72,10 @@ def create_event(payload: NativeEventInput,
                       timezone=payload.timezone, position=payload.position,
                       location_text=payload.location_text, note=payload.note,
                       reminder_offsets_minutes=payload.reminder_offsets_minutes,
+                      skip_weekends=payload.skip_weekends,
+                      repeat_weekdays=payload.repeat_weekdays,
+                      location_url=payload.location_url,
+                      reference_links=[link.model_dump(mode="json") for link in payload.reference_links],
                       confirm_overlap=payload.confirm_overlap)
         event = (schedule.create_from_invitation(payload.raw_invitation, **fields)
                  if payload.raw_invitation else schedule.create_manual(**fields))
@@ -88,6 +97,8 @@ def update_event(event_id: str, payload: NativeEventInput,
             timezone=payload.timezone, position=payload.position,
             location_text=payload.location_text, note=payload.note,
             reminder_offsets_minutes=payload.reminder_offsets_minutes,
+            **{key: value for key, value in payload.model_dump(mode="python", exclude_unset=True).items()
+               if key in {"skip_weekends", "repeat_weekdays", "location_url", "reference_links"}},
             confirm_overlap=payload.confirm_overlap,
         )
     except LookupError as error:
@@ -115,7 +126,79 @@ def complete_event(event_id: str, payload: NativeCompletionInput,
         event = schedule.set_event_completed(event_id, payload.completed)
     except LookupError as error:
         raise HTTPException(404, detail="日程不存在") from error
+    except ValueError as error:
+        raise _event_error(error) from error
     return event.model_dump(mode="json", exclude={"raw_invitation"})
+
+
+def _profile(user) -> dict:
+    """Explicit allowlist; never serialize AuthUser/password_hash to clients."""
+    return {"user_id": user.id, "display_name": user.display_name,
+            "email": user.email, "workday_start": user.workday_start,
+            "workday_end": user.workday_end}
+
+
+class NativeProfileInput(BaseModel):
+    display_name: str = Field(min_length=1, max_length=40)
+
+
+@router.get("/profile")
+def profile(request: Request, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return _profile(request.state.user)
+
+
+@router.put("/profile")
+def update_profile(payload: NativeProfileInput, request: Request, response: Response) -> dict:
+    user = request.state.user
+    try:
+        updated = request.app.state.auth_service.update_preferences(
+            user.id, payload.display_name, user.workday_start, user.workday_end)
+    except ValueError as error:
+        raise _event_error(error) from error
+    response.headers["Cache-Control"] = "no-store"
+    return _profile(updated)
+
+
+def _author(owner_id: str, users: dict) -> str:
+    user = users.get(owner_id)
+    if user and user.display_name:
+        return user.display_name
+    if user and user.email:
+        return f"热心用户_{user.email.split('@', 1)[0][:3]}"
+    return f"用户 #{owner_id.replace('-', '')[:8]}"
+
+
+@router.get("/plaza")
+def plaza(request: Request, response: Response, company: str = "", order: str = "newest", page: int = 1,
+          service: InterviewExperienceService = Depends(get_interview_experience_service)) -> dict:
+    """Typed native equivalent of Web's HTML batches, with the same visibility rules."""
+    page = max(1, page)
+    rows, total = service.list_plaza(company.strip()[:200], order if order in {"newest", "oldest"} else "newest", page)
+    users = request.app.state.auth_service.mapper.get_users(list({row["experience"].owner_id for row in rows}))
+    items = []
+    for row in rows:
+        item = row["experience"]
+        items.append({"id": item.id, "title": item.title, "company": item.company,
+                      "position": item.position, "interviewed_at": item.interviewed_at,
+                      "interview_round": item.interview_round, "author": _author(item.owner_id, users),
+                      "question_count": row.get("question_count", 0)})
+    response.headers["Cache-Control"] = "no-store"
+    return {"items": items, "total": total, "next_page": page + 1 if page * 20 < total else None}
+
+
+@router.get("/plaza/{experience_id}")
+def plaza_detail(experience_id: str, request: Request, response: Response,
+                 service: InterviewExperienceService = Depends(get_interview_experience_service)) -> dict:
+    result = service.get_public_experience(experience_id)
+    if result is None:
+        raise HTTPException(404, "面经不存在或未公开")
+    item, questions = result
+    users = request.app.state.auth_service.mapper.get_users([item.owner_id])
+    response.headers["Cache-Control"] = "no-store"
+    return {"experience": {**item.model_dump(mode="json", exclude={"raw_text_draft"}),
+                           "questions": [q.model_dump(mode="json") for q in questions]},
+            "author": _author(item.owner_id, users)}
 
 
 @router.get("/snapshot")
