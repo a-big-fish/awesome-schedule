@@ -1,3 +1,3 @@
 using System.Windows;
 namespace AwesomeInterview.NativeDemo;
-public partial class App : Application { protected override void OnStartup(StartupEventArgs e) { base.OnStartup(e); new MainWindow().Show(); } }
+public partial class App : System.Windows.Application { protected override void OnStartup(StartupEventArgs e) { base.OnStartup(e); new MainWindow().Show(); } }
