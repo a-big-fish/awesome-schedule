@@ -14,6 +14,10 @@ public static class Wire
 }
 
 public record SessionInfo(string UserId, string CsrfToken);
+public record ProfileData(string UserId, string? DisplayName, string? Email, string WorkdayStart, string WorkdayEnd);
+public record PlazaItem(string Id, string Title, string? Company, string? Position, DateTimeOffset? InterviewedAt, string? InterviewRound, string Author, int QuestionCount);
+public record PlazaBatch(List<PlazaItem> Items, int Total, int? NextPage);
+public record PublicExperience(ExperienceData Experience, string Author);
 public record ReferenceLink(string Title, string Url);
 public record EventData
 {

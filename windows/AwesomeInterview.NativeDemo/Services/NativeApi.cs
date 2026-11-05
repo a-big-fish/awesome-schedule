@@ -13,6 +13,7 @@ namespace AwesomeInterview.NativeDemo.Data;
 public sealed class ApiFailure : Exception
 {
     public int Status { get; }
+    public IReadOnlyList<string> ConflictTitles { get; init; } = Array.Empty<string>();
     public ApiFailure(int status, string message) : base(message) => Status = status;
 }
 
@@ -70,7 +71,20 @@ public sealed class NativeApi : IDisposable
     async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken cancellation)
     {
         using var response = await http.SendAsync(request, cancellation);
-        if (!response.IsSuccessStatusCode) throw Failure((int)response.StatusCode);
+        if (!response.IsSuccessStatusCode)
+        {
+            if (response.StatusCode==HttpStatusCode.Conflict && response.Content.Headers.ContentType?.MediaType=="application/json")
+            {
+                try {
+                    using var data=JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
+                    if(data.RootElement.TryGetProperty("detail",out var detail) && detail.ValueKind==JsonValueKind.Object && detail.TryGetProperty("conflicts",out var list) && list.ValueKind==JsonValueKind.Array) {
+                        var names=new List<string>();foreach(var item in list.EnumerateArray())if(item.ValueKind==JsonValueKind.String && names.Count<20)names.Add((item.GetString()??"")[..Math.Min(200,item.GetString()!.Length)]);
+                        throw new ApiFailure(409,"与已有日程重叠，请确认后保存。") { ConflictTitles=names };
+                    }
+                } catch(JsonException) { }
+            }
+            throw Failure((int)response.StatusCode);
+        }
         if (response.Content.Headers.ContentType?.MediaType != "application/json") throw new ApiFailure(401, "会话失效或服务未返回 JSON，请重新登录。");
         var text = await response.Content.ReadAsStringAsync(cancellation);
         return Wire.Read<T>(text);
@@ -79,6 +93,20 @@ public sealed class NativeApi : IDisposable
     {
         if (Session != null) { using var response = await http.PostAsync("auth/logout", new FormUrlEncodedContent(new Dictionary<string,string> { ["csrf_token"] = Session.CsrfToken })); }
         Session = null;
+    }
+    public async Task<byte[]> DownloadAsync(string path, string expectedType)
+    {
+        using var response = await http.GetAsync(path);
+        if (!response.IsSuccessStatusCode) throw Failure((int)response.StatusCode);
+        if (response.Content.Headers.ContentType?.MediaType != expectedType) throw new ApiFailure(401,"下载内容无效或登录已过期。");
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+    public async Task DeleteEventAsync(string id)
+    {
+        using var request=new HttpRequestMessage(HttpMethod.Delete,"api/mobile/v1/events/"+Uri.EscapeDataString(id));
+        request.Headers.Add("X-CSRF-Token",Session?.CsrfToken??throw new ApiFailure(401,"请先登录。"));
+        using var response=await http.SendAsync(request);
+        if(response.StatusCode!=HttpStatusCode.NoContent)throw Failure((int)response.StatusCode);
     }
     static ApiFailure Failure(int status) => new(status, status switch {
         301 or 302 or 303 or 307 or 401 => "登录已过期，请重新登录。", 403 => "会话校验失败，请重新登录。",

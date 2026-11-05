@@ -36,7 +36,7 @@ public partial class MainWindow
         menu.Items.Add("设置", null, (_, _) => Dispatcher.Invoke(() => { RestoreMain(); ShowSettings(); }));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("退出应用", null, (_, _) => Dispatcher.Invoke(() => { if (CanLeaveForm()) { exiting = true; Close(); } }));
-        tray = new Forms.NotifyIcon { Text = "Awesome Interview · 本地演示", ContextMenuStrip = menu,
+        tray = new Forms.NotifyIcon { Text = "Awesome Interview", ContextMenuStrip = menu,
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Visible = true };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreMain);
         Closing += (_, args) => {
@@ -51,7 +51,10 @@ public partial class MainWindow
             }
         };
         Closed += (_, _) => { exiting = true; dayTimer.Stop(); portable?.Close(); tray?.Dispose(); System.Windows.Application.Current.Shutdown(); };
-        dayTimer.Tick += (_, _) => { if (portableDay != DateTime.Today) { portableDay = DateTime.Today; RefreshPortable(); } };
+        dayTimer.Tick += (_, _) => {
+            if (portableDay != DateTime.Today) { portableDay = DateTime.Today; RefreshPortable(); if(page=="today"&&!formDirty)ShowTasks(false); }
+            if(repository.Online&&!repository.Busy&&repository.Current!=null&&DateTimeOffset.UtcNow-repository.Current.ServerTime>TimeSpan.FromHours(18))Run(repository.SynchronizeAsync);
+        };
         dayTimer.Start();
     }
 
@@ -74,30 +77,19 @@ public partial class MainWindow
 
     void ToggleTask(DemoTask task)
     {
-        int index = tasks.IndexOf(task);
-        if (index < 0) return;
-        tasks[index] = task with { Completed = !task.Completed };
-        if (!Save()) tasks[index] = task;
-        RefreshPortable();
+        if(task.Event != null) Run(()=>repository.CompleteAsync(task.Event));
     }
 
     void ShowTaskDetail(DemoTask task)
     {
-        var body = new StackPanel { Margin = new Thickness(24) };
-        body.Children.Add(new TextBlock { Text = task.Title, FontSize = 24, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        body.Children.Add(new TextBlock { Text = $"{task.Day:yyyy-MM-dd}  ·  {(task.StartTime.HasValue ? task.StartTime.Value.ToString(@"hh\:mm") + "–" + task.EndTime?.ToString(@"hh\:mm") : "未指定时间")}", Margin = new Thickness(0,18,0,16) });
-        body.Children.Add(new TextBlock { Text = string.IsNullOrEmpty(task.Note) ? "未填写备注" : task.Note, TextWrapping = TextWrapping.Wrap });
-        var dialog = new Window { Title = "任务详情 · 本地演示", Owner = IsVisible ? this : portable, Width = 540, Height = 360,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new ScrollViewer { Content = body }, UseLayoutRounding = true };
-        body.Children.Add(Button("关闭", () => dialog.Close()));
-        dialog.ShowDialog();
+        if(task.Event != null)ShowEventDetail(task.Event);
     }
 
     void TogglePortable()
     {
         if (portable != null) { portable.Close(); return; }
         portableContent = new StackPanel { Margin = new Thickness(20) };
-        portable = new Window { Title = "随身日程 · 本地演示", Width = 720, Height = 620, MinWidth = 540, MinHeight = 400,
+        portable = new Window { Title = "随身日程", Width = 720, Height = 620, MinWidth = 540, MinHeight = 400,
             Background = Brush("#F4F6FB"), FontFamily = FontFamily, FontSize = 14, UseLayoutRounding = true, SnapsToDevicePixels = true,
             Content = new ScrollViewer { Content = portableContent, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
@@ -109,9 +101,10 @@ public partial class MainWindow
     void RefreshPortable()
     {
         if (portableContent == null) return;
+        ProjectTasks(DateTime.Today);
         portableContent.Children.Clear();
         portableContent.Children.Add(new TextBlock { Text = $"{DateTime.Today:MM月dd日 dddd}", FontSize = 24, FontWeight = FontWeights.SemiBold });
-        portableContent.Children.Add(new TextBlock { Text = "仅本地演示数据 · 时间轴按当天时间显示", Foreground = Brushes.SlateGray, Margin = new Thickness(0,8,0,16) });
+        portableContent.Children.Add(new TextBlock { Text = repository.Online ? "与账号同步" : "缓存只读 · 连接后可完成或恢复", Foreground = Brushes.SlateGray, Margin = new Thickness(0,8,0,16) });
         var dayTasks = tasks.Where(t => t.Day.Date == DateTime.Today).ToList();
         var timeline = new Canvas { Height = 960, Background = Brushes.White, Margin = new Thickness(0,8,0,16) };
         for (int hour=0; hour<24; hour++) {
@@ -138,7 +131,8 @@ public partial class MainWindow
             if (entries.Count==0) list.Children.Add(new TextBlock { Text = completed?"今日暂无已完成任务":"当日暂无待完成任务", Margin=new Thickness(0,12,0,12) });
             foreach (var task in entries) {
                 var row = new DockPanel { Margin = new Thickness(0,5,0,5) };
-                var action = Button(completed?"恢复":"完成", () => { ToggleTask(task); if (heading.Text.Contains("日程") || heading.Text.Contains("专注")) ShowTasks(true); });
+                var action = Button(completed?"恢复":"完成", () => ToggleTask(task));
+                action.IsEnabled=repository.Online&&!repository.Busy&&task.Event?.CancelledAt==null;
                 DockPanel.SetDock(action,Dock.Right); row.Children.Add(action);
                 var detail = Button(task.Title, () => ShowTaskDetail(task)); detail.HorizontalContentAlignment=HorizontalAlignment.Left; row.Children.Add(detail); list.Children.Add(row);
             }
@@ -148,19 +142,19 @@ public partial class MainWindow
 
     void ShowSettings()
     {
-        bSelect("设置与版本"); Begin("设置与版本");
-        Paragraph("Awesome Interview 1.2.0-W · Windows 原生演示版");
+        page="settings";bSelect("设置与版本"); Begin("设置与版本","账号偏好与桌面行为");
+        var body=new StackPanel{MaxWidth=720,HorizontalAlignment=HorizontalAlignment.Left};
+        body.Children.Add(Text("桌面行为",19,margin:new Thickness(0,0,0,16)));
         var keep = new CheckBox { Content="关闭窗口后保留在系统托盘", IsChecked=preferences.CloseToTray, Margin=new Thickness(0,8,0,16) };
-        content.Children.Add(keep);
-        content.Children.Add(new TextBlock { Text="演示用户名（仅本机，不修改正式账号）" });
-        var name = new TextBox { Text=preferences.DemoName, MaxLength=40 }; content.Children.Add(name);
-        var feedback = new TextBlock { TextWrapping=TextWrapping.Wrap }; content.Children.Add(feedback);
-        content.Children.Add(Button("保存设置", () => {
-            if(string.IsNullOrWhiteSpace(name.Text)){feedback.Text="用户名不能为空。";return;}
-            var previous=preferences; preferences=preferences with { CloseToTray=keep.IsChecked==true, DemoName=name.Text.Trim() };
+        body.Children.Add(keep);
+        var feedback = new TextBlock { TextWrapping=TextWrapping.Wrap }; body.Children.Add(feedback);
+        body.Children.Add(Button("保存窗口设置", () => {
+            var previous=preferences; preferences=preferences with { CloseToTray=keep.IsChecked==true };
             if(SavePreferences())feedback.Text="设置已保存，下次关闭窗口立即生效。";else {preferences=previous;feedback.Text="保存失败，已保留原设置。";}
         }));
-        content.Children.Add(Button("开启 / 关闭随身日程", TogglePortable));
-        Paragraph("当前未登录。正式账号用户名修改、只读邮箱将在鉴权接入后提供。随身日程支持原生时间轴、当日列表、完成恢复与详情；透明和鼠标穿透仍在规划。旧任务未指定时间时仅显示在列表。");
+        body.Children.Add(Button("开启 / 关闭随身日程", TogglePortable));
+        ShowProfileSettings(body);
+        body.Children.Add(Text("版本",19,margin:new Thickness(0,28,0,12)));body.Children.Add(Text("Awesome Interview 1.3.0-W\nWindows 原生预览 · WPF / .NET 10",14,"#64748B"));
+        content.Children.Add(Surface(body,new Thickness(28)));
     }
 }

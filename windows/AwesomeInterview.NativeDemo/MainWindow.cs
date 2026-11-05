@@ -1,74 +1,129 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Collections.ObjectModel;
 using System.IO;
-using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using AwesomeInterview.NativeDemo.Data;
+
 namespace AwesomeInterview.NativeDemo;
-public record DemoTask(string Title, DateTime Day, string Note, bool Completed = false, TimeSpan? StartTime = null, TimeSpan? EndTime = null);
-public partial class MainWindow : Window {
+
+// Widget view projection; authoritative state lives in WorkspaceRepository, never in this list.
+public record DemoTask(string Title, DateTime Day, string Note, bool Completed = false, TimeSpan? StartTime = null, TimeSpan? EndTime = null, EventData? Event = null);
+public partial class MainWindow : Window
+{
     readonly string dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AwesomeInterviewNativeDemo", "demo-tasks.json");
+    readonly WorkspaceRepository repository = new();
     List<DemoTask> tasks = new();
     readonly StackPanel content = new();
-    readonly TextBlock heading = new() { FontSize = 28, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0,0,0,8) };
-    readonly TextBlock status = new() { Foreground = Brushes.SlateGray, TextWrapping = TextWrapping.Wrap };
+    readonly TextBlock heading = new() { FontSize=28, FontWeight=FontWeights.SemiBold, Margin=new(0,0,0,6) };
+    readonly TextBlock status = new() { Foreground=Brush("#64748B"), TextWrapping=TextWrapping.Wrap, FontSize=12, VerticalAlignment=VerticalAlignment.Center };
     readonly List<Button> nav = new();
+    readonly TextBlock connectionLabel = new() { Text="尚未登录", Foreground=Brush("#64748B"), FontSize=12, TextWrapping=TextWrapping.Wrap };
+    readonly TextBlock subtitle = new() { Foreground=Brush("#64748B"), Margin=new(0,0,0,24) };
     DateTime selected = DateTime.Today;
-    public MainWindow() {
-        Title = "Awesome Interview · Windows 原生预览 1.2.0-W"; Width=1240; Height=820; MinWidth=840; MinHeight=580;
-        UseLayoutRounding = true;
-        SnapsToDevicePixels = true;
-        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
-        TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
-        WindowStartupLocation=WindowStartupLocation.CenterScreen; Background=Brush("#F4F6FB"); FontFamily=new FontFamily("Microsoft YaHei UI"); FontSize=15;
-        try { if(File.Exists(dataPath)) tasks=JsonSerializer.Deserialize<List<DemoTask>>(File.ReadAllText(dataPath)) ?? new(); }
-        catch { status.Text="本地示例文件无法读取，已使用演示数据；保存后可重建。"; }
-        if(!File.Exists(dataPath)) tasks=new() { new("准备项目介绍", DateTime.Today, "整理项目亮点、难点和个人贡献。"), new("模拟技术面试", DateTime.Today, "示例数据：复习数据库索引与并发控制。"), new("整理面试复盘", DateTime.Today.AddDays(1), "记录追问和待补充知识。") };
-        var shell=new Grid(); shell.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(224)}); shell.ColumnDefinitions.Add(new ColumnDefinition()); Content=shell;
-        var sidebar=new StackPanel{Margin=new Thickness(18,28,18,18)};
-        var sideBorder=new Border{Background=Brush("#FFFFFF"),BorderBrush=Brush("#E1E7F0"),BorderThickness=new Thickness(0,0,1,0),Child=sidebar}; shell.Children.Add(sideBorder);
-        var brand = new StackPanel { Orientation=Orientation.Horizontal, Margin=new Thickness(8,0,0,28) };
-        brand.Children.Add(new Image { Source=new BitmapImage(new Uri("pack://application:,,,/Assets/logo2.png")), Width=36, Height=36, Margin=new Thickness(0,0,10,0) });
-        brand.Children.Add(new TextBlock { Text="Awesome\nInterview", FontSize=17, FontWeight=FontWeights.SemiBold, Foreground=Brush("#172442"), VerticalAlignment=VerticalAlignment.Center });
-        sidebar.Children.Add(brand);
-        AddNav(sidebar,"今日待办",()=>ShowTasks(false)); AddNav(sidebar,"日历与日程",ShowCalendar); AddNav(sidebar,"添加日程",ShowAdd); AddNav(sidebar,"面经预览",ShowExperience); AddNav(sidebar,"设置与版本",ShowSettings);
-        sidebar.Children.Add(new TextBlock{Text="本地交互 Demo\n未连接服务器\n数据与正式账号完全隔离".Replace("\n","\n"),Foreground=Brush("#64748B"),TextWrapping=TextWrapping.Wrap,Margin=new Thickness(12,40,8,0)});
-        var main=new DockPanel{Margin=new Thickness(36,32,36,24)};Grid.SetColumn(main,1);shell.Children.Add(main);
-        var top=new StackPanel();top.Children.Add(heading);top.Children.Add(new TextBlock{Text="安排好今天，从容面对每一次机会",Foreground=Brushes.SlateGray,Margin=new Thickness(0,0,0,20)});DockPanel.SetDock(top,Dock.Top);main.Children.Add(top);
-        DockPanel.SetDock(status,Dock.Bottom);main.Children.Add(status);
-        main.Children.Add(new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled});
-        InitializeDesktopFeatures();
+    string page = "today", calendarView = "week";
+    bool hideCompleted;
+
+    public MainWindow()
+    {
+        Title="Awesome Interview · Windows 1.3.0-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
+        TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
+        Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;
+        var shell=new Grid(); shell.ColumnDefinitions.Add(new(){Width=new(224)}); shell.ColumnDefinitions.Add(new()); Content=shell;
+        var side=new DockPanel{Margin=new(18,26,18,20)};
+        shell.Children.Add(new Border{Background=Brushes.White,BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,0,1,0),Child=side});
+        var brand=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(8,0,0,30)};
+        brand.Children.Add(new Image{Source=new BitmapImage(new Uri("pack://application:,,,/Assets/logo2.png")),Width=34,Height=34,Margin=new(0,0,10,0)});
+        brand.Children.Add(new TextBlock{Text="Awesome\nInterview",FontSize=17,FontWeight=FontWeights.SemiBold}); DockPanel.SetDock(brand,Dock.Top); side.Children.Add(brand);
+        var bottom=new StackPanel{Margin=new(12,18,8,0)}; bottom.Children.Add(connectionLabel);
+        bottom.Children.Add(Button("账号与同步",()=>Navigate(ShowAccount))); DockPanel.SetDock(bottom,Dock.Bottom); side.Children.Add(bottom);
+        var links=new StackPanel(); AddNav(links,"今日待办","\uE8FD",()=>ShowTasks(false)); AddNav(links,"日历与日程","\uE787",ShowCalendar);
+        AddNav(links,"添加日程","\uE710",ShowAdd); AddNav(links,"面经广场","\uE774",ShowPlaza); AddNav(links,"我的面经","\uE8A5",ShowExperience);
+        AddNav(links,"设置与版本","\uE713",ShowSettings); side.Children.Add(links);
+        var main=new DockPanel{Margin=new(32,28,32,18)}; Grid.SetColumn(main,1); shell.Children.Add(main);
+        var top=new StackPanel();top.Children.Add(heading);top.Children.Add(subtitle);DockPanel.SetDock(top,Dock.Top);main.Children.Add(top);
+        var foot=new DockPanel{Margin=new(0,14,0,0)}; var sync=Button("同步",()=>Run(repository.SynchronizeAsync));DockPanel.SetDock(sync,Dock.Right);foot.Children.Add(sync);foot.Children.Add(status);
+        DockPanel.SetDock(foot,Dock.Bottom);main.Children.Add(foot);
+        var scroller=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        scroller.ScrollChanged+=(_,args)=>{if(page=="plaza"&&args.VerticalChange>0&&scroller.ScrollableHeight-scroller.VerticalOffset<160&&!plazaBusy&&nextPlazaPage!=null&&repository.Online)Run(LoadPlazaAsync);};main.Children.Add(scroller);
+        InitializeDesktopFeatures(); Closed+=(_,_)=>repository.Dispose();
+        repository.Changed+=OnRepositoryChanged;
+        Loaded+=(_,_)=>Run(repository.RestoreAsync);
         ShowTasks(false);
     }
     static SolidColorBrush Brush(string value)=>(SolidColorBrush)new BrushConverter().ConvertFromString(value)!;
-    void AddNav(Panel parent,string title,Action action){var b=Button(title,()=>{if(!CanLeaveForm())return;foreach(var item in nav)item.Background=Brushes.Transparent;bSelect(title);action();});b.Foreground=Brush("#52627A");b.Background=Brushes.Transparent;b.BorderThickness=new Thickness(1);b.BorderBrush=Brushes.Transparent;b.HorizontalContentAlignment=HorizontalAlignment.Left;nav.Add(b);parent.Children.Add(b);}
-    void bSelect(string title){foreach(var b in nav){bool active=(string)b.Content==title;b.Background=active?Brush("#EAF1FF"):Brushes.Transparent;b.Foreground=active?Brush("#2458CE"):Brush("#52627A");b.FontWeight=active?FontWeights.SemiBold:FontWeights.Normal;}}
-    static Button Button(string title,Action action){var b=new Button{Content=title,HorizontalContentAlignment=HorizontalAlignment.Center};if(title.Contains("添加")||title.StartsWith("保存")){b.Background=Brush("#2563EB");b.Foreground=Brushes.White;b.BorderBrush=Brush("#2563EB");}b.Click+=(_,_)=>action();return b;}
-    void Begin(string title){heading.Text=title;content.Children.Clear();}
-    void Paragraph(string text){content.Children.Add(new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.SlateGray,Margin=new Thickness(0,0,0,16)});}
-    void ShowTasks(bool calendar){if(!calendar){selected=DateTime.Today;bSelect("今日待办");}Begin(calendar?$"{selected:yyyy-MM-dd} 的日程":"今天，专注下一件事");Paragraph($"{selected:MM月dd日 dddd}   ·   {tasks.Count(t=>t.Day.Date==selected.Date&&!t.Completed)} 项待办");
-        var bar=new StackPanel{Orientation=Orientation.Horizontal};bar.Children.Add(Button("＋ 添加日程",ShowAdd));bar.Children.Add(Button("回到今天",()=>ShowTasks(false)));content.Children.Add(bar);
-        foreach(var t in tasks.Where(t=>t.Day.Date==selected.Date).OrderBy(t=>t.Completed).ToList()){
-            var row=new DockPanel{Margin=new Thickness(22)};var check=new CheckBox{Content=t.Completed?"恢复":"完成",IsChecked=t.Completed,VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(20,0,0,0)};
-            DockPanel.SetDock(check,Dock.Right);row.Children.Add(check);check.Click+=(_,_)=>{ToggleTask(t);ShowTasks(calendar);};
-            var text=new StackPanel();text.Children.Add(new TextBlock{Text=t.Title,FontSize=17,FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap,Foreground=t.Completed?Brushes.Gray:Brush("#172442")});text.Children.Add(new TextBlock{Text=t.Note,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.SlateGray,Margin=new Thickness(0,8,0,0)});row.Children.Add(text);
-            text.Children.Add(Button("查看详情",()=>ShowTaskDetail(t)));
-            content.Children.Add(new Border{Child=row,Background=Brushes.White,BorderBrush=Brush("#E2E8F0"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(12),Margin=new Thickness(0,8,0,8)});
-        }
-        if(!tasks.Any(t=>t.Day.Date==selected.Date))Paragraph("这一天没有安排，可添加一条本地示例日程。");
+    static Button Button(string title, Action action)
+    {
+        var b=new Button{Content=title,HorizontalContentAlignment=HorizontalAlignment.Center};
+        if(title.StartsWith("保存")||title.StartsWith("登录")||title.StartsWith("＋")){b.Background=Brush("#285DDD");b.Foreground=Brushes.White;b.BorderBrush=Brush("#285DDD");}
+        b.Click+=(_,_)=>action(); return b;
     }
-    void ShowCalendar(){bSelect("日历与日程");Begin("日历与日程");var picker=new Calendar{SelectedDate=selected,HorizontalAlignment=HorizontalAlignment.Left};picker.SelectedDatesChanged+=(_,_)=>{if(picker.SelectedDate is DateTime day){selected=day;ShowTasks(true);}};content.Children.Add(picker);content.Children.Add(Button("查看所选日期日程",()=>ShowTasks(true)));Paragraph("选择日期查看日程；完整周/月时间轴将在后续版本接入。");}
-    void ShowAdd(){bSelect("添加日程");Begin("添加日程");Paragraph("本轮为本机演示模式，保存不会上传正式服务。");content.Children.Add(new TextBlock{Text="事件标题"});var title=new TextBox{MaxLength=200};content.Children.Add(title);content.Children.Add(new TextBlock{Text="日期"});var date=new DatePicker{SelectedDate=selected,Margin=new Thickness(0,8,0,18)};content.Children.Add(date);content.Children.Add(new TextBlock{Text="备注"});var note=new TextBox{AcceptsReturn=true,Height=110,TextWrapping=TextWrapping.Wrap,MaxLength=2000};content.Children.Add(note);title.TextChanged+=(_,_)=>formDirty=true;note.TextChanged+=(_,_)=>formDirty=true;date.SelectedDateChanged+=(_,_)=>formDirty=true;var times=new StackPanel{Orientation=Orientation.Horizontal};
-        var startInput=new TextBox{Text="08:00",Width=100};var endInput=new TextBox{Text="18:00",Width=100,Margin=new Thickness(12,8,0,20)};
-        startInput.TextChanged+=(_,_)=>formDirty=true;endInput.TextChanged+=(_,_)=>formDirty=true;times.Children.Add(new TextBlock{Text="开始 / 结束",VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,12,12)});times.Children.Add(startInput);times.Children.Add(endInput);content.Children.Add(times);
-        var error=new TextBlock{Foreground=Brushes.Firebrick,TextWrapping=TextWrapping.Wrap};content.Children.Add(error);
-        content.Children.Add(Button("保存本地日程",()=>{if(string.IsNullOrWhiteSpace(title.Text)||date.SelectedDate==null){error.Text="请填写标题并选择有效日期。";return;}if(!TimeSpan.TryParseExact(startInput.Text,@"hh\:mm",null,out var from)||!TimeSpan.TryParseExact(endInput.Text,@"hh\:mm",null,out var to)||from>=to||to.TotalHours>=24){error.Text="请输入HH:mm格式的当天时间，结束须晚于开始。";return;}
-        var task=new DemoTask(title.Text.Trim(),date.SelectedDate.Value,note.Text.Trim(),false,from,to);tasks.Add(task);if(Save()){RefreshPortable();formDirty=false;selected=date.SelectedDate.Value;ShowTasks(true);}}));title.Focus();}
-    bool Save(){try{Directory.CreateDirectory(Path.GetDirectoryName(dataPath)!);var temp=dataPath+".tmp";File.WriteAllText(temp,JsonSerializer.Serialize(tasks));File.Move(temp,dataPath,true);status.Text="示例数据已保存至当前 Windows 用户目录。";return true;}catch{status.Text="保存失败：请检查磁盘空间与目录权限。";return false;}}
-    void ShowExperience(){bSelect("面经预览");Begin("结构化面经");Paragraph("以下为合成示例，尚未接入面经广场或真实账号。");foreach(var line in new[]{"示例公司 · 后端开发 · 二面","项目问题（20 min）","Q1 介绍项目中的技术难点","Q1.1 如何验证方案的可靠性？","八股问题（15 min）","Q2 数据库索引如何工作？","反问（5 min）","Q3 团队如何开展代码评审？"})content.Children.Add(new TextBlock{Text=line,TextWrapping=TextWrapping.Wrap,FontSize=line.StartsWith("Q")?16:20,Margin=new Thickness(0,12,0,12)});}
-    void ShowLegacySettings(){bSelect("设置与版本");Begin("设置与版本");Paragraph("Awesome Interview Native Demo 1.1.1-W\n技术：C# / WPF / .NET 10；业务界面无 WebView。\n演示数据："+dataPath);Paragraph("正式版本将使用现有账号登录；先展示账号隔离缓存，再异步同步。服务器不可达时只读缓存。\n系统通知、真实登录、服务端同步和面经导出尚未实现。" );}
+    void Navigate(Action action){if(CanLeaveForm())action();}
+    void AddNav(Panel parent,string title,string icon,Action action)
+    {
+        var b=Button(title,()=>Navigate(action));b.Tag=title;b.Background=Brushes.Transparent;b.BorderBrush=Brushes.Transparent;
+        System.Windows.Automation.AutomationProperties.SetName(b,title);
+        b.HorizontalContentAlignment=HorizontalAlignment.Left;b.Padding=new(14,12,14,12);b.Margin=new(0,3,0,3);
+        var row=new StackPanel{Orientation=Orientation.Horizontal};row.Children.Add(new TextBlock{Text=icon,FontFamily=new("Segoe MDL2 Assets"),FontSize=17,Width=30,VerticalAlignment=VerticalAlignment.Center});row.Children.Add(new TextBlock{Text=title});b.Content=row;
+        nav.Add(b);parent.Children.Add(b);
+    }
+    void bSelect(string title){foreach(var b in nav){bool active=(string)b.Tag==title;b.Background=active?Brush("#E9F0FF"):Brushes.Transparent;b.Foreground=active?Brush("#2357CE"):Brush("#52647D");b.FontWeight=active?FontWeights.SemiBold:FontWeights.Normal;}}
+    void Begin(string title,string description=""){heading.Text=title;subtitle.Text=description;content.Children.Clear();}
+    void Paragraph(string text){content.Children.Add(Text(text,14,"#64748B",new(0,0,0,16)));}
+    static TextBlock Text(string text,double size=14,string color="#192C46",Thickness? margin=null)=>new(){Text=text,FontSize=size,Foreground=Brush(color),TextWrapping=TextWrapping.Wrap,Margin=margin??new Thickness(0)};
+    static Border Surface(UIElement child,Thickness? padding=null)=>new(){Background=Brushes.White,BorderBrush=Brush("#E2E8F2"),BorderThickness=new(1),CornerRadius=new(10),Padding=padding??new Thickness(22),Margin=new(0,0,0,16),Child=child};
+    async void Run(Func<Task> work)
+    {
+        try { await work(); }
+        catch(Exception error) when(WorkspaceRepository.Expected(error)) { status.Text=WorkspaceRepository.Explain(error); }
+    }
+    void OnRepositoryChanged()
+    {
+        if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(OnRepositoryChanged);return;}
+        status.Text=repository.Busy?"正在后台同步，仍可浏览当前页面…":repository.Message;
+        connectionLabel.Text=repository.Current==null?"尚未登录":repository.Online?"账号已连接":"离线 · 缓存只读";
+        ProjectTasks(DateTime.Today);RefreshPortable();
+        if(formDirty)return;
+        if(page=="today")ShowTasks(false); else if(page=="calendar")ShowCalendar(); else if(page=="calendar-day")ShowTasks(true); else if(page=="experiences")ShowExperience();
+    }
+    List<EventData> EventsFor(DateTime day)=>repository.Current?.Events.Select(e=>e.OnDay(day)).OfType<EventData>().OrderBy(e=>e.StartAt).ToList()??new();
+    void ProjectTasks(DateTime day)=>tasks=EventsFor(day).Select(e=>new DemoTask(e.Title,day,e.Note??"",e.CompletedAt!=null,
+        e.Local(e.StartAt).Date<day.Date?TimeSpan.Zero:e.Local(e.StartAt).TimeOfDay,
+        e.Local(e.EndAt).Date>day.Date?TimeSpan.FromHours(24):e.Local(e.EndAt).TimeOfDay,e)).ToList();
+    bool NeedAccount()
+    {
+        if(repository.Current!=null)return false;
+        var empty=new StackPanel{Margin=new(12,20,12,20)};empty.Children.Add(Text("从你的账号开始",22));empty.Children.Add(Text("登录后，日程与面经会出现在这里。之后断网也能查看已缓存内容。",14,"#64748B",new(0,12,0,20)));
+        empty.Children.Add(Button("登录账号",ShowAccount));content.Children.Add(Surface(empty));return true;
+    }
+    void ShowTasks(bool calendar)
+    {
+        page=calendar?"calendar-day":"today";if(!calendar)selected=DateTime.Today;bSelect(calendar?"日历与日程":"今日待办");
+        Begin(calendar?selected.ToString("yyyy年M月d日 dddd"):"今日待办",calendar?"日程详情与完成状态":"把注意力留给今天要做的事");if(NeedAccount())return;
+        var entries=EventsFor(selected);var pending=entries.Where(e=>e.CompletedAt==null&&e.CancelledAt==null).ToList();
+        var toolbar=new DockPanel{Margin=new(0,0,0,18)};var add=Button("＋ 添加日程",()=>Navigate(ShowAdd));DockPanel.SetDock(add,Dock.Right);toolbar.Children.Add(add);
+        toolbar.Children.Add(Text($"{selected:M月d日 dddd}    {pending.Count} 项未完成",18));content.Children.Add(toolbar);
+        foreach(var item in pending)content.Children.Add(EventRow(item));
+        if(pending.Count==0)content.Children.Add(Surface(Text("今天暂无待完成日程。",16,"#64748B")));
+        var todos=repository.Current!.Todos.Where(t=>t.DueDate==DateOnly.FromDateTime(selected)).ToList();
+        if(todos.Count>0){content.Children.Add(Text("独立待办",18,margin:new(0,12,0,12)));foreach(var item in todos)content.Children.Add(Surface(Text((item.CompletedAt!=null?"✓  ":"○  ")+item.Title+"   （独立待办，仅展示）")));}
+        var done=new StackPanel();foreach(var item in entries.Where(e=>e.CompletedAt!=null))done.Children.Add(EventRow(item));
+        content.Children.Add(new Expander{Header=$"今日已完成  {entries.Count(e=>e.CompletedAt!=null)}",Content=done,Margin=new(0,18,0,0)});
+    }
+    UIElement EventRow(EventData item)
+    {
+        var row=new DockPanel();var actions=new StackPanel{Orientation=Orientation.Horizontal};
+        if(item.CancelledAt==null){var complete=Button(item.CompletedAt==null?"完成":"恢复",()=>Run(()=>repository.CompleteAsync(item)));complete.IsEnabled=repository.Online&&!repository.Busy;actions.Children.Add(complete);}
+        DockPanel.SetDock(actions,Dock.Right);row.Children.Add(actions);
+        var detail=Button(item.Title,()=>ShowEventDetail(item));detail.HorizontalContentAlignment=HorizontalAlignment.Left;detail.BorderBrush=Brushes.Transparent;detail.Background=Brushes.Transparent;detail.Padding=new(0,0,12,0);
+        var body=new StackPanel();var title=Text(item.Title,16,item.CompletedAt!=null?"#68778A":"#192C46");title.FontWeight=FontWeights.SemiBold;
+        if(item.CompletedAt!=null)title.TextDecorations=TextDecorations.Strikethrough;body.Children.Add(title);body.Children.Add(Text($"{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}    {TypeLabel(item.Type)}",12,"#64748B",new(0,7,0,0)));detail.Content=body;row.Children.Add(detail);
+        return Surface(row,new(18,14,14,14));
+    }
+    static string TypeLabel(string type)=>type switch{"personal"=>"个人事项","meeting"=>"普通会议","interview"=>"面试","exam"=>"笔试","course"=>"课程","recruiting"=>"招聘活动",_=>type};
 }

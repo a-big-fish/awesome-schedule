@@ -36,6 +36,8 @@ using (var api = new NativeApi("https://example.test/",new Reply("<html>login</h
 using (var api = new NativeApi("https://example.test/",new Reply("{}","application/json",HttpStatusCode.ServiceUnavailable)))
     try { await api.GetAsync<SessionInfo>("api/mobile/v1/session"); throw new Exception("503 accepted"); } catch(ApiFailure e) { Check(e.Status==503,"database unavailable fails without retry loop"); }
 try { using var api = new NativeApi("http://example.com/"); throw new Exception("HTTP accepted"); } catch(ArgumentException) { Check(true,"credentials require TLS outside localhost"); }
+using(var api=new NativeApi("https://example.test/",new Reply("{\"detail\":{\"conflicts\":[\"existing task\"]}}","application/json",HttpStatusCode.Conflict)))
+    try { await api.GetAsync<EventData>("api/mobile/v1/events");throw new Exception("conflict ignored"); } catch(ApiFailure e) { Check(e.Status==409&&e.ConflictTitles.Single()=="existing task","conflict titles available for native confirmation"); }
 // Optional real-server read-only acceptance. No credentials or response bodies are printed or saved.
 var server = Environment.GetEnvironmentVariable("AWESOME_TEST_SERVER"); var cookie = Environment.GetEnvironmentVariable("AWESOME_TEST_COOKIE");
 if (server != null && cookie != null) {
