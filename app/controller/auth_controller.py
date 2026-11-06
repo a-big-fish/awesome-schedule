@@ -118,7 +118,7 @@ async def logout(request: Request):
         if not hmac.compare_digest(str(form.get("csrf_token", "")), result[1].csrf_token):
             raise HTTPException(status_code=403, detail="表单已过期，请刷新页面重试")
     request.app.state.auth_service.logout(raw_token)
-    response = RedirectResponse("/auth/login", status_code=303)
+    response = RedirectResponse(DEFAULT_AFTER_LOGIN, status_code=303)
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.headers["Cache-Control"] = "no-store"
     return response

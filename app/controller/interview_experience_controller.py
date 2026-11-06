@@ -136,7 +136,7 @@ def experience_plaza(request: Request, company: str = "", order: str = "newest",
         # Whitelist summary fields before template/JSON rendering. No body, answers,
         # feeling, owner ID, author name or hidden DOM with private content.
         items = [{"guest": True, "experience": {"id": row["experience"].id,
-                  "title": row["experience"].title, "updated_at": row["experience"].updated_at}}
+                  "title": row["experience"].title}}
                  for row in items]
     auth_service = getattr(request.app.state, "auth_service", None)
     owner_ids = [] if guest else list({row["experience"].owner_id for row in items})

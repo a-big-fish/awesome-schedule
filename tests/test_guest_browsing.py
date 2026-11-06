@@ -30,7 +30,8 @@ def test_guest_whitelist_blocks_bodies_in_html_batches_and_all_detail_paths(tmp_
             assert 'PRIVATE_' not in response.text
             assert response.headers['cache-control'] == 'no-store'
         listing = client.get('/my-schedule/experiences/plaza').text
-        assert '允许展示的标题' in listing and '用户 ***' in listing and '更新于' in listing
+        assert '允许展示的标题' in listing and '用户 ***' in listing and '更新于 ****-**-**' in listing
+        assert item.updated_at.strftime('%Y-%m-%d') not in listing
         calendar = client.get('/my-schedule').text
         assert '示例日程' in calendar and 'PRIVATE_' not in calendar
         for path in [f'/my-schedule/experiences/plaza/{item.id}', f'/my-schedule/experiences/{item.id}',
@@ -43,6 +44,14 @@ def test_guest_whitelist_blocks_bodies_in_html_batches_and_all_detail_paths(tmp_
         detail = client.get(f'/my-schedule/experiences/plaza/{item.id}')
         assert 'PRIVATE_QUESTION_MARKER' in detail.text and 'PRIVATE_ANSWER_MARKER' in detail.text
         assert 'PRIVATE_AUTHOR_MARKER' in detail.text
+        csrf = _csrf(client.get('/my-schedule/new'))
+        logout = client.post('/auth/logout', data={'csrf_token': csrf}, follow_redirects=False)
+        assert logout.status_code == 303
+        assert logout.headers['location'] == '/my-schedule/experiences/plaza'
+        guest = client.get(logout.headers['location'])
+        assert '用户 ***' in guest.text and '更新于 ****-**-**' in guest.text
+        assert 'PRIVATE_' not in guest.text
+        assert client.get('/my-schedule/profile', follow_redirects=False).status_code == 303
 
 
 def test_embedded_password_login_keeps_next_and_sets_real_session(tmp_path):
