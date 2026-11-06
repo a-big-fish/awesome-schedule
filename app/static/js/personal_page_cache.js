@@ -151,7 +151,7 @@
     setNavState(page);
     pageEdited = false;
     if (resetScroll) window.scrollTo(0, 0);
-    document.dispatchEvent(new Event('personal:navigated'));
+    document.dispatchEvent(new CustomEvent('personal:navigated', {detail: {resetScroll}}));
     scheduleCalendarNeighbors();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       window.awesomeInterviewPerformance?.recordRender(performance.now() - renderStarted);
@@ -235,7 +235,10 @@
     const target = new URL(link.href, location.href);
     if (target.origin !== location.origin || !canNavigate(target)) return;
     event.preventDefault();
-    if (pageKey(target) === pageKey(new URL(location.href))) return;
+    if (pageKey(target) === pageKey(new URL(location.href))) {
+      if (isCalendar(target)) document.dispatchEvent(new Event('personal:focus-now'));
+      return;
+    }
     navigate(target.href);
   });
   window.addEventListener('popstate', () => {

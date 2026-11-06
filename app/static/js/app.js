@@ -220,16 +220,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 60000 - Date.now() % 60000 + 25);
   }
 
+  let nowScrollGeneration = 0;
   function centerNowLine() {
+    const generation = ++nowScrollGeneration;
     const wrap = document.querySelector('.time-grid-wrap');
-    const line = document.querySelector('[data-now-line]');
+    const line = wrap?.querySelector('[data-now-line]');
     if (!wrap || !line || line.hidden) return;
+    wrap.scrollTo({top: 0, behavior: 'instant'});
+    // Paint the top once before beginning the adaptive scroll to the current time.
     requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+      if (generation !== nowScrollGeneration || !wrap.isConnected || line.hidden) return;
       const wrapRect = wrap.getBoundingClientRect();
       const lineRect = line.getBoundingClientRect();
       const lineTop = lineRect.top - wrapRect.top + wrap.scrollTop;
       const targetTop = lineTop + lineRect.height / 2 - wrap.clientHeight / 2;
-      wrap.scrollTop = Math.max(0, targetTop);
+      wrap.scrollTo({top: Math.max(0, targetTop),
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+      });
     });
   }
 
@@ -240,9 +248,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!document.hidden) updateNowLines();
     scheduleNowLineUpdate();
   });
-  document.addEventListener('personal:navigated', () => {
+  document.addEventListener('personal:navigated', (event) => {
     updateNowLines();
+    if (event.detail?.resetScroll !== false) centerNowLine();
     scheduleNowLineUpdate();
+  });
+  document.addEventListener('personal:focus-now', () => {
+    updateNowLines();
+    centerNowLine();
   });
 
   const dateScope = document.querySelector('[data-date-scope]');

@@ -29,6 +29,7 @@ function browser({hidden = true, calendar = null, initialPath = '/my-schedule/ex
     history: {pushState(_, __, url) {location.href = new URL(url, location).href;}},
     performance: {now: () => 0}, requestAnimationFrame: callback => callback(),
     Event: class {constructor(type) {this.type = type;}},
+    CustomEvent: class {constructor(type, options) {this.type = type; this.detail = options.detail;}},
     DOMParser: class {parseFromString(html) {return {title: html, body: {className: 'personal-app', classList: {contains: () => true}},
       querySelector: selector => selector === '.page > main' ? {html} : null};}},
     setTimeout(callback, delay) {timers.push({callback, delay});},
