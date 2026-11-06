@@ -22,6 +22,14 @@ def test_native_profile_is_allowlisted_and_csrf_protected(tmp_path):
         updated = client.put("/api/mobile/v1/profile", json={"display_name": "新昵称", "email": "other@example.com"}, headers={"X-CSRF-Token": csrf})
         assert updated.status_code == 200 and updated.json()["display_name"] == "新昵称"
         assert updated.json()["email"] == user.email
+        headers = {"X-CSRF-Token": csrf}
+        timed = client.put("/api/mobile/v1/profile", json={"display_name": "新昵称", "workday_start": "09:30", "workday_end": "19:00"}, headers=headers)
+        assert timed.status_code == 200 and timed.json()["workday_start"] == "09:30"
+        preserved = client.put("/api/mobile/v1/profile", json={"display_name": "保留时段"}, headers=headers)
+        assert preserved.json()["workday_end"] == "19:00"
+        for start, end in (("bad", "18:00"), ("19:00", "08:00"), ("08:00", "08:00")):
+            assert client.put("/api/mobile/v1/profile", json={"display_name": "新昵称", "workday_start": start, "workday_end": end}, headers=headers).status_code == 422
+        assert client.get("/api/mobile/v1/profile").json()["workday_start"] == "09:30"
         assert client.put("/api/mobile/v1/profile", json={"display_name": "\n"}, headers={"X-CSRF-Token": csrf}).status_code == 422
 
 
@@ -71,3 +79,18 @@ def test_native_event_extended_fields_and_legacy_update_preservation(tmp_path):
         # Existing recurrence/cancellation validation errors must remain controlled 422s.
         invalid = client.post("/api/mobile/v1/events", json={**payload, "title": "无效重复", "repeat_weekdays": [9]}, headers=headers)
         assert invalid.status_code == 422
+
+
+def test_native_company_search_matches_substrings_only_in_public_companies(tmp_path):
+    app, mapper, *_ = _public_fixture(tmp_path)
+    user = AuthUser(email="search@example.com", password_hash=hash_password("native-password"), email_verified=True)
+    mapper.create_user(user)
+    notes = app.dependency_overrides[get_interview_experience_mapper]()
+    for company, public in (("抖音", True), ("音符科技", True), ("其他公司", True), ("音频私密公司", False)):
+        item = notes.save_experience(InterviewExperience(owner_id=user.id, title="测试", company=company, is_public=public))
+        notes.save_question(InterviewQuestion(experience_id=item.id, category="project", asked_order=1, question_text="项目介绍"), user.id)
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "native-password")
+        result = client.get("/api/mobile/v1/plaza", params={"company": "音"}).json()
+        assert result["total"] == 2
+        assert {item["company"] for item in result["items"]} == {"抖音", "音符科技"}

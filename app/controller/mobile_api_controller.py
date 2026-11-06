@@ -140,6 +140,8 @@ def _profile(user) -> dict:
 
 class NativeProfileInput(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
+    workday_start: str | None = None
+    workday_end: str | None = None
 
 
 @router.get("/profile")
@@ -153,7 +155,9 @@ def update_profile(payload: NativeProfileInput, request: Request, response: Resp
     user = request.state.user
     try:
         updated = request.app.state.auth_service.update_preferences(
-            user.id, payload.display_name, user.workday_start, user.workday_end)
+            user.id, payload.display_name,
+            payload.workday_start if payload.workday_start is not None else user.workday_start,
+            payload.workday_end if payload.workday_end is not None else user.workday_end)
     except ValueError as error:
         raise _event_error(error) from error
     response.headers["Cache-Control"] = "no-store"
