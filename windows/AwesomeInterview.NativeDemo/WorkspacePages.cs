@@ -75,8 +75,8 @@ public partial class MainWindow
             foreach(var item in EventsFor(day).Where(e=>!hideCompleted||e.CompletedAt==null))
             {
                 string text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":"");
-                var entry=Button(text,()=>ShowEventDetail(item));entry.MinHeight=24;entry.Padding=new(5,3,5,3);entry.FontSize=11;entry.Margin=new(0,1,0,1);entry.HorizontalContentAlignment=HorizontalAlignment.Left;
-                entry.Content=new TextBlock{Text=text,TextTrimming=TextTrimming.CharacterEllipsis};entry.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";
+                var entry=Button(text,()=>ShowEventDetail(item));entry.MinHeight=34;entry.Padding=new(6,5,6,5);entry.FontSize=14;entry.Margin=new(0,1,0,1);entry.HorizontalContentAlignment=HorizontalAlignment.Stretch;entry.VerticalContentAlignment=VerticalAlignment.Center;
+                entry.Content=new TextBlock{Text=text,TextTrimming=TextTrimming.CharacterEllipsis,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,FontWeight=FontWeights.Medium};entry.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";
                 entry.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#EAF1FF");entry.BorderThickness=new(0);body.Children.Add(entry);
             }
             var cell=new Border{BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,0,1,1),MinHeight=92,Child=body};Grid.SetColumn(cell,i%7);Grid.SetRow(cell,i/7+1);grid.Children.Add(cell);
@@ -101,7 +101,7 @@ public partial class MainWindow
             // Recalculate lanes from visible entries, so hidden completed events never leave empty columns.
             var laneEnds=new List<DateTime>();var placed=new List<(EventData Item,int Lane,DateTime Start,DateTime End)>();
             foreach(var item in items){var from=item.Local(item.StartAt)<day?day:item.Local(item.StartAt);var to=item.Local(item.EndAt)>day.AddDays(1)?day.AddDays(1):item.Local(item.EndAt);int lane=laneEnds.FindIndex(e=>e<=from);if(lane<0){lane=laneEnds.Count;laneEnds.Add(to);}else laneEnds[lane]=to;placed.Add((item,lane,from,to));}
-            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Top;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(20,(row.End-row.Start).TotalHours*timelineHeight/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=11;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*timelineHeight/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
+            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,FontWeight=FontWeights.Medium};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Stretch;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(30,(row.End-row.Start).TotalHours*timelineHeight/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=16;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*timelineHeight/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
             canvas.SizeChanged+=(_,_)=>Layout();refreshLayout.Add(Layout);
         }
         var clockLayer=new Canvas{IsHitTestVisible=false,Margin=new(52,38,0,0),ClipToBounds=true};
@@ -111,8 +111,21 @@ public partial class MainWindow
         var timelineScroll=new ScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};
         bool userMoved=false;timelineScroll.PreviewMouseWheel+=(_,_)=>userMoved=true;timelineScroll.PreviewMouseDown+=(_,_)=>userMoved=true;timelineScroll.PreviewKeyDown+=(_,_)=>userMoved=true;
         void CenterNow(){if(!focus||userMoved)return;timelineScroll.ScrollToVerticalOffset(Math.Max(0,38+TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).TimeOfDay.TotalHours*timelineHeight/24-timelineScroll.ViewportHeight/2));}
-        void StickyTitles(){foreach(var column in grid.Children.OfType<DockPanel>())foreach(var canvas in column.Children.OfType<Canvas>())foreach(var button in canvas.Children.OfType<Button>())if(button.Content is TextBlock title)title.Margin=new(0,Math.Clamp(timelineScroll.VerticalOffset-38-Canvas.GetTop(button),0,Math.Max(0,button.Height-28)),0,0);}
-        timelineScroll.ScrollChanged+=(_,_)=>StickyTitles();timelineScroll.Loaded+=(_,_)=>{CenterNow();StickyTitles();};SizeChangedEventHandler resizeTimeline=(_,_)=>{timelineScroll.Height=Math.Max(260,viewport.ActualHeight-220);CenterNow();};viewport.SizeChanged+=resizeTimeline;timelineScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resizeTimeline;
+        void StickyTitles()
+        {
+            foreach(var column in grid.Children.OfType<DockPanel>())
+            foreach(var canvas in column.Children.OfType<Canvas>())
+            foreach(var button in canvas.Children.OfType<Button>())
+            if(button.Content is TextBlock title)
+            {
+                double innerHeight=Math.Max(0,button.Height-button.Padding.Top-button.Padding.Bottom);
+                double top=38+Canvas.GetTop(button)+button.Padding.Top;
+                double visibleStart=Math.Clamp(timelineScroll.VerticalOffset-top,0,innerHeight);
+                double visibleEnd=Math.Clamp(timelineScroll.VerticalOffset+timelineScroll.ViewportHeight-top,visibleStart,innerHeight);
+                title.Margin=new(0,visibleStart,0,innerHeight-visibleEnd);
+            }
+        }
+        grid.LayoutUpdated+=(_,_)=>StickyTitles();timelineScroll.ScrollChanged+=(_,_)=>StickyTitles();timelineScroll.Loaded+=(_,_)=>{CenterNow();StickyTitles();};SizeChangedEventHandler resizeTimeline=(_,_)=>{timelineScroll.Height=Math.Max(260,viewport.ActualHeight-220);CenterNow();};viewport.SizeChanged+=resizeTimeline;timelineScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resizeTimeline;
         content.Children.Add(Surface(timelineScroll,new(8)));
     }
 
