@@ -14,14 +14,14 @@
     <p class="auth-welcome">记录每一次准备，安排下一步成长。</p>
     <div class="auth-methods"><button type="button" class="is-active" data-auth-password>密码登录</button><span aria-hidden="true">|</span><button type="button" data-auth-phone>手机号登录</button></div>
     <div data-password-panel>
-      {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
-      <form action="/auth/login{{ '?embed=1' if embedded else '' }}" method="post" class="auth-login-form">
+      <p class="auth-error" role="alert" data-login-error {% if not error %}hidden{% endif %}>{{ error }}</p>
+      <form action="/auth/login" method="post" class="auth-login-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ next_path }}">
         <label>账号<input name="identifier" value="{{ identifier }}" placeholder="邮箱或用户名" autocomplete="username" required></label>
         <label>密码<input type="password" name="password" placeholder="请输入密码" autocomplete="current-password" required></label>
-        <div class="auth-form-actions">{% if request.app.state.settings.registration_mode != 'closed' %}<a class="btn secondary" href="/auth/register{{ '?embed=1' if embedded else '' }}">注册</a>{% endif %}<button class="btn" type="submit">登录</button></div>
+        <div class="auth-form-actions">{% if request.app.state.settings.registration_mode != 'closed' %}<a class="btn secondary" href="/auth/register">注册</a>{% endif %}<button class="btn" type="submit">登录</button></div>
       </form>
-      {% if request.app.state.settings.smtp_host %}<a class="auth-forgot" href="/auth/forgot-password{{ '?embed=1' if embedded else '' }}">忘记密码？</a>{% endif %}
+      {% if request.app.state.settings.smtp_host %}<a class="auth-forgot" href="/auth/forgot-password">忘记密码？</a>{% endif %}
     </div>
     <p class="auth-developing" data-phone-panel hidden role="status">手机号登录正在开发<br><small>请切换密码登录继续使用。</small></p>
     <div class="auth-social"><p>其他方式登录</p><div>

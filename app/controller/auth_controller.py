@@ -7,7 +7,8 @@ import smtplib
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 from psycopg import OperationalError
 
 from app.controller.page_controller import templates
@@ -37,15 +38,20 @@ def _page(request: Request, mode: str, *, error: str = "", message: str = "",
     }
     heading, submit_label, action = labels[mode]
     csrf_token = request.cookies.get(GUEST_CSRF_COOKIE) or secrets.token_urlsafe(32)
-    response = templates.TemplateResponse(request, "auth_page.html", {
+    context = {
         "heading": heading, "submit_label": submit_label, "action": action,
         "mode": mode, "error": error, "message": message,
         "csrf_token": csrf_token, "next_path": _safe_next(next_path),
         "reset_token": reset_token, "identifier": identifier,
         "invite_required": request.app.state.settings.registration_mode == "invite",
         "email_verification_required": request.app.state.settings.email_verification_required,
-        "embedded": request.query_params.get("embed") == "1",
-    }, status_code=status_code)
+        "embedded": request.query_params.get("embed") == "1" or request.query_params.get("fragment") == "1",
+    }
+    if mode == "login" and request.method == "POST" and "application/json" in request.headers.get("accept", ""):
+        response = JSONResponse({"detail": error or message, "csrf_token": csrf_token}, status_code=status_code)
+    else:
+        template = "_auth_login_panel.html" if mode == "login" and request.query_params.get("fragment") == "1" else "auth_page.html"
+        response = templates.TemplateResponse(request, template, context, status_code=status_code)
     response.set_cookie(GUEST_CSRF_COOKIE, csrf_token, max_age=3600,
                         httponly=True, secure=request.app.state.settings.auth_cookie_secure,
                         samesite="lax", path="/")
@@ -67,7 +73,9 @@ def _allowed(request: Request, key: str, limit: int, minutes: int) -> bool:
 
 
 def _signed_in_response(request: Request, raw_token: str, next_path: str = DEFAULT_AFTER_LOGIN):
-    response = RedirectResponse(_safe_next(next_path), status_code=303)
+    response = (JSONResponse({"next": _safe_next(next_path)})
+                if "application/json" in request.headers.get("accept", "")
+                else RedirectResponse(_safe_next(next_path), status_code=303))
     response.set_cookie(SESSION_COOKIE, raw_token, max_age=7 * 24 * 3600,
                         httponly=True, secure=request.app.state.settings.auth_cookie_secure,
                         samesite="lax", path="/")
@@ -88,14 +96,15 @@ async def login(request: Request):
     try:
         form = await _checked_form(request)
     except HTTPException:
-        if request.app.state.auth_service.authenticate(request.cookies.get(SESSION_COOKIE)):
-            return RedirectResponse(DEFAULT_AFTER_LOGIN, status_code=303)
+        if await run_in_threadpool(request.app.state.auth_service.authenticate, request.cookies.get(SESSION_COOKIE)):
+            return (JSONResponse({"next": DEFAULT_AFTER_LOGIN}) if "application/json" in request.headers.get("accept", "")
+                    else RedirectResponse(DEFAULT_AFTER_LOGIN, status_code=303))
         return _page(request, "login", error="登录表单已过期，请重新提交", status_code=403)
     identifier = str(form.get("identifier", "")).strip().casefold()
     if not _allowed(request, f"login:{identifier}", 10, 15):
         return _page(request, "login", error="尝试次数过多，请稍后再试", status_code=429)
     try:
-        result = request.app.state.auth_service.login(identifier, str(form.get("password", "")))
+        result = await run_in_threadpool(request.app.state.auth_service.login, identifier, str(form.get("password", "")))
     except OperationalError:
         logger.exception("Database connection failed during login")
         response = _page(request, "login", error="数据库暂时不可用，请稍后重试", status_code=503,
@@ -112,12 +121,12 @@ async def login(request: Request):
 @router.post("/logout")
 async def logout(request: Request):
     raw_token = request.cookies.get(SESSION_COOKIE)
-    result = request.app.state.auth_service.authenticate(raw_token)
+    result = await run_in_threadpool(request.app.state.auth_service.authenticate, raw_token)
     if result:
         form = await request.form()
         if not hmac.compare_digest(str(form.get("csrf_token", "")), result[1].csrf_token):
             raise HTTPException(status_code=403, detail="表单已过期，请刷新页面重试")
-    request.app.state.auth_service.logout(raw_token)
+    await run_in_threadpool(request.app.state.auth_service.logout, raw_token)
     response = RedirectResponse(DEFAULT_AFTER_LOGIN, status_code=303)
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.headers["Cache-Control"] = "no-store"

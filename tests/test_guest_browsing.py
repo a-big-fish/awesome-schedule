@@ -66,3 +66,23 @@ def test_embedded_password_login_keeps_next_and_sets_real_session(tmp_path):
         assert result.status_code == 303 and result.headers['location'] == '/my-schedule/profile'
         assert 'schedule_session=' in result.headers['set-cookie']
         assert client.get('/my-schedule/profile').status_code == 200
+
+
+def test_modal_fragment_and_json_login_never_render_target_in_dialog(tmp_path):
+    app, users, *_ = _public_fixture(tmp_path)
+    user = AuthUser(email='json@example.com', password_hash=hash_password('test-password'), email_verified=True)
+    users.create_user(user)
+    with TestClient(app, base_url='https://testserver') as client:
+        fragment = client.get('/auth/login?fragment=1&next=/my-schedule/profile')
+        assert 'auth-login-panel' in fragment.text and '<html' not in fragment.text
+        assert '<iframe' not in client.get('/my-schedule/experiences/plaza').text
+        csrf = _csrf(fragment)
+        invalid = client.post('/auth/login', headers={'Accept':'application/json'},
+            data={'csrf_token':csrf, 'identifier':user.email, 'password':'wrong'})
+        assert invalid.status_code == 401 and invalid.json()['detail']
+        response = client.post('/auth/login', headers={'Accept':'application/json'},
+            data={'csrf_token':csrf, 'identifier':user.email, 'password':'test-password', 'next':'/my-schedule/profile'})
+        assert response.status_code == 200 and response.json() == {'next':'/my-schedule/profile'}
+        assert 'location' not in response.headers
+        assert 'schedule_session=' in response.headers['set-cookie']
+        assert client.get('/my-schedule/profile').status_code == 200

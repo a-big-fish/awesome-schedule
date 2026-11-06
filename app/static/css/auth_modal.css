@@ -1,6 +1,8 @@
 .auth-modal { width: min(880px, calc(100vw - 32px)); max-width: none; padding: 0; border: 0; border-radius: 20px; overflow: hidden; box-shadow: 0 24px 100px #15213b40; }
 .auth-modal::backdrop { background: #13203a80; }
-.auth-modal iframe { display:block; width:100%; height:min(600px, 85dvh); border:0; background:#fff; }
+.auth-modal { background:#fff; max-height:90dvh; overflow:auto; }
+.auth-modal .auth-login-panel { width:100%; box-shadow:none; }
+.auth-error[hidden] { display:none; }
 .auth-modal-close,.auth-panel-exit { position:absolute; right:16px; top:12px; z-index:2; background:#fff; color:#68758b; border:0; font-size:28px; width:36px; height:36px; cursor:pointer; text-align:center; text-decoration:none; border-radius:50%; }
 .auth-page { background:#eaf0f8; }
 .auth-page main { display:grid; place-items:center; min-height:calc(100dvh - 160px); padding:36px 16px; }
@@ -43,5 +45,4 @@
  .auth-login-panel { grid-template-columns:1fr; padding:36px 24px 24px; gap:20px; }
  .auth-scan-side { display:none; }
  .auth-password-side h1 { font-size:20px; }
- .auth-modal iframe { height:min(570px,85dvh); }
 }
