@@ -14,6 +14,8 @@ from app.core.dependencies import (
     get_resume_parser_service, get_personal_todo_mapper, get_resume_mapper,
 )
 from app.main import create_app
+from app.core.dependencies import get_personal_idea_mapper
+from app.mapper.memory_personal_idea_mapper import MemoryPersonalIdeaMapper
 from app.mapper.memory_auth_mapper import MemoryAuthMapper
 from app.mapper.memory_my_resume_mapper import MemoryMyResumeMapper
 from app.mapper.memory_personal_event_mapper import MemoryPersonalEventMapper
@@ -54,6 +56,8 @@ def _public_fixture(tmp_path, *, email_verification_required=True, registration_
     resumes = MemoryResumeMapper()
     parser = ResumeParserService(resume_mapper=resumes, storage_dir=tmp_path)
     app.dependency_overrides[get_personal_event_mapper] = lambda: events
+    ideas = MemoryPersonalIdeaMapper()
+    app.dependency_overrides[get_personal_idea_mapper] = lambda: ideas
     app.dependency_overrides[get_personal_todo_mapper] = lambda: todos
     app.dependency_overrides[get_interview_experience_mapper] = lambda: experience_mapper
     app.dependency_overrides[get_my_resume_mapper] = lambda: profiles

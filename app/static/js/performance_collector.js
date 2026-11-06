@@ -5,7 +5,7 @@
   const key = 'awesome-interview-performance-v1';
   const metrics = new Set(['request', 'ttfb', 'load', 'lcp', 'longtask', 'cache_render']);
   const nodes = new Set(['calendar', 'schedule_new', 'event', 'event_write', 'event_parse', 'plaza',
-    'plaza_detail', 'experiences',
+    'plaza_detail', 'experiences', 'ideas',
     'editor', 'draft', 'experience_write', 'parse', 'pdf', 'markdown', 'export', 'interviews',
     'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file', 'reference_titles']);
   const nodeFor = (value, method = 'GET') => {
@@ -20,6 +20,7 @@
       if (path.startsWith('/resumes/') && /\/(pdf|download)$/.test(path)) return 'resume_file';
       if (!path.startsWith('/my-schedule')) return null;
       const tail = path.slice('/my-schedule'.length);
+      if (tail === '/ideas' || tail.startsWith('/ideas/')) return 'ideas';
       if (tail === '/resume/current') return 'resume_state';
       if (tail.startsWith('/admin') || tail.startsWith('/telemetry')) return null;
       if (tail === '') return 'calendar';

@@ -1,6 +1,6 @@
 <fieldset class="personal-references-editor" data-reference-editor>
   <legend>参考资料（可选）</legend>
-  <p class="muted-text">视频、文章或文档链接，最多 20 条。名称留空时，粘贴链接或移出输入框会自动获取标题；保存后仍会在后台尝试补全，不影响保存。</p>
+  <p class="muted-text">视频、文章或文档链接，最多 20 条。名称留空时，粘贴链接或移出输入框会自动获取标题；{% if request.url.path.startswith('/my-schedule/ideas') and not request.url.path.endswith('/arrange') %}也可以手动填写名称。{% else %}保存后仍会在后台尝试补全，不影响保存。{% endif %}</p>
   {% set links = values.reference_links if values is defined and values and values.reference_links is defined else (event.reference_links if event is defined else []) %}
   <div data-reference-rows>
     {% for link in links or [{'title': '', 'url': ''}] %}

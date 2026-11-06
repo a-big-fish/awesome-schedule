@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from uuid import uuid5, NAMESPACE_URL
 
 from app.core.exceptions import PersonalEventConflictWarning
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
@@ -132,7 +133,13 @@ class PersonalScheduleService:
         skip_weekends: bool | None = None,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
+        source_idea_id: str | None = None,
     ) -> PersonalEvent:
+        idea_event_id = str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{source_idea_id}")) if source_idea_id else None
+        if idea_event_id:
+            existing = self.get_event(idea_event_id)
+            if existing:
+                return existing
         profile = self.profile_mapper.get(self.profile_id) if event_type == "interview" else None
         event = PersonalEvent(
             owner_id=self.owner_id,
@@ -151,6 +158,8 @@ class PersonalScheduleService:
             resume_id=profile.resume_id if profile else None,
             reminder_offsets_minutes=reminder_offsets_minutes or [],
         )
+        if idea_event_id:
+            event.id = idea_event_id
         return self.save_event(event, confirm_overlap)
 
     def from_invitation(

@@ -1,0 +1,40 @@
+{% extends "personal_base.html" %}
+{% block title %}待安排 - Awesome Interview{% endblock %}
+{% block content %}
+<section class="card personal-form-page">
+  <h1 class="section-title">待安排</h1>
+  <p class="section-description">先记下想做的事，时间以后再安排。</p>
+  <nav class="settings-actions" aria-label="事项分类">
+    <a class="btn {{ 'secondary' if abandoned else '' }}" href="/my-schedule/ideas" {% if not abandoned %}aria-current="page"{% endif %}>待安排</a>
+    <a class="btn {{ '' if abandoned else 'secondary' }}" href="/my-schedule/ideas?abandoned=true" {% if abandoned %}aria-current="page"{% endif %}>已放弃</a>
+  </nav>
+  {% if not abandoned %}
+  <h2>{{ '修改 idea' if selected else '记录新 idea' }}</h2>
+  {% if error %}<p class="parse-tip error" role="alert">{{ error }}</p>{% endif %}
+  <form class="personal-event-form" action="/my-schedule/ideas" method="post">
+    {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+    {% if selected %}<input type="hidden" name="idea_id" value="{{ selected.id }}">{% endif %}
+    <label>想做什么<input class="input" name="title" required maxlength="200" placeholder="先记下来，时间以后再安排……" value="{{ values.title if values else '' }}"></label>
+    <label>备注<textarea class="textarea" name="note" maxlength="20000" rows="3">{{ values.note if values else '' }}</textarea></label>
+    {% include '_personal_reference_links.html' %}
+    <div class="settings-actions"><button class="btn" type="submit">{{ '保存修改' if selected else '记录 idea' }}</button>{% if selected %}<a class="btn secondary" href="/my-schedule/ideas">取消修改</a>{% endif %}</div>
+  </form>
+  {% endif %}
+  <h2>{{ '已放弃' if abandoned else '待安排事项' }} · {{ ideas|length }}</h2>
+  {% for idea in ideas %}
+  <article class="card" style="margin-block: 16px; padding: 20px">
+    <h3 style="margin-top:0; overflow-wrap:anywhere">{{ idea.title }}</h3>
+    {% if idea.note %}<p style="white-space:pre-wrap; overflow-wrap:anywhere">{{ idea.note }}</p>{% endif %}
+    {% if idea.reference_links %}<ul>{% for link in idea.reference_links %}<li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.title or link.url }}</a></li>{% endfor %}</ul>{% endif %}
+    {% if not abandoned %}
+    <div class="settings-actions" style="flex-wrap:wrap">
+      {% if idea.id in scheduled %}<a class="btn secondary" href="/my-schedule/events/{{ scheduled[idea.id] }}">已创建日程 · 查看</a>
+      {% else %}<a class="btn" href="/my-schedule/ideas/{{ idea.id }}/arrange">正式安排时间</a>{% endif %}
+      <a class="btn secondary" href="/my-schedule/ideas?edit={{ idea.id }}">修改 idea</a>
+      <form method="post" action="/my-schedule/ideas/{{ idea.id }}/abandon">{% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}<button class="btn secondary" type="submit" aria-label="放弃：{{ idea.title }}">放弃</button></form>
+    </div>
+    {% endif %}
+  </article>
+  {% else %}<p class="muted-text">{{ '还没有已放弃的事项。' if abandoned else '还没有待安排的事项，先记下一个想法吧。' }}</p>{% endfor %}
+</section>
+{% endblock %}

@@ -155,6 +155,21 @@ def get_personal_event_mapper() -> BasePersonalEventMapper:
     return MemoryPersonalEventMapper()
 
 
+@lru_cache
+def get_personal_idea_mapper():
+    from app.mapper.memory_personal_idea_mapper import MemoryPersonalIdeaMapper
+    from app.mapper.postgres_personal_idea_mapper import PostgresPersonalIdeaMapper
+    settings = get_settings()
+    return (PostgresPersonalIdeaMapper(settings=settings)
+            if settings.storage_backend in {"postgres", "rustfs", "minio"} else MemoryPersonalIdeaMapper())
+
+
+def get_personal_idea_service(request: Request, mapper=Depends(get_personal_idea_mapper)):
+    from app.service.personal_idea_service import PersonalIdeaService
+    owner = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
+    return PersonalIdeaService(mapper, owner)
+
+
 def get_personal_schedule_service(
     request: Request,
     mapper: BasePersonalEventMapper = Depends(get_personal_event_mapper),

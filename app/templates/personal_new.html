@@ -21,6 +21,7 @@
   <form id="personal-event-form" action="/my-schedule/events" method="post" class="personal-event-form">
     {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
     <input type="hidden" name="source" value="{{ 'invitation' if preview else 'manual' }}">
+    {% if values.source_idea_id %}<input type="hidden" name="source_idea_id" value="{{ values.source_idea_id }}"><p class="parse-tip">内容来自待安排事项，保存日程不会修改原 idea。<a href="/my-schedule/ideas">返回待安排</a></p>{% endif %}
     {% if preview %}<textarea name="raw_text" hidden>{{ values.raw_text }}</textarea>{% endif %}
     {% if warnings %}<input type="hidden" name="confirm_overlap" value="true">{% endif %}
     <label>事件标题 <input class="input" name="title" required value="{{ values.title or '' }}"></label>
@@ -62,7 +63,7 @@
     {% endif %}
     {% include '_personal_reference_links.html' %}
     <label>备注 <textarea class="textarea" name="note" rows="3">{{ values.note or '' }}</textarea></label>
-    <div class="settings-actions"><a class="btn secondary" href="/my-schedule">取消</a><button class="btn" type="submit">{{ '仍保存日程' if warnings else '保存日程' }}</button></div>
+    <div class="settings-actions"><a class="btn secondary" href="{{ '/my-schedule/ideas' if values.source_idea_id else '/my-schedule' }}">取消</a><button class="btn" type="submit">{{ '仍保存日程' if warnings else '保存日程' }}</button></div>
   </form>
 </section>
 

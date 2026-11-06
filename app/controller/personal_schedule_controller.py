@@ -23,6 +23,9 @@ from app.service.interview_experience_service import InterviewExperienceService
 from app.model.interview_experience import CATEGORY_LABELS
 from app.service.resume_parser_service import ResumeParserService
 from app.service.personal_resume_service import PersonalResumeStateService
+from app.core.dependencies import get_personal_idea_service
+from app.service.personal_idea_service import PersonalIdeaService
+from uuid import uuid5, NAMESPACE_URL
 
 router = APIRouter(prefix="/my-schedule", tags=["personal-schedule"])
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
@@ -245,7 +248,7 @@ def _new_page(request: Request, *, error: str | None = None, warnings: list[str]
     user = getattr(request.state, "user", None)
     work_start = user.workday_start if user else "08:00"
     work_end = user.workday_end if user else "18:00"
-    date_only = not form_values
+    date_only = not form_values.get("start_at")
     form_values.setdefault("start_at", f"{now.date().isoformat()}T{work_start}")
     form_values.setdefault("end_at", f"{now.date().isoformat()}T{work_end}")
     if "skip_weekends" not in form_values:
@@ -333,6 +336,65 @@ def new_personal_event(request: Request):
     return _new_page(request)
 
 
+@router.get("/ideas/{idea_id}/arrange", response_class=HTMLResponse)
+def arrange_personal_idea(idea_id: str, request: Request,
+                          ideas: PersonalIdeaService = Depends(get_personal_idea_service)):
+    try:
+        idea = ideas.get(idea_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if idea.status != "pending":
+        raise HTTPException(409, "已放弃事项不能安排")
+    return _new_page(request, values={"title": idea.title, "note": idea.note,
+        "reference_links": [link.model_dump(mode="json") for link in idea.reference_links],
+        "source_idea_id": idea.id})
+
+
+@router.get("/ideas", response_class=HTMLResponse)
+def personal_ideas(request: Request, abandoned: bool = False, edit: str | None = None,
+                   ideas: PersonalIdeaService = Depends(get_personal_idea_service),
+                   schedule: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    try:
+        selected = ideas.get(edit) if edit else None
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if selected and selected.status != "pending":
+        raise HTTPException(409, "已放弃事项不能修改")
+    event_ids = {event.id for event in schedule.list_events()}
+    items = ideas.list(abandoned)
+    scheduled = {item.id: str(uuid5(NAMESPACE_URL, f"idea:{ideas.owner_id}:{item.id}")) for item in items}
+    return templates.TemplateResponse(request, "personal_ideas.html", {
+        "ideas": items, "abandoned": abandoned, "selected": selected,
+        "values": selected, "error": None,
+        "scheduled": {key: value for key, value in scheduled.items() if value in event_ids}})
+
+
+@router.post("/ideas", response_class=HTMLResponse)
+async def save_personal_idea(request: Request, ideas: PersonalIdeaService = Depends(get_personal_idea_service)):
+    form = await request.form()
+    values = {"title": str(form.get("title", "")), "note": str(form.get("note", "")),
+              "reference_links": _reference_form(form)}
+    idea_id = str(form.get("idea_id", "")) or None
+    try:
+        await run_in_threadpool(ideas.save, **values, idea_id=idea_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        return templates.TemplateResponse(request, "personal_ideas.html", {
+            "ideas": ideas.list(), "abandoned": False, "selected": {"id": idea_id} if idea_id else None,
+            "values": values, "error": str(exc), "scheduled": {}}, status_code=422)
+    return RedirectResponse("/my-schedule/ideas", status_code=303)
+
+
+@router.post("/ideas/{idea_id}/abandon")
+def abandon_personal_idea(idea_id: str, ideas: PersonalIdeaService = Depends(get_personal_idea_service)):
+    try:
+        ideas.abandon(idea_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return RedirectResponse("/my-schedule/ideas", status_code=303)
+
+
 @router.post("/parse", response_class=HTMLResponse)
 async def parse_personal_invitation(
     request: Request,
@@ -362,6 +424,7 @@ async def parse_personal_invitation(
 async def create_personal_event(
     request: Request,
     service: PersonalScheduleService = Depends(get_personal_schedule_service),
+    ideas: PersonalIdeaService = Depends(get_personal_idea_service),
 ):
     form = await request.form()
     values = {key: str(value) for key, value in form.items()}
@@ -372,6 +435,14 @@ async def create_personal_event(
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     preview = values.get("source") == "invitation"
+    source_idea_id = values.get("source_idea_id")
+    if source_idea_id:
+        try:
+            idea = await run_in_threadpool(ideas.get, source_idea_id)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        if idea.status != "pending" or preview:
+            raise HTTPException(409, "该事项不能安排")
     try:
         start = datetime.fromisoformat(values["start_at"])
         end = datetime.fromisoformat(values["end_at"])
@@ -407,6 +478,7 @@ async def create_personal_event(
                 location_url=values.get("location_url") or None,
                 reference_links=values["reference_links"],
                 note=common["note"], position=common["position"],
+                source_idea_id=source_idea_id,
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 confirm_overlap=confirmed,
             )

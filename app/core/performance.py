@@ -21,6 +21,7 @@ NODE_LABELS = {
     "login": "登录", "register": "注册", "logout": "退出登录", "mobile": "客户端同步/API",
     "resume_state": "当前简历状态", "resume_file": "简历文件",
     "reference_titles": "参考资料标题状态",
+    "ideas": "待安排事项",
 }
 METRIC_LABELS = {
     "request": "请求", "auth": "会话鉴权", "db_connect": "数据库连接",
@@ -65,6 +66,8 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
     if not path.startswith("/my-schedule"):
         return None
     tail = path[len("/my-schedule"):]
+    if tail == "/ideas" or tail.startswith("/ideas/"):
+        return "ideas"
     if tail == "/resume/current":
         return "resume_state"
     if tail.startswith(("/admin", "/telemetry")):
