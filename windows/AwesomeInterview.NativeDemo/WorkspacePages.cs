@@ -47,18 +47,21 @@ public partial class MainWindow
         var controls=new WrapPanel{Margin=new(0,0,0,14)};
         foreach(var (key,caption) in new[]{("day","日视图"),("week","周视图"),("month","月视图")})
         {var b=Button(caption,()=>{calendarView=key;ShowCalendar();});if(key==calendarView){b.Background=Brush("#E9F0FF");b.Foreground=Brush("#2357CE");}controls.Children.Add(b);}
-        controls.Children.Add(Button("回到今天",()=>{selected=DateTime.Today;ShowCalendar();}));controls.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));content.Children.Add(controls);
-        var datebar=new Grid{Margin=new(0,0,0,16)};datebar.ColumnDefinitions.Add(new(){Width=new(50)});datebar.ColumnDefinitions.Add(new());datebar.ColumnDefinitions.Add(new(){Width=new(50)});
+        content.Children.Add(controls);
+        var datebar=new Grid{Margin=new(0,0,0,16)};
+        datebar.ColumnDefinitions.Add(new(){Width=new(44)});datebar.ColumnDefinitions.Add(new());datebar.ColumnDefinitions.Add(new(){Width=GridLength.Auto});datebar.ColumnDefinitions.Add(new(){Width=new(44)});
         void Shift(int direction){selected=calendarView=="month"?selected.AddMonths(direction):selected.AddDays(direction*(calendarView=="week"?7:1));ShowCalendar();}
-        datebar.Children.Add(Button("‹",()=>Shift(-1)));var next=Button("›",()=>Shift(1));Grid.SetColumn(next,2);datebar.Children.Add(next);
+        Button Arrow(string glyph,string name,Action action){var button=Button("",action);button.Content=new TextBlock{Text=glyph,FontFamily=new("Segoe MDL2 Assets"),FontSize=16};button.Padding=new(8);button.Margin=new(0);System.Windows.Automation.AutomationProperties.SetName(button,name);return button;}
+        datebar.Children.Add(Arrow("\uE76B","上一日期",()=>Shift(-1)));var next=Arrow("\uE76C","下一日期",()=>Shift(1));Grid.SetColumn(next,3);datebar.Children.Add(next);
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=DateTime.Today;ShowCalendar();}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
         var first=calendarView=="week"?selected.Date.AddDays(-(((int)selected.DayOfWeek+6)%7)):selected.Date;
         var label=Text(calendarView=="month"?selected.ToString("yyyy年M月"):calendarView=="week"?$"{first:yyyy-MM-dd} — {first.AddDays(6):MM-dd}":selected.ToString("yyyy-MM-dd dddd"),19);
-        label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;Grid.SetColumn(label,1);datebar.Children.Add(label);content.Children.Add(datebar);
+        label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0,0,0,12);content.Children.Add(label);content.Children.Add(datebar);
         if(calendarView=="month")RenderMonth();else RenderTimeline(first,calendarView=="week"?7:1);
     }
     void RenderMonth()
     {
-        var grid=new Grid();for(int c=0;c<7;c++)grid.ColumnDefinitions.Add(new());for(int r=0;r<7;r++)grid.RowDefinitions.Add(new(){Height=r==0?new(36):new GridLength(1,GridUnitType.Star)});
+        var grid=new Grid{MinWidth=770};for(int c=0;c<7;c++)grid.ColumnDefinitions.Add(new());for(int r=0;r<7;r++)grid.RowDefinitions.Add(new(){Height=r==0?new(36):new GridLength(1,GridUnitType.Star)});
         var first=new DateTime(selected.Year,selected.Month,1);first=first.AddDays(-(((int)first.DayOfWeek+6)%7));
         for(int c=0;c<7;c++){var title=Text(new[]{"周一","周二","周三","周四","周五","周六","周日"}[c],12,"#64748B");title.HorizontalAlignment=HorizontalAlignment.Center;Grid.SetColumn(title,c);grid.Children.Add(title);}
         for(int i=0;i<42;i++)
@@ -73,11 +76,11 @@ public partial class MainWindow
             }
             var cell=new Border{BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,0,1,1),MinHeight=92,Child=body};Grid.SetColumn(cell,i%7);Grid.SetRow(cell,i/7+1);grid.Children.Add(cell);
         }
-        content.Children.Add(Surface(grid,new(6)));
+        content.Children.Add(Surface(new ScrollViewer{Content=grid,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled},new(6)));
     }
     void RenderTimeline(DateTime first,int days)
     {
-        var grid=new Grid();grid.ColumnDefinitions.Add(new(){Width=new(52)});for(int c=0;c<days;c++)grid.ColumnDefinitions.Add(new());
+        var grid=new Grid{MinWidth=days==7?1452:420};grid.ColumnDefinitions.Add(new(){Width=new(52)});for(int c=0;c<days;c++)grid.ColumnDefinitions.Add(new());
         var hours=new Canvas{Height=640,Margin=new(0,38,0,0)};for(int h=0;h<24;h++){var t=Text($"{h:00}:00",10,"#8492A6");Canvas.SetTop(t,h*640.0/24);hours.Children.Add(t);}grid.Children.Add(hours);
         for(int c=0;c<days;c++)
         {
@@ -89,10 +92,14 @@ public partial class MainWindow
             // Recalculate lanes from visible entries, so hidden completed events never leave empty columns.
             var laneEnds=new List<DateTime>();var placed=new List<(EventData Item,int Lane,DateTime Start,DateTime End)>();
             foreach(var item in items){var from=item.Local(item.StartAt)<day?day:item.Local(item.StartAt);var to=item.Local(item.EndAt)>day.AddDays(1)?day.AddDays(1):item.Local(item.EndAt);int lane=laneEnds.FindIndex(e=>e<=from);if(lane<0){lane=laneEnds.Count;laneEnds.Add(to);}else laneEnds[lane]=to;placed.Add((item,lane,from,to));}
-            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.Wrap};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Top;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(20,(row.End-row.Start).TotalHours*640/24);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=11;Canvas.SetTop(b,(row.Start-day).TotalHours*640/24);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
+            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Top;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(20,(row.End-row.Start).TotalHours*640/24);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=11;Canvas.SetTop(b,(row.Start-day).TotalHours*640/24);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
             canvas.SizeChanged+=(_,_)=>Layout();
         }
-        content.Children.Add(Surface(grid,new(8)));
+        var clockLayer=new Canvas{IsHitTestVisible=false,Margin=new(52,38,0,0),ClipToBounds=true};
+        Grid.SetColumn(clockLayer,1);Grid.SetColumnSpan(clockLayer,days);clockLayer.Margin=new(0,38,0,0);Panel.SetZIndex(clockLayer,10);grid.Children.Add(clockLayer);
+        void UpdateClock(){clockLayer.Children.Clear();var now=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;if(now.Date<first.Date||now.Date>=first.AddDays(days).Date)return;double y=now.TimeOfDay.TotalHours*640/24;var line=new Border{Background=Brush("#E5484D"),Height=2,Width=clockLayer.ActualWidth};Canvas.SetTop(line,y);clockLayer.Children.Add(line);var tag=new Border{Background=Brush("#E5484D"),CornerRadius=new(4),Padding=new(5,2,5,2),Child=Text($"当前时间 {now:HH:mm}",11,"#FFFFFF")};Canvas.SetTop(tag,Math.Clamp(y-21,0,615));Canvas.SetLeft(tag,4);clockLayer.Children.Add(tag);}
+        var clock=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(15)};clock.Tick+=(_,_)=>UpdateClock();clockLayer.Loaded+=(_,_)=>{UpdateClock();clock.Start();};clockLayer.Unloaded+=(_,_)=>clock.Stop();clockLayer.SizeChanged+=(_,_)=>UpdateClock();
+        content.Children.Add(Surface(new ScrollViewer{Content=grid,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled},new(8)));
     }
 
     void ShowAdd()=>ShowEditor(null);
