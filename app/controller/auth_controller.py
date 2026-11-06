@@ -44,6 +44,7 @@ def _page(request: Request, mode: str, *, error: str = "", message: str = "",
         "reset_token": reset_token, "identifier": identifier,
         "invite_required": request.app.state.settings.registration_mode == "invite",
         "email_verification_required": request.app.state.settings.email_verification_required,
+        "embedded": request.query_params.get("embed") == "1",
     }, status_code=status_code)
     response.set_cookie(GUEST_CSRF_COOKIE, csrf_token, max_age=3600,
                         httponly=True, secure=request.app.state.settings.auth_cookie_secure,

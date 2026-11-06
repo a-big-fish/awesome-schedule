@@ -250,7 +250,7 @@ def test_public_mode_closes_enterprise_routes_and_requires_login(tmp_path):
         assert home.status_code == 200
         assert "Awesome Interview" in home.text
         assert "会议日程" not in home.text
-        assert client.get("/my-schedule", follow_redirects=False).headers["location"].startswith("/auth/login")
+        assert client.get("/my-schedule", follow_redirects=False).status_code == 200
         assert client.post("/my-schedule/events", data={}).status_code == 401
         assert client.get("/api/mobile/v1/snapshot").status_code == 401
         for path in ("/meetings", "/meetings/schedule", "/schedule", "/my-interviews",
@@ -290,7 +290,7 @@ def test_account_registration_verification_reset_and_logout(tmp_path):
         csrf = _csrf(client.get("/my-schedule/new"))
         assert client.post("/auth/logout", data={"csrf_token": "wrong"}).status_code == 403
         assert client.post("/auth/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
-        assert client.get("/my-schedule", follow_redirects=False).status_code == 303
+        assert client.get("/my-schedule", follow_redirects=False).status_code == 200
         forgot = client.get("/auth/forgot-password")
         assert client.post("/auth/forgot-password", data={
             "csrf_token": _csrf(forgot), "email": "user@example.com",

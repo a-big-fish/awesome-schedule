@@ -36,7 +36,7 @@ def test_streamed_batches_have_no_duplicates_and_keep_filters_authors_and_privac
     for index, fields in enumerate(hidden):
         mapper.save_experience(InterviewExperience(owner_id=user.id, title=f"隐藏 {index}", **fields))
     with TestClient(app, base_url="https://testserver") as client:
-        assert client.get("/my-schedule/experiences/plaza?batch=true", follow_redirects=False).status_code == 303
+        assert client.get("/my-schedule/experiences/plaza?batch=true", follow_redirects=False).status_code == 200
         _login(client, user.email, "batch-test")
         initial = client.get("/my-schedule/experiences/plaza")
         assert len(re.findall('data-plaza-id=', initial.text)) == 20

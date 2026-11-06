@@ -1,0 +1,47 @@
+.auth-modal { width: min(880px, calc(100vw - 32px)); max-width: none; padding: 0; border: 0; border-radius: 20px; overflow: hidden; box-shadow: 0 24px 100px #15213b40; }
+.auth-modal::backdrop { background: #13203a80; }
+.auth-modal iframe { display:block; width:100%; height:min(600px, 85dvh); border:0; background:#fff; }
+.auth-modal-close,.auth-panel-exit { position:absolute; right:16px; top:12px; z-index:2; background:#fff; color:#68758b; border:0; font-size:28px; width:36px; height:36px; cursor:pointer; text-align:center; text-decoration:none; border-radius:50%; }
+.auth-page { background:#eaf0f8; }
+.auth-page main { display:grid; place-items:center; min-height:calc(100dvh - 160px); padding:36px 16px; }
+.auth-embedded .page-header,.auth-embedded .personal-site-footer { display:none; }
+.auth-embedded .page { padding:0; }
+.auth-embedded main { min-height:100dvh; padding:0; }
+.auth-login-panel { position:relative; width:min(860px,100%); box-sizing:border-box; background:white; border-radius:20px; display:grid; grid-template-columns:280px 1fr; padding:48px 44px; gap:40px; box-shadow:0 20px 70px #24345218; }
+.auth-embedded .auth-login-panel { box-shadow:none; border-radius:0; }
+.auth-scan-side { border-right:1px solid #e8ecf2; padding-right:32px; text-align:center; }
+.auth-scan-side h2 { font-size:18px; margin:16px 0 22px; }
+.auth-qr-placeholder { background:#f7f9fc; border:1px solid #e0e6ef; border-radius:14px; color:#74849c; padding:16px; width:172px; cursor:pointer; }
+.auth-qr-placeholder svg { display:block; width:120px; height:120px; margin:auto; opacity:.6; }
+.auth-qr-placeholder span { display:block; font-size:13px; margin-top:8px; }
+.auth-scan-side p { font-size:12px; color:#8791a2; line-height:1.9; }
+.auth-password-side h1 { font-size:23px; margin:4px 0 10px; letter-spacing:-.5px; }
+.auth-welcome { color:#8b95a6; font-size:13px; margin-bottom:26px; }
+.auth-methods { display:flex; align-items:center; gap:18px; margin-bottom:20px; color:#e1e6ee; }
+.auth-methods button { background:none; border:0; padding:6px 0; color:#818c9e; font-size:16px; cursor:pointer; }
+.auth-methods .is-active { color:#345dff; font-weight:700; box-shadow:0 2px #345dff; }
+.auth-login-form label { display:flex; align-items:center; gap:16px; border:1px solid #e2e7ef; border-radius:9px; padding:12px 14px; font-size:14px; margin-bottom:12px; white-space:nowrap; }
+.auth-login-form input:not([type=hidden]) { border:0; outline:0; min-width:0; flex:1; width:100%; font:inherit; background:transparent; }
+.auth-login-form label:focus-within { outline:2px solid #a5b7ff; }
+.auth-form-actions { display:flex; gap:12px; margin-top:20px; }
+.auth-form-actions>* { flex:1; text-align:center; }
+.auth-forgot { display:block; text-align:right; font-size:12px; margin-top:10px; }
+.auth-social { text-align:center; margin-top:26px; }
+.auth-social>p { color:#929bad; font-size:12px; }
+.auth-social>div { display:flex; justify-content:center; gap:28px; }
+.auth-social button { display:grid; justify-items:center; gap:6px; border:0; background:none; font-size:11px; color:#8d97a8; cursor:pointer; }
+.auth-social-icon { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:white; font-size:18px; font-weight:bold; }
+.auth-social-icon svg { width:24px; height:24px; }
+.wechat { background:#38b95a; }.qq { background:#35a8e5; }.github { background:#263249; }
+.auth-error { background:#fff0f0; padding:10px; border-radius:8px; color:#b82738; font-size:13px; }
+.auth-developing { min-height:138px; display:grid; align-content:center; line-height:2; text-align:center; color:#6c7890; }
+.auth-developing[hidden] { display:none; }
+.auth-notice-dialog { border:0; border-radius:16px; padding:28px; max-width:300px; box-shadow:0 12px 60px #17294930; }
+.auth-notice-dialog::backdrop { background:#16213850; }
+.guest-demo-notice { padding:12px 18px; margin:0 0 12px; background:#eaf0ff; color:#3353b4; border-radius:10px; font-size:14px; }
+@media(max-width:650px) {
+ .auth-login-panel { grid-template-columns:1fr; padding:36px 24px 24px; gap:20px; }
+ .auth-scan-side { display:none; }
+ .auth-password-side h1 { font-size:20px; }
+ .auth-modal iframe { height:min(570px,85dvh); }
+}

@@ -25,6 +25,11 @@ async def require_current_user(request: Request) -> AuthUser:
         result = await run_in_threadpool(request.app.state.auth_service.authenticate,
                                          request.cookies.get(SESSION_COOKIE))
     if not result:
+        if request.method == "GET" and request.url.path.rstrip("/") in {
+            "/my-schedule", "/my-schedule/experiences/plaza"
+        }:
+            request.state.is_guest = True
+            return None
         raise AuthRequired
     user, session = result
     request.state.user = user

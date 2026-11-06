@@ -131,10 +131,19 @@ def experience_plaza(request: Request, company: str = "", order: str = "newest",
     order = order if order in {"newest", "oldest"} else "newest"
     items, total = service.list_plaza(company=company.strip()[:200], order=order,
                                       page=max(1, page))
+    guest = getattr(request.state, "is_guest", False)
+    if guest:
+        # Whitelist summary fields before template/JSON rendering. No body, answers,
+        # feeling, owner ID, author name or hidden DOM with private content.
+        items = [{"guest": True, "experience": {"id": row["experience"].id,
+                  "title": row["experience"].title, "updated_at": row["experience"].updated_at}}
+                 for row in items]
     auth_service = getattr(request.app.state, "auth_service", None)
-    owner_ids = list({row["experience"].owner_id for row in items})
+    owner_ids = [] if guest else list({row["experience"].owner_id for row in items})
     authors = auth_service.mapper.get_users(owner_ids) if auth_service else {}
     for row in items:
+        if guest:
+            continue
         owner_id = row["experience"].owner_id
         row["author"] = _author_label(authors.get(owner_id), owner_id)
     next_page = max(1, page) + 1 if max(1, page) * 20 < total else None

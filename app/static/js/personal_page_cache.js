@@ -1,4 +1,5 @@
 (() => {
+  if (document.querySelector('meta[name="guest-browsing"]')) return;
   // Private HTML stays in this page's memory; the server sends no-store.
   const paths = ['/my-schedule/new', '/my-schedule', '/my-schedule/experiences/plaza', '/my-schedule/experiences',
     '/my-schedule/profile', '/my-schedule/interviews'];

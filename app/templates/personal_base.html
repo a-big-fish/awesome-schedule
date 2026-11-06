@@ -2,6 +2,8 @@
 {% block title %}Awesome Interview{% endblock %}
 {% block body_class %}page-wide personal-app personal-scroll-page{% endblock %}
 {% block styles %}
+<link rel="stylesheet" href="{{ asset_url('css/auth_modal.css') }}">
+{% if request.state.is_guest|default(false) %}<meta name="guest-browsing" content="true">{% endif %}
 {% if request.app.state.settings.app_mode == 'public_personal' and request.app.state.settings.performance_enabled and request.state.user is defined %}<meta name="performance-csrf" content="{{ request.state.csrf_token }}"><script src="{{ asset_url('js/performance_collector.js') }}" defer></script>{% endif %}
 <link rel="stylesheet" href="{{ asset_url('css/interview-experience-card.css') }}">
 <link rel="stylesheet" href="{{ asset_url('css/interview-experience-lines.css') }}">
@@ -13,7 +15,9 @@
 </a>
 {% endblock %}
 {% block scripts %}<script src="{{ asset_url('js/personal_time_validation.js') }}" defer></script><script src="{{ asset_url('js/personal_calendar_filter.js') }}" defer></script><script src="{{ asset_url('js/personal_repeats.js') }}" defer></script><script src="{{ asset_url('js/personal_references.js') }}" defer></script><script src="{{ asset_url('js/personal_overdue.js') }}" defer></script><script src="{{ asset_url('js/personal_navigation.js') }}" defer></script><script src="{{ asset_url('js/personal_page_cache.js') }}" defer></script><script src="{{ asset_url('js/interview_experience.js') }}" defer></script><script src="{{ asset_url('js/experience_plaza.js') }}" defer></script><script src="{{ asset_url('js/personal_resume_cache.js') }}" defer></script>{% endblock %}
-{% block footer %}<footer class="personal-site-footer"><span>© Awesome Interview</span><span>资料整理内容收集自网络公开资料</span><a href="/copyright">版权与侵删说明</a></footer>{% endblock %}
+{% block footer %}<footer class="personal-site-footer"><span>© Awesome Interview</span><span>资料整理内容收集自网络公开资料</span><a href="/copyright">版权与侵删说明</a></footer>
+{% if request.state.is_guest|default(false) %}<dialog class="auth-modal" data-login-modal aria-label="登录 Awesome Interview"><button type="button" class="auth-modal-close" data-login-close aria-label="关闭登录弹窗">×</button><iframe title="登录表单" data-login-frame></iframe></dialog><script src="{{ asset_url('js/guest_login.js') }}" defer></script>{% endif %}
+{% endblock %}
 {% block navigation %}
 <button class="mobile-nav-toggle" type="button" aria-label="展开导航" aria-controls="personal-page-nav" aria-expanded="true" data-mobile-nav-toggle><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span></button>
 <nav class="page-nav" id="personal-page-nav">
@@ -25,7 +29,8 @@
   <a class="nav-link" href="/my-schedule/interviews" {% if current_path.startswith('/my-schedule/interviews') %}aria-current="page"{% endif %}>我的面试</a>
   <a class="nav-link" href="/my-schedule/experiences" {% if current_path.startswith('/my-schedule/experiences') and not current_path.startswith('/my-schedule/experiences/plaza') %}aria-current="page"{% endif %}>我的面经</a>
   {% if request.app.state.settings.app_mode == 'public_personal' %}<a class="nav-link" href="/my-schedule/profile" {% if current_path == '/my-schedule/profile' %}aria-current="page"{% endif %}>个人设置</a>{% endif %}
-  {% if request.app.state.settings.app_mode == 'public_personal' and request.state.user.is_admin %}<a class="nav-link" href="/my-schedule/admin" {% if current_path == '/my-schedule/admin' %}aria-current="page"{% endif %}>数据看板</a>{% endif %}
-  {% if request.app.state.settings.app_mode == 'public_personal' %}<form class="nav-logout-form" action="/auth/logout" method="post"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="nav-link" type="submit">退出登录</button></form>{% endif %}
+  {% if request.app.state.settings.app_mode == 'public_personal' and request.state.user is defined and request.state.user.is_admin %}<a class="nav-link" href="/my-schedule/admin" {% if current_path == '/my-schedule/admin' %}aria-current="page"{% endif %}>数据看板</a>{% endif %}
+  {% if request.state.is_guest|default(false) %}<a class="nav-link" href="/auth/login" data-login-open>登录 / 注册</a>
+  {% elif request.app.state.settings.app_mode == 'public_personal' %}<form class="nav-logout-form" action="/auth/logout" method="post"><input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}"><button class="nav-link" type="submit">退出登录</button></form>{% endif %}
 </nav>
 {% endblock %}

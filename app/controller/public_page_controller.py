@@ -12,9 +12,7 @@ router = APIRouter(tags=["public-pages"])
 
 @router.get("/", response_class=HTMLResponse)
 def public_home(request: Request):
-    if request.app.state.auth_service.authenticate(request.cookies.get(SESSION_COOKIE)):
-        return RedirectResponse("/my-schedule/experiences/plaza", status_code=303)
-    return templates.TemplateResponse(request, "public_portal.html", {})
+    return RedirectResponse("/my-schedule/experiences/plaza", status_code=303)
 
 
 @router.get("/copyright", response_class=HTMLResponse)

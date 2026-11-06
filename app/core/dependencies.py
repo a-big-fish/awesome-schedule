@@ -175,6 +175,9 @@ def get_personal_schedule_service(
     mapper: BasePersonalEventMapper = Depends(get_personal_event_mapper),
     profile_mapper: BaseMyResumeMapper = Depends(get_my_resume_mapper),
 ) -> PersonalScheduleService:
+    if getattr(request.state, "is_guest", False):
+        from app.service.guest_calendar_service import build_guest_schedule
+        return build_guest_schedule()
     owner_id = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
     return PersonalScheduleService(mapper=mapper, profile_mapper=profile_mapper, owner_id=owner_id)
 
@@ -208,7 +211,8 @@ def get_interview_experience_service(
     mapper: BaseInterviewExperienceMapper = Depends(get_interview_experience_mapper),
     schedule_service: PersonalScheduleService = Depends(get_personal_schedule_service),
 ) -> InterviewExperienceService:
-    owner_id = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
+    owner_id = "__guest__" if getattr(request.state, "is_guest", False) else (
+        request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local")
     return InterviewExperienceService(mapper, schedule_service, owner_id)
 
 
