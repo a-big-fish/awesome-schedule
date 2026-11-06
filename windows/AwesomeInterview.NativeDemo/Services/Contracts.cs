@@ -14,7 +14,10 @@ public static class Wire
 }
 
 public record SessionInfo(string UserId, string CsrfToken);
-public record ProfileData(string UserId, string? DisplayName, string? Email, string WorkdayStart, string WorkdayEnd);
+public record ProfileData(string UserId, string? DisplayName, string? Email, string WorkdayStart, string WorkdayEnd)
+{
+    [JsonIgnore] public string EffectiveName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName : "热心用户_" + (Email?.Split('@')[0] is { Length: > 0 } prefix ? prefix[..Math.Min(3,prefix.Length)] : "用户");
+}
 public record PlazaItem(string Id, string Title, string? Company, string? Position, DateTimeOffset? InterviewedAt, string? InterviewRound, string Author, int QuestionCount);
 public record PlazaBatch(List<PlazaItem> Items, int Total, int? NextPage);
 public record PublicExperience(ExperienceData Experience, string Author);

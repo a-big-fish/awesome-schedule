@@ -7,6 +7,9 @@ using System.Text.Json;
 
 int passed = 0;
 void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); passed++; }
+var profileContract=Wire.Read<ProfileData>("""{"user_id":"a","display_name":"自定义昵称","email":"ab@example.test","workday_start":"08:00","workday_end":"18:00"}""");
+Check(profileContract.EffectiveName=="自定义昵称", "server display_name received without fallback override");
+Check((profileContract with {DisplayName=null}).EffectiveName=="热心用户_ab", "empty nickname uses Web email-prefix default");
 var seed = """
 {"schema_version":1,"user_id":"a","server_time":"2026-11-05T03:00:00Z","events":[{"id":"e","owner_id":"a","type":"personal","title":"contract fixture","start_at":"2026-11-05T23:00:00+08:00","end_at":"2026-11-07T01:00:00+08:00","skip_weekends":true,"timezone":"Asia/Shanghai","future_field":{"enabled":true}}],"experiences":[],"todos":[]}
 """;
