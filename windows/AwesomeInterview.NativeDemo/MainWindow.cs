@@ -19,6 +19,8 @@ public partial class MainWindow : Window
     readonly WorkspaceRepository repository = new();
     List<DemoTask> tasks = new();
     readonly StackPanel content = new();
+    ScrollViewer viewport=null!;
+    Button adminNav=null!;
     readonly TextBlock heading = new() { FontSize=28, FontWeight=FontWeights.SemiBold, Margin=new(0,0,0,6) };
     readonly TextBlock status = new() { Foreground=Brush("#64748B"), TextWrapping=TextWrapping.Wrap, FontSize=12, VerticalAlignment=VerticalAlignment.Center };
     readonly List<Button> nav = new();
@@ -30,7 +32,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title="Awesome Interview · Windows 1.3.1-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        Title="Awesome Interview · Windows 1.4.0-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
         UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;
@@ -44,12 +46,13 @@ public partial class MainWindow : Window
         bottom.Children.Add(Button("账号与同步",()=>Navigate(ShowAccount))); DockPanel.SetDock(bottom,Dock.Bottom); side.Children.Add(bottom);
         var links=new StackPanel(); AddNav(links,"今日待办","\uE8FD",()=>ShowTasks(false)); AddNav(links,"日历与日程","\uE787",ShowCalendar);
         AddNav(links,"添加日程","\uE710",ShowAdd); AddNav(links,"面经广场","\uE774",ShowPlaza); AddNav(links,"我的面经","\uE8A5",ShowExperience);
-        AddNav(links,"设置与版本","\uE713",ShowSettings); side.Children.Add(links);
+        AddNav(links,"设置与版本","\uE713",ShowSettings);AddNav(links,"管理员监控","\uE9D9",ShowAdmin);adminNav=nav.Last();adminNav.Visibility=Visibility.Collapsed; side.Children.Add(links);
         var main=new DockPanel{Margin=new(32,28,32,18)}; Grid.SetColumn(main,1); shell.Children.Add(main);
         var top=new StackPanel();top.Children.Add(heading);top.Children.Add(subtitle);DockPanel.SetDock(top,Dock.Top);main.Children.Add(top);
         var foot=new DockPanel{Margin=new(0,14,0,0)}; var sync=Button("同步",()=>Run(repository.SynchronizeAsync));DockPanel.SetDock(sync,Dock.Right);foot.Children.Add(sync);foot.Children.Add(status);
         DockPanel.SetDock(foot,Dock.Bottom);main.Children.Add(foot);
-        var scroller=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        var scroller=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Hidden,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};viewport=scroller;
+        var screens=new StackPanel{Orientation=Orientation.Horizontal};screens.Children.Add(Button("上一屏",()=>scroller.ScrollToVerticalOffset(Math.Max(0,scroller.VerticalOffset-scroller.ViewportHeight))));screens.Children.Add(Button("下一屏",()=>scroller.ScrollToVerticalOffset(scroller.VerticalOffset+scroller.ViewportHeight)));DockPanel.SetDock(screens,Dock.Bottom);main.Children.Add(screens);scroller.ScrollChanged+=(_,_)=>screens.Visibility=page!="calendar"&&scroller.ScrollableHeight>1?Visibility.Visible:Visibility.Collapsed;
         scroller.ScrollChanged+=(_,args)=>{if(page=="plaza"&&args.VerticalChange>0&&scroller.ScrollableHeight-scroller.VerticalOffset<160&&!plazaBusy&&nextPlazaPage!=null&&repository.Online)Run(LoadPlazaAsync);};main.Children.Add(scroller);
         InitializeDesktopFeatures(); Closed+=(_,_)=>repository.Dispose();
         repository.Changed+=OnRepositoryChanged;
@@ -73,7 +76,7 @@ public partial class MainWindow : Window
         nav.Add(b);parent.Children.Add(b);
     }
     void bSelect(string title){foreach(var b in nav){bool active=(string)b.Tag==title;b.Background=active?Brush("#E9F0FF"):Brushes.Transparent;b.Foreground=active?Brush("#2357CE"):Brush("#52647D");b.FontWeight=active?FontWeights.SemiBold:FontWeights.Normal;}}
-    void Begin(string title,string description=""){heading.Text=title;subtitle.Text=description;content.Children.Clear();}
+    void Begin(string title,string description=""){if(viewport!=null){if(viewport.Content is Viewbox previousFit)previousFit.Child=null;viewport.Content=null;content.Width=double.NaN;content.LayoutTransform=Transform.Identity;viewport.Content=content;viewport.ScrollToTop();}heading.Text=title;subtitle.Text=description;content.Children.Clear();var render=System.Diagnostics.Stopwatch.StartNew();var api=repository.Api;string node=page switch{"calendar"=>"calendar","editor"=>"schedule_new","plaza"=>"plaza","experiences"=>"experiences","settings"=>"profile","today"=>"calendar",_=>"mobile"};if(page!="admin")Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,new Action(()=>{if(api==repository.Api)api?.RecordPage(node,render.Elapsed.TotalMilliseconds);}));}
     void Paragraph(string text){content.Children.Add(Text(text,14,"#64748B",new(0,0,0,16)));}
     static TextBlock Text(string text,double size=14,string color="#192C46",Thickness? margin=null)=>new(){Text=text,FontSize=size,Foreground=Brush(color),TextWrapping=TextWrapping.Wrap,Margin=margin??new Thickness(0)};
     static Border Surface(UIElement child,Thickness? padding=null)=>new(){Background=Brushes.White,BorderBrush=Brush("#E2E8F2"),BorderThickness=new(1),CornerRadius=new(10),Padding=padding??new Thickness(22),Margin=new(0,0,0,16),Child=child};
@@ -85,6 +88,8 @@ public partial class MainWindow : Window
     void OnRepositoryChanged()
     {
         if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(OnRepositoryChanged);return;}
+        adminNav.Visibility=repository.Online&&repository.Api?.Session?.IsAdmin==true?Visibility.Visible:Visibility.Collapsed;
+        if(page=="admin"&&adminNav.Visibility!=Visibility.Visible){Begin("管理员监控","需要管理员身份并保持在线连接。");}
         status.Text=repository.Busy?"正在后台同步，仍可浏览当前页面…":repository.Message;
         connectionLabel.Text=repository.Current==null?"尚未登录":repository.Online?"账号已连接":"离线 · 缓存只读";
         ProjectTasks(DateTime.Today);RefreshPortable();

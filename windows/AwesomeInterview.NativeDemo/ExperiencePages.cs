@@ -76,10 +76,10 @@ public partial class MainWindow
         page="plaza";bSelect("面经广场");Begin("面经广场","来自公开面经的真实问题与经验");if(NeedAccount())return;
         string scope=repository.Api!.Server.AbsoluteUri+repository.Current!.UserId;
         if(plazaOwner!=scope){plazaOwner=scope;plazaItems.Clear();nextPlazaPage=1;}
-        var tools=new Grid();tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        var companyField=new StackPanel{Margin=new(0,0,16,0)};companyField.Children.Add(Text("公司筛选",13,"#64748B"));var filter=new TextBox{Text=plazaCompany,ToolTip="输入公司名称",Margin=new(0,8,0,0)};companyField.Children.Add(filter);tools.Children.Add(companyField);
+        var tools=new Grid{VerticalAlignment=VerticalAlignment.Top};tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        var companyField=new StackPanel{Margin=new(0,0,16,0)};companyField.Children.Add(Text("公司筛选",13,"#64748B"));var filter=new TextBox{Text=plazaCompany,Height=44,VerticalAlignment=VerticalAlignment.Top,ToolTip="输入公司名称",Margin=new(0,8,0,0)};companyField.Children.Add(filter);tools.Children.Add(companyField);
         var orderField=new StackPanel{Margin=new(0,0,16,0)};orderField.Children.Add(Text("面试时间排序",13,"#64748B"));var order=new ComboBox{ItemsSource=new[]{"从新到旧","从旧到新"},SelectedIndex=plazaOrder=="newest"?0:1,Margin=new(0,8,0,0)};orderField.Children.Add(order);Grid.SetColumn(orderField,1);tools.Children.Add(orderField);
-        var apply=Button("筛选",()=>{plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();nextPlazaPage=1;ShowPlaza();});apply.VerticalAlignment=VerticalAlignment.Bottom;apply.Margin=new(0);apply.IsEnabled=!plazaBusy;Grid.SetColumn(apply,2);tools.Children.Add(apply);content.Children.Add(Surface(tools));
+        var apply=Button("筛选",()=>{plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();nextPlazaPage=1;ShowPlaza();});apply.VerticalAlignment=VerticalAlignment.Bottom;apply.Margin=new(0);apply.IsEnabled=!plazaBusy;Grid.SetColumn(apply,2);tools.Children.Add(apply);content.Children.Add(new Expander{Header="筛选条件",IsExpanded=false,Content=Surface(tools),Margin=new(0,0,0,12)});
         content.Children.Add(Text($"找到 {plazaTotal} 篇面经",14,"#64748B",new(0,4,0,18)));
         var cards=new System.Windows.Controls.Primitives.UniformGrid();
         void Columns(){cards.Columns=Math.Max(1,Math.Min(3,(int)(content.ActualWidth/320)));}cards.SizeChanged+=(_,_)=>Columns();

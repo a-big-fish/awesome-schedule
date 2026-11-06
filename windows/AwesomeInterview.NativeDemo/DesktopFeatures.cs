@@ -44,7 +44,7 @@ public partial class MainWindow
             if (!exiting && preferences.CloseToTray) {
                 args.Cancel = true;
                 if (!preferences.TrayHintShown) {
-                    MessageBox.Show(this, "关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。", "关闭到系统托盘", MessageBoxButton.OK, MessageBoxImage.Information);
+                    Confirm("关闭到系统托盘","关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。","知道了","返回");
                     preferences = preferences with { TrayHintShown = true }; SavePreferences();
                 }
                 Hide();
@@ -61,7 +61,7 @@ public partial class MainWindow
     bool CanLeaveForm()
     {
         if (!formDirty) return true;
-        if (MessageBox.Show(this, "当前表单尚未保存，是否放弃输入？", "未保存的日程", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
+        if (!Confirm("未保存的日程","当前表单尚未保存，是否放弃输入？","放弃修改","继续编辑")) return false;
         formDirty = false; return true;
     }
 
@@ -140,21 +140,19 @@ public partial class MainWindow
         }
     }
 
+    string settingsCategory="账号";
     void ShowSettings()
     {
-        page="settings";bSelect("设置与版本"); Begin("设置与版本","账号偏好与桌面行为");
-        var body=new StackPanel{MaxWidth=720,HorizontalAlignment=HorizontalAlignment.Left};
-        body.Children.Add(Text("桌面行为",19,margin:new Thickness(0,0,0,16)));
-        var keep = new CheckBox { Content="关闭窗口后保留在系统托盘", IsChecked=preferences.CloseToTray, Margin=new Thickness(0,8,0,16) };
-        body.Children.Add(keep);
-        var feedback = new TextBlock { TextWrapping=TextWrapping.Wrap }; body.Children.Add(feedback);
-        body.Children.Add(Button("保存窗口设置", () => {
-            var previous=preferences; preferences=preferences with { CloseToTray=keep.IsChecked==true };
-            if(SavePreferences())feedback.Text="设置已保存，下次关闭窗口立即生效。";else {preferences=previous;feedback.Text="保存失败，已保留原设置。";}
-        }));
-        body.Children.Add(Button("开启 / 关闭随身日程", TogglePortable));
-        ShowProfileSettings(body);
-        body.Children.Add(Text("版本",19,margin:new Thickness(0,28,0,12)));body.Children.Add(Text("Awesome Interview 1.3.1-W\nWindows 原生预览 · WPF / .NET 10",14,"#64748B"));
-        content.Children.Add(Surface(body,new Thickness(28)));
+        page="settings";bSelect("设置与版本");Begin("偏好设置","账号、日程与桌面行为");
+        var layout=new Grid();layout.ColumnDefinitions.Add(new(){Width=new(150)});layout.ColumnDefinitions.Add(new());
+        var categories=new StackPanel{Margin=new(0,0,24,0)};foreach(var label in new[]{"账号","日程偏好","桌面行为","关于与版本"}){var entry=Button(label,()=>{settingsCategory=label;ShowSettings();});if(label==settingsCategory)entry.Background=Brush("#E9F0FF");categories.Children.Add(entry);}layout.Children.Add(categories);
+        var body=new StackPanel{MaxWidth=620,HorizontalAlignment=HorizontalAlignment.Stretch};Grid.SetColumn(body,1);layout.Children.Add(body);
+        if(settingsCategory=="账号")ShowProfileSettings(body);
+        else if(settingsCategory=="桌面行为"){
+            body.Children.Add(Text("桌面行为",19,margin:new(0,0,0,20)));var keep=new CheckBox{Content="关闭窗口后保留在系统托盘",IsChecked=preferences.CloseToTray,Margin=new(0,8,0,18)};body.Children.Add(keep);var feedback=Text("",13);body.Children.Add(feedback);
+            var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
+        }else if(settingsCategory=="日程偏好"){body.Children.Add(Text("默认工作时段",19));body.Children.Add(Text("账号工作时段的原生编辑仍待适配，可在 Web 个人设置中修改。",14,"#64748B",new(0,16,0,0)));}
+        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.4.0-W · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
+        content.Children.Add(Surface(layout,new(26)));
     }
 }

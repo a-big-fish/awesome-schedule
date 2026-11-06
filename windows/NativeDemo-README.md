@@ -1,10 +1,24 @@
-# Windows 原生预览 1.3.1-W
+# Windows 原生预览 1.4.0-W
+
+本轮新增：统一项目确认弹窗；默认折叠的广场筛选；分类设置页；主窗口隐藏滚动条，以“上一屏/下一屏”浏览长内容，日历按视口缩放；一分钟校时、水平居中的时间标签；当前时段居中与24小时概览切换。
+
+管理员登录后新增“管理员监控”，提供用户/公开私密面经汇总、节点P95/P50条形图、时间和渠道筛选、慢请求及错误列表。普通账号无入口，服务端仍独立校验管理员权限。监控数据不缓存到本机磁盘；断网后不显示监控内容。
+
+服务端必须更新本轮代码：session增加is_admin，新增 /my-schedule/admin/summary；已有 /my-schedule/admin/performance 继续复用。旧服务端未返回管理员标识时按普通账号处理。尚未部署或重启公网服务。
+
+Windows请求添加渠道头。本地仅保留最多100条无身份性能样本，每分钟取最多20条异步上报，失败丢弃该批、不阻塞页面、不无限重试；样本只有固定节点、指标、耗时和状态码，不含URL参数、标题、邮箱或Cookie。客户端计时与服务端计时分开看，缓存呈现是布局回调时间，不代表首屏绘制的精确测量。
+
+校验：Python 206通过1跳过，原生19项通过，自包含发布成功。新版真实账号缓存可加载，UI工具已能绑定并读取控件树；点击缺少几何信息、截图超时，故缩放、弹窗、监控图表、管理员实号端到端仍待实机验收。小窗口缩放后的可读性不能仅凭构建判定通过。
+
+关闭旧版后解压运行 Install.cmd，或直接运行 app/AwesomeInterview.NativeDemo.exe。此为未签名的用户级安装脚本包，不是签名安装器。
+
+以下保留此前版本说明与尚未适配的完整业务范围。
 
 当前版本已移除主流程中的合成示例，使用现有 Web 账号登录真实服务。下方旧版本记录仅保留演进历史。
 
 ## 当前版本的安装与服务要求
 
-解压 `windows/publish/AwesomeInterview-NativeDemo-1.3.1-W-win-x64.zip`，关闭旧版后运行 `Install.cmd`；也可以直接运行 `app/AwesomeInterview.NativeDemo.exe`。无需管理员权限或预装 .NET。当前仍为未签名的用户级脚本安装包。
+解压 `windows/publish/AwesomeInterview-NativeDemo-1.4.0-W-win-x64.zip`，关闭旧版后运行 `Install.cmd`；也可以直接运行 `app/AwesomeInterview.NativeDemo.exe`。无需管理员权限或预装 .NET。当前仍为未签名的用户级脚本安装包。
 
 默认服务地址为 `https://schedule.hunaochufang.xyz/`。密码只在内存中用于登录，不存储、不写日志。会话Cookie和账号快照用Windows当前用户DPAPI加密，保存在 `%LOCALAPPDATA%/AwesomeInterviewNative/accounts/`，按服务地址及账号隔离。旧版演示JSON不会被导入或上传。退出账号清理该账号的快照和登录记录。
 
