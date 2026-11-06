@@ -154,7 +154,7 @@ public partial class MainWindow
         }));
         body.Children.Add(Button("开启 / 关闭随身日程", TogglePortable));
         ShowProfileSettings(body);
-        body.Children.Add(Text("版本",19,margin:new Thickness(0,28,0,12)));body.Children.Add(Text("Awesome Interview 1.3.0-W\nWindows 原生预览 · WPF / .NET 10",14,"#64748B"));
+        body.Children.Add(Text("版本",19,margin:new Thickness(0,28,0,12)));body.Children.Add(Text("Awesome Interview 1.3.1-W\nWindows 原生预览 · WPF / .NET 10",14,"#64748B"));
         content.Children.Add(Surface(body,new Thickness(28)));
     }
 }
