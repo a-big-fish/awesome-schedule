@@ -7,6 +7,7 @@ using System.Text.Json;
 
 int passed = 0;
 void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); passed++; }
+Check(Wire.Read<SessionInfo>("""{"user_id":"a","csrf_token":"test","is_admin":true}""").IsAdmin && !Wire.Read<SessionInfo>("""{"user_id":"a","csrf_token":"test"}""").IsAdmin,"admin capability parsed; legacy session defaults unprivileged");
 var profileContract=Wire.Read<ProfileData>("""{"user_id":"a","display_name":"自定义昵称","email":"ab@example.test","workday_start":"08:00","workday_end":"18:00"}""");
 Check(profileContract.EffectiveName=="自定义昵称", "server display_name received without fallback override");
 Check((profileContract with {DisplayName=null}).EffectiveName=="热心用户_ab", "empty nickname uses Web email-prefix default");

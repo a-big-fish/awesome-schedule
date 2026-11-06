@@ -20,6 +20,13 @@ public sealed class ApiFailure : Exception
 public sealed class NativeApi : IDisposable
 {
     readonly CookieContainer cookies = new();
+    readonly System.Collections.Concurrent.ConcurrentQueue<object> timings=new();
+    readonly Timer flushTimer;
+    int flushing;
+    static string Node(string path) => path.Contains("/plaza")?"plaza":path.Contains("/profile")?"profile":path.Contains("/parse")?"event_parse":path.Contains("/events")?"event_write":path.Contains("/snapshot")?"mobile":"mobile";
+    public void RecordPage(string node,double duration){if(Session!=null&&timings.Count<100)timings.Enqueue(new{node,metric="cache_render",duration=Math.Clamp(duration,0,120000),status=200});}
+    async Task FlushAsync(){if(Session==null||Interlocked.Exchange(ref flushing,1)!=0)return;try{var batch=new List<object>();while(batch.Count<20&&timings.TryDequeue(out var sample))batch.Add(sample);if(batch.Count==0)return;using var req=new HttpRequestMessage(HttpMethod.Post,"my-schedule/telemetry"){Content=new FormUrlEncodedContent(new Dictionary<string,string>{{"payload",JsonSerializer.Serialize(new{samples=batch},Wire.Json)}})};req.Headers.Add("X-CSRF-Token",Session.CsrfToken);using var response=await http.SendAsync(req);}catch(Exception e)when(e is HttpRequestException or OperationCanceledException or ObjectDisposedException){}finally{Interlocked.Exchange(ref flushing,0);}}
+
     readonly HttpClient http;
     public Uri Server { get; }
     public SessionInfo? Session { get; private set; }
@@ -30,6 +37,8 @@ public sealed class NativeApi : IDisposable
         if (!string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query != "" || uri.Fragment != "") throw new ArgumentException("请填写网站根地址，不包含路径、参数或账号。");
         Server = uri;
         http = new HttpClient(transport ?? new HttpClientHandler { CookieContainer = cookies, AllowAutoRedirect = false }) { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(15) };
+        http.DefaultRequestHeaders.Add("X-Awesome-Client","windows");
+        flushTimer=new Timer(_=>{_ = FlushAsync();},null,TimeSpan.FromMinutes(1),TimeSpan.FromMinutes(1));
     }
     public string? SessionCookie => cookies.GetCookies(Server)["schedule_session"]?.Value;
     public void RestoreCookie(string value) => cookies.Add(Server, new Cookie("schedule_session", value, "/") { Secure = Server.Scheme == "https", HttpOnly = true });
@@ -70,7 +79,11 @@ public sealed class NativeApi : IDisposable
     }
     async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken cancellation)
     {
-        using var response = await http.SendAsync(request, cancellation);
+        var started=System.Diagnostics.Stopwatch.StartNew();
+        HttpResponseMessage received;
+        try{received=await http.SendAsync(request,cancellation);}catch{if(timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??""),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=0});throw;}
+        using var response=received;
+        if(!(request.RequestUri?.ToString()??"").Contains("/admin")&&timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??""),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=(int)response.StatusCode});
         if (!response.IsSuccessStatusCode)
         {
             if (response.StatusCode==HttpStatusCode.Conflict && response.Content.Headers.ContentType?.MediaType=="application/json")
@@ -113,5 +126,5 @@ public sealed class NativeApi : IDisposable
         404 => "内容已删除或服务器尚未支持此接口。", 409 => "与已有日程重叠，请核对后确认保存。",
         422 => "提交的数据不符合要求，请检查时间和内容。", 429 => "请求过于频繁，请稍后再试。",
         503 => "数据库暂时不可用；保留缓存，可稍后手动同步。", _ => $"服务请求失败（{status}），请稍后重试。" });
-    public void Dispose() => http.Dispose();
+    public void Dispose(){flushTimer.Dispose();http.Dispose();}
 }

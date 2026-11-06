@@ -13,7 +13,7 @@ public static class Wire
     public static T Read<T>(string text) => JsonSerializer.Deserialize<T>(text, Json) ?? throw new InvalidDataException("服务端返回空数据。");
 }
 
-public record SessionInfo(string UserId, string CsrfToken);
+public record SessionInfo(string UserId, string CsrfToken, bool IsAdmin=false);
 public record ProfileData(string UserId, string? DisplayName, string? Email, string WorkdayStart, string WorkdayEnd)
 {
     [JsonIgnore] public string EffectiveName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName : "热心用户_" + (Email?.Split('@')[0] is { Length: > 0 } prefix ? prefix[..Math.Min(3,prefix.Length)] : "用户");
