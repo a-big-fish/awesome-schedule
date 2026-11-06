@@ -16,6 +16,7 @@ public partial class MainWindow
     readonly List<PlazaItem> plazaItems=new();
     int? nextPlazaPage=1;
     bool plazaBusy;
+    int plazaTotal;
     string plazaCompany="",plazaOrder="newest",plazaOwner="";
     ProfileData? profile;
     void ShowExperience()
@@ -74,13 +75,21 @@ public partial class MainWindow
         page="plaza";bSelect("面经广场");Begin("面经广场","来自公开面经的真实问题与经验");if(NeedAccount())return;
         string scope=repository.Api!.Server.AbsoluteUri+repository.Current!.UserId;
         if(plazaOwner!=scope){plazaOwner=scope;plazaItems.Clear();nextPlazaPage=1;}
-        var tools=new DockPanel{Margin=new(0,0,0,18)};var filter=new TextBox{Text=plazaCompany,MinWidth=200,Margin=new(0,0,10,0),ToolTip="按公司筛选"};
-        var order=new ComboBox{ItemsSource=new[]{"面试时间：由近到远","面试时间：由远到近"},SelectedIndex=plazaOrder=="newest"?0:1,Padding=new(8),Margin=new(0,0,10,0)};
-        var apply=Button("筛选",()=>{plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();nextPlazaPage=1;ShowPlaza();});apply.IsEnabled=!plazaBusy;DockPanel.SetDock(apply,Dock.Right);tools.Children.Add(apply);DockPanel.SetDock(order,Dock.Right);tools.Children.Add(order);tools.Children.Add(filter);content.Children.Add(tools);
+        var tools=new Grid();tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        var companyField=new StackPanel{Margin=new(0,0,16,0)};companyField.Children.Add(Text("公司筛选",13,"#64748B"));var filter=new TextBox{Text=plazaCompany,ToolTip="输入公司名称",Margin=new(0,8,0,0)};companyField.Children.Add(filter);tools.Children.Add(companyField);
+        var orderField=new StackPanel{Margin=new(0,0,16,0)};orderField.Children.Add(Text("面试时间排序",13,"#64748B"));var order=new ComboBox{ItemsSource=new[]{"从新到旧","从旧到新"},SelectedIndex=plazaOrder=="newest"?0:1,Margin=new(0,8,0,0)};orderField.Children.Add(order);Grid.SetColumn(orderField,1);tools.Children.Add(orderField);
+        var apply=Button("筛选",()=>{plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();nextPlazaPage=1;ShowPlaza();});apply.VerticalAlignment=VerticalAlignment.Bottom;apply.Margin=new(0);apply.IsEnabled=!plazaBusy;Grid.SetColumn(apply,2);tools.Children.Add(apply);content.Children.Add(Surface(tools));
+        content.Children.Add(Text($"找到 {plazaTotal} 篇面经",14,"#64748B",new(0,4,0,18)));
+        var cards=new System.Windows.Controls.Primitives.UniformGrid();
+        void Columns(){cards.Columns=Math.Max(1,Math.Min(3,(int)(content.ActualWidth/320)));}cards.SizeChanged+=(_,_)=>Columns();
         foreach(var item in plazaItems)
         {
-            var row=new StackPanel();row.Children.Add(Text(item.Title,19));row.Children.Add(Text($"{item.Company}    {item.Position}    {item.QuestionCount} 道问题",13,"#64748B",new(0,8,0,8)));row.Children.Add(Text($"作者：{item.Author}    {item.InterviewedAt?.ToString("yyyy-MM-dd")}",12,"#8492A6"));row.Children.Add(Button("阅读面经",()=>Run(async()=>{var detail=await repository.Api!.GetAsync<PublicExperience>("api/mobile/v1/plaza/"+Uri.EscapeDataString(item.Id));if(page=="plaza")ShowExperienceDetail(detail.Experience,detail.Author);})));content.Children.Add(Surface(row));
+            var row=new StackPanel();row.Children.Add(Text("公开面经"+(string.IsNullOrWhiteSpace(item.InterviewRound)?"":" · "+item.InterviewRound),12,"#285DDD",new(0,0,0,12)));
+            var title=Text(item.Title,19);title.FontWeight=FontWeights.SemiBold;row.Children.Add(title);row.Children.Add(Text($"{item.Company} · {item.Position}",13,"#64748B",new(0,12,0,10)));row.Children.Add(Text($"作者：{item.Author}",13,"#64748B",new(0,0,0,20)));
+            var metadata=new DockPanel{Margin=new(0,14,0,0)};var count=Text($"{item.QuestionCount} 道问题",12,"#64748B");DockPanel.SetDock(count,Dock.Right);metadata.Children.Add(count);metadata.Children.Add(Text(item.InterviewedAt?.ToString("yyyy-MM-dd")??"面试时间未填写",12,"#64748B"));row.Children.Add(new Border{BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,1,0,0),Child=metadata});
+            var card=Button("",()=>Run(async()=>{var detail=await repository.Api!.GetAsync<PublicExperience>("api/mobile/v1/plaza/"+Uri.EscapeDataString(item.Id));if(page=="plaza")ShowExperienceDetail(detail.Experience,detail.Author);}));card.Content=row;card.HorizontalContentAlignment=HorizontalAlignment.Stretch;card.VerticalContentAlignment=VerticalAlignment.Top;card.Padding=new(22);card.Margin=new(0,0,14,16);card.MinHeight=230;System.Windows.Automation.AutomationProperties.SetName(card,item.Title+"，阅读面经");cards.Children.Add(card);
         }
+        content.Children.Add(cards);Columns();
         if(nextPlazaPage!=null){var load=Button(plazaBusy?"正在加载…":"加载更多",()=>Run(LoadPlazaAsync));load.IsEnabled=!plazaBusy&&repository.Online;content.Children.Add(load);}
         else if(plazaItems.Count==0)Paragraph("没有符合条件的公开面经。");
         if(plazaItems.Count==0&&nextPlazaPage==1&&!plazaBusy&&repository.Online)Run(LoadPlazaAsync);
@@ -88,7 +97,7 @@ public partial class MainWindow
     async Task LoadPlazaAsync()
     {
         if(plazaBusy||nextPlazaPage==null||repository.Api==null)return;plazaBusy=true;var api=repository.Api;
-        try{var batch=await api.GetAsync<PlazaBatch>($"api/mobile/v1/plaza?page={nextPlazaPage}&company={Uri.EscapeDataString(plazaCompany)}&order={plazaOrder}");if(repository.Api!=api)return;foreach(var item in batch.Items)if(plazaItems.All(e=>e.Id!=item.Id))plazaItems.Add(item);nextPlazaPage=batch.NextPage;}
+        try{var batch=await api.GetAsync<PlazaBatch>($"api/mobile/v1/plaza?page={nextPlazaPage}&company={Uri.EscapeDataString(plazaCompany)}&order={plazaOrder}");if(repository.Api!=api)return;foreach(var item in batch.Items)if(plazaItems.All(e=>e.Id!=item.Id))plazaItems.Add(item);nextPlazaPage=batch.NextPage;plazaTotal=batch.Total;}
         finally{plazaBusy=false;}if(page=="plaza")ShowPlaza();
     }
     void ShowProfileSettings(StackPanel body)
