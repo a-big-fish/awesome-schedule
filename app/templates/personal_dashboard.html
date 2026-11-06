@@ -4,7 +4,7 @@
 {% block content %}
 <div class="personal-toolbar">
   <div><h1 class="section-title">我的日程</h1><p class="section-description">北京时间 · 面试、笔试、课程与其他安排集中查看</p></div>
-  <a class="btn" href="/my-schedule/new">＋ 添加日程</a>
+  <div class="personal-toolbar-actions"><a class="btn secondary" href="/my-schedule/ideas">待安排</a><a class="btn" href="/my-schedule/new">＋ 添加日程</a></div>
 </div>
 <nav class="personal-view-switch" aria-label="日程视图">
   {% set completed_query = '&show_completed=false' if not show_completed else '' %}
