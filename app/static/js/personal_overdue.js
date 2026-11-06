@@ -3,8 +3,9 @@
   function watchDeadline() {
     clearTimeout(deadlineTimer);
     const deadline = Date.parse(document.querySelector('[data-next-deadline]')?.dataset.nextDeadline || '');
-    if (Number.isFinite(deadline)) deadlineTimer = setTimeout(() => {
-      window.awesomeInterviewNavigate?.(location.href);
+    if (Number.isFinite(deadline)) deadlineTimer = setTimeout(async () => {
+      await window.awesomeInterviewRefreshCalendar?.();
+      watchDeadline();
     }, Math.min(2147483647, deadline <= Date.now() ? 60000 : deadline - Date.now() + 1000));
   }
   document.addEventListener('DOMContentLoaded', watchDeadline);

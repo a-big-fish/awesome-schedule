@@ -5,12 +5,35 @@ const vm = require('node:vm');
 const source = fs.readFileSync('app/static/js/personal_page_cache.js', 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function browser({hidden = true, calendar = null, initialPath = '/my-schedule/experiences/plaza'} = {}) {
+test('deadline refresh fetches once without first rendering stale cache or navigating', async () => {
+  const app = browser({hidden:false, scrolling:true, initialPath:'/my-schedule?view=day&date_value=2026-11-06'});
+  const before = app.context.location.href;
+  const task = app.context.window.awesomeInterviewRefreshCalendar();
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.rendered.length, 0);
+  await app.reply(app.calls[0], 'fresh-deadline-calendar');
+  await task;
+  assert.equal(app.rendered.length, 1);
+  assert.equal(app.context.location.href, before);
+  assert.equal(app.assigned.length, 0);
+  assert.equal(app.restoredScroll[0].scrollTop, 720);
+  assert.equal(app.restoredScroll[0].scrollLeft, 35);
+});
+
+test('hidden calendar never makes a deadline request', async () => {
+  const app = browser({hidden:true, initialPath:'/my-schedule'});
+  await app.context.window.awesomeInterviewRefreshCalendar();
+  assert.equal(app.calls.length, 0);
+  assert.equal(app.rendered.length, 0);
+});
+
+function browser({hidden = true, scrolling = false, calendar = null, initialPath = '/my-schedule/experiences/plaza'} = {}) {
   const calls = [], rendered = [], events = {}, timers = [], assigned = [], emitted = [];
   let clock = 0;
   const location = new URL('https://test.local' + initialPath);
   location.assign = url => assigned.push(url);
-  const main = {replaceWith(next) {rendered.push(next.html);}};
+  const restoredScroll = scrolling ? [{scrollTop:0, scrollLeft:0}] : [];
+  const main = {querySelectorAll: () => scrolling ? [{scrollTop:720, scrollLeft:35}] : [], replaceWith(next) {rendered.push(next.html);}};
   const document = {
     hidden, activeElement: null, title: 'plaza', documentElement: {outerHTML: 'initial-plaza'},
     body: {className: 'personal-app', classList: {add() {}, remove() {}}},
@@ -31,12 +54,12 @@ function browser({hidden = true, calendar = null, initialPath = '/my-schedule/ex
     Event: class {constructor(type) {this.type = type;}},
     CustomEvent: class {constructor(type, options) {this.type = type; this.detail = options.detail;}},
     DOMParser: class {parseFromString(html) {return {title: html, body: {className: 'personal-app', classList: {contains: () => true}},
-      querySelector: selector => selector === '.page > main' ? {html} : null};}},
+      querySelector: selector => selector === '.page > main' ? {html, querySelectorAll: () => restoredScroll} : null};}},
     setTimeout(callback, delay) {timers.push({callback, delay});},
     fetch(url) {return new Promise(resolve => calls.push({url, resolve, done: false}));},
   };
   vm.runInNewContext(source, context);
-  return {calls, rendered, events, document, context, assigned, emitted,
+  return {calls, rendered, events, document, context, assigned, emitted, restoredScroll,
     age: (milliseconds = 301000) => {clock += milliseconds;},
     async navigate(path) {assert.equal(context.window.awesomeInterviewNavigate(path), true); await tick();},
     async reply(call, html = call.url, status = 200) {

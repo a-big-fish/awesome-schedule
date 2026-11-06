@@ -141,6 +141,9 @@
     const currentMain = document.querySelector('.page > main');
     if (!nextMain || !currentMain || !page.body.classList.contains('personal-app'))
       throw new Error('页面结构已变化');
+    const scrollSelector = '.time-grid-wrap, .personal-week-timeline, .personal-side-list, .personal-event-list';
+    const positions = resetScroll ? [] : [...currentMain.querySelectorAll(scrollSelector)]
+      .map(element => ({top: element.scrollTop, left: element.scrollLeft}));
     document.title = page.title;
     document.body.className = page.body.className;
     for (const name of ['workday-start', 'workday-end']) {
@@ -153,6 +156,12 @@
     pageEdited = false;
     if (resetScroll) window.scrollTo(0, 0);
     document.dispatchEvent(new CustomEvent('personal:navigated', {detail: {resetScroll}}));
+    if (!resetScroll) [...nextMain.querySelectorAll(scrollSelector)].forEach((element, index) => {
+      if (positions[index]) {
+        element.scrollTop = positions[index].top;
+        element.scrollLeft = positions[index].left;
+      }
+    });
     scheduleCalendarNeighbors();
     requestAnimationFrame(() => requestAnimationFrame(() => {
       window.awesomeInterviewPerformance?.recordRender(performance.now() - renderStarted);
@@ -210,6 +219,21 @@
   scheduleCalendarNeighbors();
   if ('requestIdleCallback' in window) requestIdleCallback(prefetch, { timeout: 1800 });
   else setTimeout(prefetch, 800);
+
+  // A deadline is a data refresh, not a navigation through an old snapshot.
+  window.awesomeInterviewRefreshCalendar = async () => {
+    const target = new URL(location.href);
+    if (!isCalendar(target) || document.hidden || pageEdited || document.querySelector('dialog[open]')) return;
+    const id = navigationId, key = pageKey(target);
+    const focused = () => document.activeElement?.matches('input, textarea, select, [contenteditable]');
+    if (focused()) return;
+    try {
+      const html = await load(key, true);
+      if (id !== navigationId || pageKey(new URL(location.href)) !== key || pageEdited ||
+          document.hidden || focused() || document.querySelector('dialog[open]')) return;
+      render(html, false);
+    } catch { /* Keep the visible calendar and retry later; never reload on failure. */ }
+  };
 
   // Native Android and Windows navigation can use the same cache-first path.
   window.awesomeInterviewNavigate = (url) => {
