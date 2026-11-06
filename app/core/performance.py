@@ -60,6 +60,17 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
     if path == "/auth/logout":
         return "logout"
     if path.startswith("/api/mobile/v1/"):
+        tail = path[len("/api/mobile/v1"):]
+        if tail == "/profile":
+            return "profile"
+        if tail == "/plaza":
+            return "plaza"
+        if tail.startswith("/plaza/"):
+            return "plaza_detail"
+        if tail == "/events/parse":
+            return "event_parse"
+        if tail.startswith("/events"):
+            return "event_write" if method != "GET" else "calendar"
         return "mobile"
     if path.startswith("/resumes/") and path.endswith(("/pdf", "/download")):
         return "resume_file"

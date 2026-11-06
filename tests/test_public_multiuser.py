@@ -159,7 +159,7 @@ def test_mobile_todos_are_owner_scoped_and_require_csrf(tmp_path):
         alice_csrf = _login(alice_client, alice.email, "alice-todo-password")
         bob_csrf = _login(bob_client, bob.email, "bob-todo-password")
         token = alice_client.get("/api/mobile/v1/session").json()
-        assert token == {"user_id": alice.id, "csrf_token": alice_csrf}
+        assert token == {"user_id": alice.id, "csrf_token": alice_csrf, "is_admin": False}
         assert alice_client.post("/api/mobile/v1/todos", data={
             "title": "准备面试", "due_date": "2026-10-10"}).status_code == 403
         created = alice_client.post("/api/mobile/v1/todos", data={

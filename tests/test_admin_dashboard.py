@@ -52,10 +52,19 @@ def test_dashboard_requires_admin_and_never_renders_private_note_text(tmp_path):
         assert guest.get("/my-schedule/admin", follow_redirects=False).status_code == 303
         _login(regular, ordinary.email, "ordinary-password")
         assert regular.get("/my-schedule/admin").status_code == 403
+        assert regular.get("/my-schedule/admin/summary").status_code == 403
+        assert regular.get("/my-schedule/admin/performance").status_code == 403
+        assert regular.get("/api/mobile/v1/session").json()["is_admin"] is False
         assert "数据看板" not in regular.get("/my-schedule/new").text
         _login(privileged, "admin", "admin-password")
         response = privileged.get("/my-schedule/admin")
         assert response.status_code == 200
+        summary = privileged.get("/my-schedule/admin/summary")
+        assert summary.status_code == 200
+        assert "total_users" in summary.json()
+        assert "绝不展示的私密标题" not in summary.text
+        assert summary.headers["cache-control"] == "no-store"
+        assert privileged.get("/api/mobile/v1/session").json()["is_admin"] is True
         assert "注册用户" in response.text and "私密面经" in response.text
         assert "绝不展示的私密标题" not in response.text
         assert "数据看板" in privileged.get("/my-schedule/new").text

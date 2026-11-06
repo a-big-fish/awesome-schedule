@@ -236,7 +236,7 @@ def snapshot(
 def session(request: Request, response: Response) -> dict:
     """Give the native client the current session's CSRF token for task writes."""
     response.headers["Cache-Control"] = "no-store"
-    return {"user_id": request.state.user.id, "csrf_token": request.state.csrf_token}
+    return {"user_id": request.state.user.id, "csrf_token": request.state.csrf_token, "is_admin": request.state.user.is_admin}
 
 
 @router.post("/todos", status_code=201)

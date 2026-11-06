@@ -32,3 +32,12 @@ def dashboard(request: Request,
         raise HTTPException(status_code=403, detail="无权访问数据看板")
     stats = build_admin_dashboard(request.app.state.auth_service.mapper, experience_mapper)
     return templates.TemplateResponse(request, "admin_dashboard.html", {"stats": stats})
+
+
+@router.get("/summary")
+def native_summary(request: Request,
+                   experience_mapper: BaseInterviewExperienceMapper = Depends(get_interview_experience_mapper)) -> dict:
+    """Return aggregate counts to privileged native clients."""
+    if not request.state.user.is_admin:
+        raise HTTPException(status_code=403, detail="无权访问数据看板")
+    return build_admin_dashboard(request.app.state.auth_service.mapper, experience_mapper)
