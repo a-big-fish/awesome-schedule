@@ -17,7 +17,7 @@ from app.core.dependencies import (
 from app.core.exceptions import MeetingParseError, PersonalEventConflictWarning, ResumeParseError
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.model.my_resume_profile import MyResumeProfile
-from app.model.personal_event import PersonalEvent
+from app.model.personal_event import PersonalEvent, ReferenceLink
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.interview_experience_service import InterviewExperienceService
 from app.model.interview_experience import CATEGORY_LABELS
@@ -416,6 +416,7 @@ async def create_personal_event(
     except (KeyError, ValueError, ValidationError, MeetingParseError) as exc:
         return _new_page(request, error=str(exc), values=values,
                          preview=preview, status_code=422)
+    request.app.state.reference_titles.enrich_event(service, event)
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
     return RedirectResponse(url=f"/my-schedule?view=day&date_value={event_day}", status_code=303)
 
@@ -459,6 +460,16 @@ def personal_reference_titles(event_id: str, request: Request,
         title, pending = (link.title, False) if link.title else request.app.state.reference_titles.lookup(str(link.url))
         rows.append({"index": index, "title": title, "pending": pending})
     return JSONResponse({"links": rows}, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/reference-title")
+def preview_reference_title(request: Request, url: str):
+    try:
+        link = ReferenceLink(url=url)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="参考链接无效") from exc
+    title, pending = request.app.state.reference_titles.lookup(str(link.url))
+    return JSONResponse({"title": title, "pending": pending}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/events/{event_id}/edit", response_class=HTMLResponse)
@@ -522,6 +533,7 @@ async def edit_personal_event(
             "event": current, "event_labels": EVENT_LABELS,
             "error": str(exc), "warnings": [], "values": values, "editing": True,
         }, status_code=422)
+    request.app.state.reference_titles.enrich_event(service, event)
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
     return RedirectResponse(url=f"/my-schedule?view=day&date_value={event_day}", status_code=303)
 

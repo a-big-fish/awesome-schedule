@@ -47,6 +47,37 @@ def test_title_worker_returns_immediately_caches_and_handles_failure():
         service.close()
 
 
+def test_save_enqueues_title_enrichment_without_waiting_and_preserves_manual_names():
+    entered, release = Event(), Event()
+    def fetch(url):
+        entered.set()
+        release.wait(2)
+        return "自动标题"
+    titles = ReferenceTitleService(fetch)
+    now = datetime.now().astimezone()
+    event = PersonalEvent(type="personal", title="测试", start_at=now,
+                          end_at=now + timedelta(hours=1),
+                          reference_links=[{"url": "https://example.com/"}])
+    schedule = Mock()
+    schedule.get_event.return_value = event.model_copy(deep=True)
+    try:
+        titles.enrich_event(schedule, event)
+        assert entered.wait(1)
+        schedule.mapper.save.assert_not_called()
+        release.set()
+        titles.queue.join()
+        assert schedule.mapper.save.call_args.args[0].reference_links[0].title == "自动标题"
+        schedule.mapper.save.reset_mock()
+        schedule.get_event.return_value = event.model_copy(deep=True)
+        schedule.get_event.return_value.reference_links[0].title = "用户刚填写的标题"
+        titles.enrich_event(schedule, event)
+        titles.queue.join()
+        schedule.mapper.save.assert_not_called()
+    finally:
+        release.set()
+        titles.close()
+
+
 def test_private_dns_is_blocked_before_network_connection(monkeypatch):
     connect = Mock()
     monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, '', ('127.0.0.1', 80))])
@@ -111,6 +142,8 @@ def test_reference_endpoint_is_owner_scoped_and_manual_titles_take_priority(tmp_
     with TestClient(app, base_url="https://testserver") as client:
         assert client.get(f"/my-schedule/events/{event.id}/reference-titles", follow_redirects=False).status_code == 303
         _login(client, user.email, "test-password")
+        assert client.get('/my-schedule/reference-title', params={'url': 'https://example.com/'}).json()['title'] == '抓取标题'
+        app.state.reference_titles.lookup.reset_mock()
         result = client.get(f"/my-schedule/events/{event.id}/reference-titles").json()
         assert [link["title"] for link in result["links"]] == ["手动名称", "抓取标题"]
         app.state.reference_titles.lookup.assert_called_once_with("https://example.com/video")

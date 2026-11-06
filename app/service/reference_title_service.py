@@ -101,6 +101,46 @@ class ReferenceTitleService:
         self.stopped = Event()
         self.workers = []
 
+    def enrich_event(self, schedule, event):
+        """Queue missing-title persistence without waiting for network or storage."""
+        if not event or not any(not link.title for link in event.reference_links):
+            return
+        def enrich():
+            titles = {}
+            for link in event.reference_links:
+                if not link.title:
+                    url = str(link.url)
+                    with self.lock:
+                        cached = self.cache.get(url)
+                    try:
+                        title = cached[0] if cached and cached[0] else self.fetcher(url)
+                    except Exception:
+                        continue
+                    if title:
+                        titles[url] = title
+            current = schedule.get_event(event.id)
+            if not current:
+                return
+            changed = False
+            for link in current.reference_links:
+                if not link.title and str(link.url) in titles:
+                    link.title = titles[str(link.url)]
+                    changed = True
+            if changed:
+                schedule.mapper.save(current)
+        try:
+            self.queue.put_nowait(enrich)
+        except Full:
+            return
+        self._start_workers()
+
+    def _start_workers(self):
+        with self.lock:
+            if not self.workers and not self.stopped.is_set():
+                self.workers = [Thread(target=self._run, daemon=True, name="reference-title") for _ in range(2)]
+                for worker in self.workers:
+                    worker.start()
+
     def lookup(self, url: str) -> tuple[str, bool]:
         with self.lock:
             cached = self.cache.get(url)
@@ -127,6 +167,14 @@ class ReferenceTitleService:
             try:
                 url = self.queue.get(timeout=.2)
             except Empty:
+                continue
+            if callable(url):
+                try:
+                    url()
+                except Exception:
+                    pass  # Best effort: title lookup must never affect a saved event.
+                finally:
+                    self.queue.task_done()
                 continue
             try:
                 title = self.fetcher(url)

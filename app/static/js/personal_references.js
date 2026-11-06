@@ -1,4 +1,41 @@
 (() => {
+  const titleJobs = new WeakMap();
+  async function fillTitle(row) {
+    const input = row.querySelector('[name="reference_url"]');
+    const name = row.querySelector('[name="reference_title"]');
+    const url = input.value.trim();
+    if (!url || name.value.trim() || titleJobs.get(row) === url) return;
+    try { if (!['http:', 'https:'].includes(new URL(url).protocol)) return; } catch { return; }
+    titleJobs.set(row, url);
+    try {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        if (!row.isConnected || input.value.trim() !== url || name.value.trim()) return;
+        const response = await fetch(`/my-schedule/reference-title?url=${encodeURIComponent(url)}`, {
+          credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(5000)
+        });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (!row.isConnected || input.value.trim() !== url || name.value.trim()) return;
+        if (result.title) {
+          name.value = result.title;
+          name.dispatchEvent(new Event('input', {bubbles: true}));
+          return;
+        }
+        if (!result.pending) return;
+        await new Promise(resolve => setTimeout(resolve, 1500 * (attempt + 1)));
+      }
+    } catch { /* Title lookup must not block saving. */ }
+    finally { if (titleJobs.get(row) === url) titleJobs.delete(row); }
+  }
+  document.addEventListener('focusout', event => {
+    if (event.target.matches('[name="reference_url"]')) fillTitle(event.target.closest('[data-reference-row]'));
+  });
+  document.addEventListener('paste', event => {
+    if (event.target.matches('[name="reference_url"]')) {
+      const row = event.target.closest('[data-reference-row]');
+      setTimeout(() => fillTitle(row), 0);
+    }
+  });
   document.addEventListener('click', event => {
     const root = event.target.closest('[data-reference-editor]');
     if (!root) return;
@@ -31,6 +68,7 @@
       for (const line of lines) {
         const row = [...rows.children].find(row => [...row.querySelectorAll('input')].every(input => !input.value.trim())) || add();
         row.querySelector('[name="reference_url"]').value = line;
+        fillTitle(row);
       }
       input.value = '';
       status.textContent = `已分条加入 ${lines.length} 个链接`;
