@@ -59,9 +59,10 @@ public partial class MainWindow
         var label=Text(calendarView=="month"?selected.ToString("yyyy年M月"):calendarView=="week"?$"{first:yyyy-MM-dd} — {first.AddDays(6):MM-dd}":selected.ToString("yyyy-MM-dd dddd"),19);
         label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0,0,0,12);content.Children.Add(label);content.Children.Add(datebar);
         if(calendarView=="month")RenderMonth();else RenderTimeline(first,calendarView=="week"?7:1);
-        viewport.Content=null;content.Width=calendarView=="week"?1500:calendarView=="month"?1000:900;
-        var fit=new Viewbox{Child=content,Stretch=Stretch.Uniform,StretchDirection=StretchDirection.DownOnly,VerticalAlignment=VerticalAlignment.Top,Height=Math.Max(100,viewport.ActualHeight)};viewport.Content=fit;
-        SizeChangedEventHandler resize=(_,_)=>fit.Height=Math.Max(100,viewport.ActualHeight);viewport.SizeChanged+=resize;fit.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
+        content.HorizontalAlignment=HorizontalAlignment.Center;
+        void ResizeCalendar(){content.Width=Math.Max(560,viewport.ActualWidth*.82);}
+        ResizeCalendar();SizeChangedEventHandler resize=(_,_)=>ResizeCalendar();viewport.SizeChanged+=resize;content.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
+
     }
     void RenderMonth()
     {
@@ -80,36 +81,43 @@ public partial class MainWindow
             }
             var cell=new Border{BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,0,1,1),MinHeight=92,Child=body};Grid.SetColumn(cell,i%7);Grid.SetRow(cell,i/7+1);grid.Children.Add(cell);
         }
-        content.Children.Add(Surface(grid,new(6)));
+        var monthScroll=new ScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        SizeChangedEventHandler monthResize=(_,_)=>monthScroll.Height=Math.Max(260,viewport.ActualHeight-220);viewport.SizeChanged+=monthResize;monthScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=monthResize;content.Children.Add(Surface(monthScroll,new(6)));
     }
     void RenderTimeline(DateTime first,int days)
     {
         var nowClock=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;
         bool focus=focusCurrentTime&&nowClock.Date>=first.Date&&nowClock.Date<first.AddDays(days).Date;
-        double span=focus?6:24;double startHour=focus?nowClock.TimeOfDay.TotalHours-3:0;var refreshLayout=new List<Action>();
-        var grid=new Grid{MinWidth=days==7?1452:420};grid.ColumnDefinitions.Add(new(){Width=new(52)});for(int c=0;c<days;c++)grid.ColumnDefinitions.Add(new());
-        var hours=new Canvas{Height=640,Margin=new(0,38,0,0)};for(int h=0;h<=span;h++){var tick=first.AddHours(startHour+h);var t=Text(tick.ToString("HH:mm")+(tick.Date<first.Date?" 前日":tick.Date>first.Date?" 次日":""),10,"#8492A6");Canvas.SetTop(t,h*640.0/span);hours.Children.Add(t);}grid.Children.Add(hours);refreshLayout.Add(()=>{int index=0;foreach(var label in hours.Children.OfType<TextBlock>()){var tick=first.AddHours(startHour+index++);label.Text=tick.ToString("HH:mm")+(tick.Date<first.Date?" 前日":tick.Date>first.Date?" 次日":"");}});
+        double span=24;double startHour=0;double timelineHeight=focus?1920:Math.Max(340,viewport.ActualHeight-230);var refreshLayout=new List<Action>();
+        var grid=new Grid{MinWidth=days==7?560:420};grid.ColumnDefinitions.Add(new(){Width=new(52)});for(int c=0;c<days;c++)grid.ColumnDefinitions.Add(new());
+        var hours=new Canvas{Height=timelineHeight,Margin=new(0,38,0,0)};for(int h=0;h<=span;h++){var tick=first.AddHours(startHour+h);var t=Text(tick.ToString("HH:mm")+(tick.Date<first.Date?" 前日":tick.Date>first.Date?" 次日":""),10,"#8492A6");Canvas.SetTop(t,h*timelineHeight/span);hours.Children.Add(t);}grid.Children.Add(hours);refreshLayout.Add(()=>{int index=0;foreach(var label in hours.Children.OfType<TextBlock>()){var tick=first.AddHours(startHour+index++);label.Text=tick.ToString("HH:mm")+(tick.Date<first.Date?" 前日":tick.Date>first.Date?" 次日":"");}});
         for(int c=0;c<days;c++)
         {
             var day=first.AddDays(c);var column=new DockPanel();Grid.SetColumn(column,c+1);grid.Children.Add(column);
             var title=Text(day.ToString("ddd M/d"),12,day==DateTime.Today?"#285DDD":"#64748B",new(4,8,4,8));title.HorizontalAlignment=HorizontalAlignment.Center;DockPanel.SetDock(title,Dock.Top);column.Children.Add(title);
-            var canvas=new Canvas{Height=640,ClipToBounds=true,Background=Brushes.White};column.Children.Add(canvas);
-            for(int h=0;h<=span;h++){var line=new Border{Height=1,Background=Brush("#EBEFF6")};Canvas.SetTop(line,h*640.0/span);canvas.Children.Add(line);line.SetBinding(WidthProperty,new System.Windows.Data.Binding("ActualWidth"){Source=canvas});}
+            var canvas=new Canvas{Height=timelineHeight,ClipToBounds=true,Background=Brushes.White};column.Children.Add(canvas);
+            for(int h=0;h<=span;h++){var line=new Border{Height=1,Background=Brush("#EBEFF6")};Canvas.SetTop(line,h*timelineHeight/span);canvas.Children.Add(line);line.SetBinding(WidthProperty,new System.Windows.Data.Binding("ActualWidth"){Source=canvas});}
             var items=EventsFor(day).Where(e=>!hideCompleted||e.CompletedAt==null).ToList();
             // Recalculate lanes from visible entries, so hidden completed events never leave empty columns.
             var laneEnds=new List<DateTime>();var placed=new List<(EventData Item,int Lane,DateTime Start,DateTime End)>();
             foreach(var item in items){var from=item.Local(item.StartAt)<day?day:item.Local(item.StartAt);var to=item.Local(item.EndAt)>day.AddDays(1)?day.AddDays(1):item.Local(item.EndAt);int lane=laneEnds.FindIndex(e=>e<=from);if(lane<0){lane=laneEnds.Count;laneEnds.Add(to);}else laneEnds[lane]=to;placed.Add((item,lane,from,to));}
-            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Top;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(20,(row.End-row.Start).TotalHours*640/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=11;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*640/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
+            void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Top;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(20,(row.End-row.Start).TotalHours*timelineHeight/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=11;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*timelineHeight/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}}
             canvas.SizeChanged+=(_,_)=>Layout();refreshLayout.Add(Layout);
         }
         var clockLayer=new Canvas{IsHitTestVisible=false,Margin=new(52,38,0,0),ClipToBounds=true};
         Grid.SetColumn(clockLayer,1);Grid.SetColumnSpan(clockLayer,days);clockLayer.Margin=new(0,38,0,0);Panel.SetZIndex(clockLayer,10);grid.Children.Add(clockLayer);
-        void UpdateClock(){clockLayer.Children.Clear();var now=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;if(now.Date<first.Date||now.Date>=first.AddDays(days).Date)return;if(focus){startHour=now.TimeOfDay.TotalHours-3;foreach(var layout in refreshLayout)layout();}double y=(now.TimeOfDay.TotalHours-startHour)*640/span;var line=new Border{Background=Brush("#E5484D"),Height=2,Width=clockLayer.ActualWidth};Canvas.SetTop(line,y);clockLayer.Children.Add(line);var tag=new Border{Background=Brush("#E5484D"),CornerRadius=new(4),Padding=new(5,2,5,2),Child=Text($"当前时间 {now:HH:mm}",11,"#FFFFFF")};Canvas.SetTop(tag,Math.Clamp(y-21,0,615));tag.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));Canvas.SetLeft(tag,Math.Max(0,(clockLayer.ActualWidth-tag.DesiredSize.Width)/2));clockLayer.Children.Add(tag);}
+        void UpdateClock(){clockLayer.Children.Clear();var now=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;if(now.Date<first.Date||now.Date>=first.AddDays(days).Date)return;double y=(now.TimeOfDay.TotalHours-startHour)*timelineHeight/span;var line=new Border{Background=Brush("#E5484D"),Height=2,Width=clockLayer.ActualWidth};Canvas.SetTop(line,y);clockLayer.Children.Add(line);var tag=new Border{Background=Brush("#E5484D"),CornerRadius=new(4),Padding=new(5,2,5,2),Child=Text($"当前时间 {now:HH:mm}",11,"#FFFFFF")};Canvas.SetTop(tag,Math.Clamp(y-21,0,timelineHeight-25));tag.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));Canvas.SetLeft(tag,Math.Max(0,(clockLayer.ActualWidth-tag.DesiredSize.Width)/2));clockLayer.Children.Add(tag);}
         var clock=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMinutes(1)};clock.Tick+=(_,_)=>UpdateClock();clockLayer.Loaded+=(_,_)=>{UpdateClock();clock.Start();};clockLayer.Unloaded+=(_,_)=>clock.Stop();clockLayer.SizeChanged+=(_,_)=>UpdateClock();
-        content.Children.Add(Surface(grid,new(8)));
+        var timelineScroll=new ScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};
+        bool userMoved=false;timelineScroll.PreviewMouseWheel+=(_,_)=>userMoved=true;timelineScroll.PreviewMouseDown+=(_,_)=>userMoved=true;timelineScroll.PreviewKeyDown+=(_,_)=>userMoved=true;
+        void CenterNow(){if(!focus||userMoved)return;timelineScroll.ScrollToVerticalOffset(Math.Max(0,38+TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).TimeOfDay.TotalHours*timelineHeight/24-timelineScroll.ViewportHeight/2));}
+        void StickyTitles(){foreach(var column in grid.Children.OfType<DockPanel>())foreach(var canvas in column.Children.OfType<Canvas>())foreach(var button in canvas.Children.OfType<Button>())if(button.Content is TextBlock title)title.Margin=new(0,Math.Clamp(timelineScroll.VerticalOffset-38-Canvas.GetTop(button),0,Math.Max(0,button.Height-28)),0,0);}
+        timelineScroll.ScrollChanged+=(_,_)=>StickyTitles();timelineScroll.Loaded+=(_,_)=>{CenterNow();StickyTitles();};SizeChangedEventHandler resizeTimeline=(_,_)=>{timelineScroll.Height=Math.Max(260,viewport.ActualHeight-220);CenterNow();};viewport.SizeChanged+=resizeTimeline;timelineScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resizeTimeline;
+        content.Children.Add(Surface(timelineScroll,new(8)));
     }
 
-    void ShowAdd()=>ShowEditor(null);
+    void ShowAdd()=>Run(async()=>{if(repository.Online){try{await LoadProfileAsync();}catch(Exception e)when(WorkspaceRepository.Expected(e)){status.Text=WorkspaceRepository.Explain(e);}}ShowEditor(null);});
+    TimeSpan WorkTime(bool end)=>TimeSpan.TryParse(end?profile?.WorkdayEnd:profile?.WorkdayStart,out var value)?value:TimeSpan.FromHours(end?18:8);
     void ShowEditor(EventData? existing)
     {
         page="editor";bSelect("添加日程");Begin(existing==null?"添加日程":"编辑日程","时间、地点与参考资料，一次整理清楚");if(NeedAccount())return;
@@ -120,8 +128,8 @@ public partial class MainWindow
         fields.Children.Add(Text("类型"));fields.Children.Add(type);
         var invitation=new TextBox{AcceptsReturn=true,Height=94,TextWrapping=TextWrapping.Wrap};var invitationBox=new StackPanel();invitationBox.Children.Add(Text("粘贴会议邀请"));invitationBox.Children.Add(invitation);
         string? raw=null;var title=new TextBox{Text=existing?.Title??"",MaxLength=200};
-        var start=new TextBox{Text=(existing?.Local(existing.StartAt)??selected.Date.AddHours(8)).ToString("yyyy-MM-dd HH:mm")};
-        var end=new TextBox{Text=(existing?.Local(existing.EndAt)??selected.Date.AddHours(18)).ToString("yyyy-MM-dd HH:mm")};
+        var start=new TextBox{Text=(existing?.Local(existing.StartAt)??selected.Date.Add(WorkTime(false))).ToString("yyyy-MM-dd HH:mm")};
+        var end=new TextBox{Text=(existing?.Local(existing.EndAt)??selected.Date.Add(WorkTime(true))).ToString("yyyy-MM-dd HH:mm")};
         var location=new TextBox{Text=existing?.LocationText??""};var note=new TextBox{Text=existing?.Note??"",Height=100,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap};
         foreach(var pair in new[]{(title,"事件标题"),(start,"开始时间 yyyy-MM-dd HH:mm"),(end,"结束时间 yyyy-MM-dd HH:mm"),(location,"地点"),(note,"备注"),(invitation,"会议邀请原文")})System.Windows.Automation.AutomationProperties.SetName(pair.Item1,pair.Item2);
         invitationBox.Children.Add(Button("解析并填入",()=>Run(async()=>{var parsed=await repository.Api!.WriteAsync<EventData>(HttpMethod.Post,"api/mobile/v1/events/parse",new{raw_text=invitation.Text});raw=invitation.Text;title.Text=parsed.Title;start.Text=parsed.Local(parsed.StartAt).ToString("yyyy-MM-dd HH:mm");end.Text=parsed.Local(parsed.EndAt).ToString("yyyy-MM-dd HH:mm");formDirty=true;})));
@@ -131,9 +139,10 @@ public partial class MainWindow
         var a=new StackPanel();a.Children.Add(Text("开始时间"));a.Children.Add(start);times.Children.Add(a);var b=new StackPanel();b.Children.Add(Text("结束时间"));b.Children.Add(end);Grid.SetColumn(b,2);times.Children.Add(b);fields.Children.Add(times);
         var skip=new CheckBox{Content="任务跳过周末",IsChecked=existing?.SkipWeekends??selected.DayOfWeek is not(DayOfWeek.Saturday or DayOfWeek.Sunday),Margin=new(0,0,0,20)};fields.Children.Add(skip);
         bool ValidTime(string text,out DateTime value)=>DateTime.TryParseExact(text,"yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture,DateTimeStyles.None,out value);
-        start.LostFocus+=(_,_)=>{if(ValidTime(start.Text,out var from)){if(existing==null)end.Text=from.AddHours(1).ToString("yyyy-MM-dd HH:mm");bool weekend=from.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend;if(weekend)skip.IsChecked=false;}};
+        string previousStart=start.Text;
+        start.LostFocus+=(_,_)=>{if(ValidTime(start.Text,out var from)){if(existing==null&&start.Text!=previousStart)end.Text=from.AddHours(1).ToString("yyyy-MM-dd HH:mm");bool weekend=from.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend;if(weekend)skip.IsChecked=false;previousStart=start.Text;}};
         fields.Children.Add(Text("地点"));fields.Children.Add(location);fields.Children.Add(Text("备注"));fields.Children.Add(note);
-        Paragraph("时间采用日程时区；未指定时默认 08:00–18:00。日期时间选择器和个人默认工作时段将在后续适配中补齐。");
+        Paragraph("时间采用日程时区；未指定时默认 08:00–18:00。默认工作时段可在“设置与版本 → 日程偏好”修改。");
         foreach(var input in new[]{title,start,end,location,note,invitation})input.TextChanged+=(_,_)=>formDirty=true;skip.Click+=(_,_)=>formDirty=true;
         var error=Text("",14,"#B42332");fields.Children.Add(error);Button? save=null;
         save=Button("保存日程",()=>Run(async()=>{

@@ -17,6 +17,7 @@ public partial class MainWindow
     int? nextPlazaPage=1;
     bool plazaBusy;
     int plazaTotal;
+    string plazaDraftCompany="";int plazaDraftOrder;bool plazaExpanded;int plazaGeneration;TextBox? companyInput;
     string plazaCompany="",plazaOrder="newest",plazaOwner="";
     ProfileData? profile;
     string profileScope="";
@@ -75,11 +76,11 @@ public partial class MainWindow
     {
         page="plaza";bSelect("面经广场");Begin("面经广场","来自公开面经的真实问题与经验");if(NeedAccount())return;
         string scope=repository.Api!.Server.AbsoluteUri+repository.Current!.UserId;
-        if(plazaOwner!=scope){plazaOwner=scope;plazaItems.Clear();nextPlazaPage=1;}
+        if(plazaOwner!=scope){plazaOwner=scope;plazaItems.Clear();plazaCompany="";plazaDraftCompany="";plazaDraftOrder=0;plazaOrder="newest";plazaExpanded=false;nextPlazaPage=1;}
         var tools=new Grid{VerticalAlignment=VerticalAlignment.Top};tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new());tools.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        var companyField=new StackPanel{Margin=new(0,0,16,0)};companyField.Children.Add(Text("公司筛选",13,"#64748B"));var filter=new TextBox{Text=plazaCompany,Height=44,VerticalAlignment=VerticalAlignment.Top,ToolTip="输入公司名称",Margin=new(0,8,0,0)};companyField.Children.Add(filter);tools.Children.Add(companyField);
-        var orderField=new StackPanel{Margin=new(0,0,16,0)};orderField.Children.Add(Text("面试时间排序",13,"#64748B"));var order=new ComboBox{ItemsSource=new[]{"从新到旧","从旧到新"},SelectedIndex=plazaOrder=="newest"?0:1,Margin=new(0,8,0,0)};orderField.Children.Add(order);Grid.SetColumn(orderField,1);tools.Children.Add(orderField);
-        var apply=Button("筛选",()=>{plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();nextPlazaPage=1;ShowPlaza();});apply.VerticalAlignment=VerticalAlignment.Bottom;apply.Margin=new(0);apply.IsEnabled=!plazaBusy;Grid.SetColumn(apply,2);tools.Children.Add(apply);content.Children.Add(new Expander{Header="筛选条件",IsExpanded=false,Content=Surface(tools),Margin=new(0,0,0,12)});
+        var companyField=new StackPanel{Margin=new(0,0,16,0)};companyField.Children.Add(Text("公司筛选",13,"#64748B"));var filter=new TextBox{Text=plazaDraftCompany,Height=48,Padding=new(10,6,10,6),VerticalAlignment=VerticalAlignment.Top,ToolTip="输入公司名称",Margin=new(0,8,0,0)};companyInput=filter;filter.TextChanged+=(_,_)=>plazaDraftCompany=filter.Text;System.Windows.Automation.AutomationProperties.SetName(filter,"公司名称包含关键词，例如：音");companyField.Children.Add(filter);tools.Children.Add(companyField);
+        var orderField=new StackPanel{Margin=new(0,0,16,0)};orderField.Children.Add(Text("面试时间排序",13,"#64748B"));var order=new ComboBox{ItemsSource=new[]{"从新到旧","从旧到新"},SelectedIndex=plazaDraftOrder,Margin=new(0,8,0,0)};order.SelectionChanged+=(_,_)=>plazaDraftOrder=order.SelectedIndex;orderField.Children.Add(order);Grid.SetColumn(orderField,1);tools.Children.Add(orderField);
+        var apply=Button("筛选",()=>{plazaGeneration++;plazaCompany=filter.Text.Trim();plazaOrder=order.SelectedIndex==1?"oldest":"newest";plazaItems.Clear();plazaTotal=0;nextPlazaPage=1;ShowPlaza();});filter.KeyDown+=(_,e)=>{if(e.Key==System.Windows.Input.Key.Enter&&apply.IsEnabled){apply.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));e.Handled=true;}};apply.VerticalAlignment=VerticalAlignment.Bottom;apply.Margin=new(0);apply.IsEnabled=!plazaBusy;Grid.SetColumn(apply,2);tools.Children.Add(apply);var expander=new Expander{Header="筛选条件 · 公司名称支持包含搜索",IsExpanded=plazaExpanded,Content=Surface(tools),Margin=new(0,0,0,12)};expander.Expanded+=(_,_)=>plazaExpanded=true;expander.Collapsed+=(_,_)=>plazaExpanded=false;content.Children.Add(expander);
         content.Children.Add(Text($"找到 {plazaTotal} 篇面经",14,"#64748B",new(0,4,0,18)));
         var cards=new System.Windows.Controls.Primitives.UniformGrid();
         void Columns(){cards.Columns=Math.Max(1,Math.Min(3,(int)(content.ActualWidth/320)));}cards.SizeChanged+=(_,_)=>Columns();
@@ -97,9 +98,22 @@ public partial class MainWindow
     }
     async Task LoadPlazaAsync()
     {
-        if(plazaBusy||nextPlazaPage==null||repository.Api==null)return;plazaBusy=true;var api=repository.Api;
-        try{var batch=await api.GetAsync<PlazaBatch>($"api/mobile/v1/plaza?page={nextPlazaPage}&company={Uri.EscapeDataString(plazaCompany)}&order={plazaOrder}");if(repository.Api!=api)return;foreach(var item in batch.Items)if(plazaItems.All(e=>e.Id!=item.Id))plazaItems.Add(item);nextPlazaPage=batch.NextPage;plazaTotal=batch.Total;}
-        finally{plazaBusy=false;}if(page=="plaza")ShowPlaza();
+        if(plazaBusy||nextPlazaPage==null||repository.Api==null)return;plazaBusy=true;var api=repository.Api;int generation=plazaGeneration;
+        try{var batch=await api.GetAsync<PlazaBatch>($"api/mobile/v1/plaza?page={nextPlazaPage}&company={Uri.EscapeDataString(plazaCompany)}&order={plazaOrder}");if(repository.Api!=api||generation!=plazaGeneration)return;foreach(var item in batch.Items)if(plazaItems.All(e=>e.Id!=item.Id))plazaItems.Add(item);nextPlazaPage=batch.NextPage;plazaTotal=batch.Total;}
+        finally{plazaBusy=false;}if(page=="plaza"){bool focused=companyInput?.IsKeyboardFocusWithin==true;int caret=companyInput?.CaretIndex??0;ShowPlaza();if(focused&&companyInput!=null){companyInput.Focus();companyInput.CaretIndex=Math.Min(caret,companyInput.Text.Length);}}
+    }
+    async Task LoadProfileAsync()
+    {
+        var api=repository.Api??throw new ApiFailure(401,"请先登录。");string scope=api.Server.AbsoluteUri+repository.Current?.UserId;
+        if(profile!=null&&profileScope==scope)return;profile=null;
+        var result=await api.GetAsync<ProfileData>("api/mobile/v1/profile");if(repository.Api!=api||repository.Current?.UserId!=result.UserId)return;profile=result;profileScope=scope;
+    }
+    void ShowWorkdaySettings(StackPanel body)
+    {
+        body.Children.Add(Text("默认工作时段",19));body.Children.Add(Text("只选日期的新日程使用该起止时刻；已有日程不受影响。格式 HH:mm，同一天内结束须晚于开始。",13,"#64748B",new(0,10,0,18)));
+        if(profile==null||profileScope!=repository.Api?.Server.AbsoluteUri+repository.Current?.UserId){var message=Text("正在读取…",14);body.Children.Add(message);if(!repository.Online){message.Text="连接后可设置工作时段。";return;}Run(async()=>{try{await LoadProfileAsync();if(page=="settings")ShowSettings();}catch(Exception e)when(WorkspaceRepository.Expected(e)){message.Text=WorkspaceRepository.Explain(e);body.Children.Add(Button("重新读取",ShowSettings));}});return;}
+        body.Children.Add(Text("开始时间"));var start=new TextBox{Text=profile.WorkdayStart,MaxLength=5};body.Children.Add(start);body.Children.Add(Text("结束时间"));var end=new TextBox{Text=profile.WorkdayEnd,MaxLength=5};body.Children.Add(end);var feedback=Text("",13);body.Children.Add(feedback);
+        var save=Button("保存工作时段",()=>Run(async()=>{try{profile=await repository.Api!.WriteAsync<ProfileData>(HttpMethod.Put,"api/mobile/v1/profile",new{display_name=profile.EffectiveName,workday_start=start.Text.Trim(),workday_end=end.Text.Trim()});feedback.Text=profile.WorkdayStart==start.Text.Trim()&&profile.WorkdayEnd==end.Text.Trim()?"已同步；下次新增日程生效。":"服务器未保存该时段，请更新服务端后重试。";}catch(Exception e)when(WorkspaceRepository.Expected(e)){feedback.Text=WorkspaceRepository.Explain(e);}}));save.IsEnabled=repository.Online;save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);
     }
     void ShowProfileSettings(StackPanel body)
     {

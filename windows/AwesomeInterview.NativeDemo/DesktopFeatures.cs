@@ -151,8 +151,8 @@ public partial class MainWindow
         else if(settingsCategory=="桌面行为"){
             body.Children.Add(Text("桌面行为",19,margin:new(0,0,0,20)));var keep=new CheckBox{Content="关闭窗口后保留在系统托盘",IsChecked=preferences.CloseToTray,Margin=new(0,8,0,18)};body.Children.Add(keep);var feedback=Text("",13);body.Children.Add(feedback);
             var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
-        }else if(settingsCategory=="日程偏好"){body.Children.Add(Text("默认工作时段",19));body.Children.Add(Text("账号工作时段的原生编辑仍待适配，可在 Web 个人设置中修改。",14,"#64748B",new(0,16,0,0)));}
-        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.4.0-W · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
+        }else if(settingsCategory=="日程偏好")ShowWorkdaySettings(body);
+        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.4.1-W · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
         content.Children.Add(Surface(layout,new(26)));
     }
 }

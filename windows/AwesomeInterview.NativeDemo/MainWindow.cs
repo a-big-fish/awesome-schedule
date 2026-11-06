@@ -32,7 +32,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title="Awesome Interview · Windows 1.4.0-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        Title="Awesome Interview · Windows 1.4.1-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
         UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;
@@ -76,7 +76,7 @@ public partial class MainWindow : Window
         nav.Add(b);parent.Children.Add(b);
     }
     void bSelect(string title){foreach(var b in nav){bool active=(string)b.Tag==title;b.Background=active?Brush("#E9F0FF"):Brushes.Transparent;b.Foreground=active?Brush("#2357CE"):Brush("#52647D");b.FontWeight=active?FontWeights.SemiBold:FontWeights.Normal;}}
-    void Begin(string title,string description=""){if(viewport!=null){if(viewport.Content is Viewbox previousFit)previousFit.Child=null;viewport.Content=null;content.Width=double.NaN;content.LayoutTransform=Transform.Identity;viewport.Content=content;viewport.ScrollToTop();}heading.Text=title;subtitle.Text=description;content.Children.Clear();var render=System.Diagnostics.Stopwatch.StartNew();var api=repository.Api;string node=page switch{"calendar"=>"calendar","editor"=>"schedule_new","plaza"=>"plaza","experiences"=>"experiences","settings"=>"profile","today"=>"calendar",_=>"mobile"};if(page!="admin")Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,new Action(()=>{if(api==repository.Api)api?.RecordPage(node,render.Elapsed.TotalMilliseconds);}));}
+    void Begin(string title,string description=""){if(viewport!=null){if(viewport.Content is Viewbox previousFit)previousFit.Child=null;viewport.Content=null;content.Width=double.NaN;content.HorizontalAlignment=HorizontalAlignment.Stretch;content.LayoutTransform=Transform.Identity;viewport.Content=content;viewport.ScrollToTop();}heading.Text=title;subtitle.Text=description;content.Children.Clear();var render=System.Diagnostics.Stopwatch.StartNew();var api=repository.Api;string node=page switch{"calendar"=>"calendar","editor"=>"schedule_new","plaza"=>"plaza","experiences"=>"experiences","settings"=>"profile","today"=>"calendar",_=>"mobile"};if(page!="admin")Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,new Action(()=>{if(api==repository.Api)api?.RecordPage(node,render.Elapsed.TotalMilliseconds);}));}
     void Paragraph(string text){content.Children.Add(Text(text,14,"#64748B",new(0,0,0,16)));}
     static TextBlock Text(string text,double size=14,string color="#192C46",Thickness? margin=null)=>new(){Text=text,FontSize=size,Foreground=Brush(color),TextWrapping=TextWrapping.Wrap,Margin=margin??new Thickness(0)};
     static Border Surface(UIElement child,Thickness? padding=null)=>new(){Background=Brushes.White,BorderBrush=Brush("#E2E8F2"),BorderThickness=new(1),CornerRadius=new(10),Padding=padding??new Thickness(22),Margin=new(0,0,0,16),Child=child};
