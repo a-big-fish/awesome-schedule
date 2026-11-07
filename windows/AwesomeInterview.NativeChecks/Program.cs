@@ -11,6 +11,10 @@ Check(Wire.Read<SessionInfo>("""{"user_id":"a","csrf_token":"test","is_admin":tr
 var profileContract=Wire.Read<ProfileData>("""{"user_id":"a","display_name":"自定义昵称","email":"ab@example.test","workday_start":"08:00","workday_end":"18:00"}""");
 Check(profileContract.EffectiveName=="自定义昵称", "server display_name received without fallback override");
 Check((profileContract with {DisplayName=null}).EffectiveName=="热心用户_ab", "empty nickname uses Web email-prefix default");
+var dateOnly=ScheduleTime.Select(new DateTime(2026,11,7,23,59,0),true,TimeSpan.FromHours(12),new TimeSpan(9,30,0));
+Check(dateOnly==new DateTime(2026,11,7,9,30,0)&&dateOnly.Kind==DateTimeKind.Unspecified,"date-only selection uses account work time without timezone conversion");
+Check(ScheduleTime.SuggestedEnd(new(new DateTime(2026,11,7,23,45,0),false),TimeSpan.FromHours(18))==new DateTime(2026,11,8,0,45,0),"precise start suggests one hour end across midnight");
+Check(ScheduleTime.SuggestedEnd(new(dateOnly,true),TimeSpan.FromHours(19))==new DateTime(2026,11,7,19,0,0),"date-only start suggests account end on selected date");
 var seed = """
 {"schema_version":1,"user_id":"a","server_time":"2026-11-05T03:00:00Z","events":[{"id":"e","owner_id":"a","type":"personal","title":"contract fixture","start_at":"2026-11-05T23:00:00+08:00","end_at":"2026-11-07T01:00:00+08:00","skip_weekends":true,"timezone":"Asia/Shanghai","future_field":{"enabled":true}}],"experiences":[],"todos":[]}
 """;

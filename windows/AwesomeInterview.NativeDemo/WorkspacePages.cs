@@ -148,14 +148,26 @@ public partial class MainWindow
         invitationBox.Children.Add(Button("解析并填入",()=>Run(async()=>{var parsed=await repository.Api!.WriteAsync<EventData>(HttpMethod.Post,"api/mobile/v1/events/parse",new{raw_text=invitation.Text});raw=invitation.Text;title.Text=parsed.Title;start.Text=parsed.Local(parsed.StartAt).ToString("yyyy-MM-dd HH:mm");end.Text=parsed.Local(parsed.EndAt).ToString("yyyy-MM-dd HH:mm");formDirty=true;})));
         fields.Children.Add(invitationBox);void UpdateInvitationVisibility(){invitationBox.Visibility=existing==null&&type.SelectedIndex is 1 or 2?Visibility.Visible:Visibility.Collapsed;}UpdateInvitationVisibility();type.SelectionChanged+=(_,_)=>{UpdateInvitationVisibility();formDirty=true;};
         fields.Children.Add(Text("标题"));fields.Children.Add(title);
-        var times=new Grid();times.ColumnDefinitions.Add(new());times.ColumnDefinitions.Add(new(){Width=new(18)});times.ColumnDefinitions.Add(new());
-        var a=new StackPanel();a.Children.Add(Text("开始时间"));a.Children.Add(start);times.Children.Add(a);var b=new StackPanel();b.Children.Add(Text("结束时间"));b.Children.Add(end);Grid.SetColumn(b,2);times.Children.Add(b);fields.Children.Add(times);
-        var skip=new CheckBox{Content="任务跳过周末",IsChecked=existing?.SkipWeekends??selected.DayOfWeek is not(DayOfWeek.Saturday or DayOfWeek.Sunday),Margin=new(0,0,0,20)};fields.Children.Add(skip);
+        var skip=new CheckBox{Content="任务跳过周末",IsChecked=existing?.SkipWeekends??selected.DayOfWeek is not(DayOfWeek.Saturday or DayOfWeek.Sunday),Margin=new(0,0,0,20)};
         bool ValidTime(string text,out DateTime value)=>DateTime.TryParseExact(text,"yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture,DateTimeStyles.None,out value);
+        void SyncWeekend(){if(ValidTime(start.Text,out var value)){bool weekend=value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend;if(weekend)skip.IsChecked=false;}}
         string previousStart=start.Text;
-        start.LostFocus+=(_,_)=>{if(ValidTime(start.Text,out var from)){if(existing==null&&start.Text!=previousStart)end.Text=from.AddHours(1).ToString("yyyy-MM-dd HH:mm");bool weekend=from.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend;if(weekend)skip.IsChecked=false;previousStart=start.Text;}};
+        UIElement TimeInput(TextBox input,bool isEnd)
+        {
+            var row=new DockPanel();var choose=Button("选择",()=>{
+                if(!ValidTime(input.Text,out var initial))initial=selected.Date.Add(WorkTime(isEnd));
+                var choice=PickScheduleTime(isEnd?"结束时间":"开始时间",initial,isEnd,existing?.Timezone??"Asia/Shanghai");
+                if(choice is not ScheduleTimeChoice picked)return;
+                input.Text=picked.Value.ToString("yyyy-MM-dd HH:mm");
+                if(!isEnd){if(existing==null)end.Text=ScheduleTime.SuggestedEnd(picked,WorkTime(true)).ToString("yyyy-MM-dd HH:mm");previousStart=start.Text;SyncWeekend();}
+                formDirty=true;
+            });choose.Padding=new(10,8,10,8);choose.Margin=new(8,8,0,20);System.Windows.Automation.AutomationProperties.SetName(choose,isEnd?"选择结束日期和时间":"选择开始日期和时间");DockPanel.SetDock(choose,Dock.Right);row.Children.Add(choose);row.Children.Add(input);return row;
+        }
+        var times=new Grid();times.ColumnDefinitions.Add(new());times.ColumnDefinitions.Add(new(){Width=new(18)});times.ColumnDefinitions.Add(new());
+        var a=new StackPanel();a.Children.Add(Text("开始时间"));a.Children.Add(TimeInput(start,false));times.Children.Add(a);var b=new StackPanel();b.Children.Add(Text("结束时间"));b.Children.Add(TimeInput(end,true));Grid.SetColumn(b,2);times.Children.Add(b);fields.Children.Add(times);fields.Children.Add(skip);SyncWeekend();
+        start.LostFocus+=(_,_)=>{if(ValidTime(start.Text,out var from)){if(existing==null&&start.Text!=previousStart)end.Text=from.AddHours(1).ToString("yyyy-MM-dd HH:mm");SyncWeekend();previousStart=start.Text;}};
         fields.Children.Add(Text("地点"));fields.Children.Add(location);fields.Children.Add(Text("备注"));fields.Children.Add(note);
-        Paragraph("时间采用日程时区；未指定时默认 08:00–18:00。默认工作时段可在“设置与版本 → 日程偏好”修改。");
+        Paragraph($"只选日期时使用默认工作时段 {WorkTime(false):hh\\:mm}–{WorkTime(true):hh\\:mm}；也可指定时分或使用当前时间。默认时段可在日程偏好中修改。");
         foreach(var input in new[]{title,start,end,location,note,invitation})input.TextChanged+=(_,_)=>formDirty=true;skip.Click+=(_,_)=>formDirty=true;
         var error=Text("",14,"#B42332");fields.Children.Add(error);Button? save=null;
         save=Button("保存日程",()=>Run(async()=>{
