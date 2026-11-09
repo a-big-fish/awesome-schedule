@@ -84,3 +84,12 @@ class PostgresPersonalEventMapper(BasePersonalEventMapper):
             deleted = cursor.rowcount > 0
             connection.commit()
         return deleted
+
+    def list_interview_options(self, owner_id: str = "local") -> list[dict]:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT id, payload->>'title' AS title, start_at "
+                "FROM personal_schedule_events WHERE owner_id = %s "
+                "AND payload->>'type' = 'interview' ORDER BY start_at, id",
+                (owner_id,),
+            ).fetchall()

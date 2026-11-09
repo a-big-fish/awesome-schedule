@@ -8,6 +8,8 @@ import pymupdf
 from app.core.dependencies import get_interview_experience_mapper, get_resume_parser_service
 from app.mapper.postgres_auth_mapper import PostgresAuthMapper
 from app.mapper.postgres_interview_experience_mapper import PostgresInterviewExperienceMapper
+from app.mapper.postgres_personal_event_mapper import PostgresPersonalEventMapper
+from app.model.personal_event import PersonalEvent
 from app.model.auth import AuthSession, AuthUser
 from app.model.interview_experience import InterviewExperience, InterviewQuestion
 from app.model.my_resume_profile import MyResumeProfile
@@ -120,3 +122,49 @@ def test_postgres_event_notes_filter_owner_and_event_before_reading_payloads():
     sql, params = connection.execute.call_args.args
     assert "owner_id=%s" in sql and "linked_event_id=%s" in sql
     assert params == ("owner", "event")
+
+
+def test_note_association_options_do_not_load_all_events_and_are_owner_scoped(tmp_path):
+    app, auth, _, events, *_ = _public_fixture(tmp_path)
+    user = AuthUser(email="options@example.com", password_hash=hash_password("options-test"), email_verified=True)
+    auth.create_user(user)
+    start = datetime(2026, 11, 9, 2, tzinfo=timezone.utc)
+    interview = events.save(PersonalEvent(owner_id=user.id, type="interview", title="可关联面试",
+                                          start_at=start, end_at=start + timedelta(hours=1),
+                                          note="选项不需要此备注"))
+    for owner, kind, title in [(user.id, "personal", "个人任务不应出现在选项"),
+                               ("other-owner", "interview", "他人面试不应出现在选项")]:
+        events.save(PersonalEvent(owner_id=owner, type=kind, title=title,
+                                  start_at=start, end_at=start + timedelta(hours=1)))
+    options = events.list_interview_options(user.id)
+    assert options == [{"id": interview.id, "title": interview.title, "start_at": start}]
+    events.list_all = MagicMock(side_effect=AssertionError("Must not read all events"))
+    mapper = app.dependency_overrides[get_interview_experience_mapper]()
+    item = mapper.save_experience(InterviewExperience(owner_id=user.id, title="选项测试面经"))
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "options-test")
+        for url in ("/my-schedule/experiences", f"/my-schedule/experiences/{item.id}"):
+            page = client.get(url)
+            assert page.status_code == 200
+            assert "可关联面试 · 2026-11-09 10:00" in page.text
+            assert "个人任务不应出现在选项" not in page.text
+            assert "他人面试不应出现在选项" not in page.text
+            assert "选项不需要此备注" not in page.text
+            assert "interview_options;dur=" in page.headers["server-timing"]
+            if url == "/my-schedule/experiences":
+                assert "experience_summaries;dur=" in page.headers["server-timing"]
+    events.list_all.assert_not_called()
+
+
+def test_postgres_interview_options_filter_in_database_and_project_only_selector_fields():
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.execute.return_value.fetchall.return_value = []
+    mapper = object.__new__(PostgresPersonalEventMapper)
+    mapper._connection_factory = lambda: connection
+    assert mapper.list_interview_options("owner") == []
+    sql, params = connection.execute.call_args.args
+    assert "SELECT id, payload->>'title' AS title, start_at" in sql
+    assert "owner_id = %s" in sql and "payload->>'type' = 'interview'" in sql
+    assert params == ("owner",)
+    assert connection.execute.call_count == 1

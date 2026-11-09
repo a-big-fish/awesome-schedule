@@ -98,8 +98,7 @@ def experience_list(request: Request,
                     service: InterviewExperienceService = Depends(get_interview_experience_service)):
     summaries = service.list_summaries()
     items = [row["experience"] for row in summaries]
-    event_options = [event for event in service.schedule_service.list_events()
-                     if event.type == "interview"]
+    event_options = service.schedule_service.list_interview_options()
     return templates.TemplateResponse(request, "interview_experience_list.html", {
         "experiences": items, "event_options": event_options,
         "count_by_id": {row["experience"].id: row["question_count"] for row in summaries},
@@ -227,8 +226,7 @@ def _render_experience_editor(experience_id: str, request: Request, category: st
                        "raw_text_draft": experience.raw_text_draft},
         "category": category, "category_labels": CATEGORY_LABELS, "saved": saved,
         "editor_mode": editor_mode,
-        "event_options": [event for event in service.schedule_service.list_events()
-                          if event.type == "interview"],
+        "event_options": service.schedule_service.list_interview_options(),
         "detail_url": f"/my-schedule/experiences/{experience_id}",
     })
 

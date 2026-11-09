@@ -17,5 +17,9 @@ class BasePersonalEventMapper(ABC):
         """List the owner's events ordered by start time."""
 
     @abstractmethod
+    def list_interview_options(self, owner_id: str = "local") -> list[dict]:
+        """Return only id, title and start_at for the owner's interview selector."""
+
+    @abstractmethod
     def delete(self, event_id: str, owner_id: str = "local") -> bool:
         """Delete an event owned by the given profile."""

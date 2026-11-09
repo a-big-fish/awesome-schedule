@@ -30,6 +30,8 @@ METRIC_LABELS = {
     "lcp": "最大内容绘制 LCP", "longtask": "主线程长任务", "cache_render": "缓存页面呈现",
     "parse_text": "文本规则解析", "parse_markdown": "Markdown 结构解析",
     "resume_storage": "简历文件存储读取",
+    "experience_summaries": "面经列表摘要查询",
+    "interview_options": "关联面试选项查询",
     "pdf_extract": "PDF 文本提取", "pdf_render": "PDF 排版生成", "markdown_render": "Markdown 导出生成",
 }
 CLIENT_METRICS = {"request", "ttfb", "load", "lcp", "longtask", "cache_render"}

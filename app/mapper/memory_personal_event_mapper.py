@@ -30,3 +30,11 @@ class MemoryPersonalEventMapper(BasePersonalEventMapper):
                 return False
             del self._events[event_id]
             return True
+
+    def list_interview_options(self, owner_id: str = "local") -> list[dict]:
+        with self._lock:
+            events = sorted((event for event in self._events.values()
+                             if event.owner_id == owner_id and event.type == "interview"),
+                            key=lambda event: (event.start_at, event.id))
+            return [{"id": event.id, "title": event.title, "start_at": event.start_at}
+                    for event in events]

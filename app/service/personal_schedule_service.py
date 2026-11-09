@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from uuid import uuid5, NAMESPACE_URL
 
 from app.core.exceptions import PersonalEventConflictWarning
+from app.core.performance import timed_phase
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.mapper.base_personal_event_mapper import BasePersonalEventMapper
 from app.model.meeting_entry import MeetingEntry
@@ -35,6 +36,13 @@ class PersonalScheduleService:
 
     def list_events(self) -> list[PersonalEvent]:
         return self.mapper.list_all(self.owner_id)
+
+    @timed_phase("interview_options")
+    def list_interview_options(self) -> list[dict]:
+        """Load the small projection used by interview-note association forms."""
+        options = self.mapper.list_interview_options(self.owner_id)
+        return [{**option, "start_at": option["start_at"].astimezone(ZoneInfo("Asia/Shanghai"))}
+                for option in options]
 
     def get_event(self, event_id: str) -> PersonalEvent | None:
         if "~" in event_id:

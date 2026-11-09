@@ -10,6 +10,7 @@ from app.model.interview_experience import (
 )
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.model.personal_event import PersonalEvent
+from app.core.performance import timed_phase
 
 
 def _now() -> datetime:
@@ -26,6 +27,7 @@ class InterviewExperienceService:
     def list_experiences(self) -> list[InterviewExperience]:
         return self.mapper.list_experiences(self.owner_id)
 
+    @timed_phase("experience_summaries")
     def list_summaries(self) -> list[dict]:
         return self.mapper.list_owned_summaries(self.owner_id)
 
