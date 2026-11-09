@@ -28,7 +28,7 @@ test('hidden calendar never makes a deadline request', async () => {
 });
 
 function browser({hidden = true, scrolling = false, calendar = null, initialPath = '/my-schedule/experiences/plaza'} = {}) {
-  const calls = [], rendered = [], events = {}, timers = [], assigned = [], emitted = [];
+  const calls = [], rendered = [], events = {}, windowEvents = {}, timers = [], assigned = [], emitted = [];
   let clock = 0;
   const location = new URL('https://test.local' + initialPath);
   location.assign = url => assigned.push(url);
@@ -48,7 +48,7 @@ function browser({hidden = true, scrolling = false, calendar = null, initialPath
   };
   class FakeDate extends Date { static now() { return clock; } }
   const context = {document, location, URL, URLSearchParams, Date: FakeDate,
-    window: {addEventListener() {}, scrollTo() {}},
+    window: {addEventListener(name, callback) {windowEvents[name] = callback;}, scrollTo() {}},
     history: {pushState(_, __, url) {location.href = new URL(url, location).href;}},
     performance: {now: () => 0}, requestAnimationFrame: callback => callback(),
     Event: class {constructor(type) {this.type = type;}},
@@ -59,7 +59,7 @@ function browser({hidden = true, scrolling = false, calendar = null, initialPath
     fetch(url) {return new Promise(resolve => calls.push({url, resolve, done: false}));},
   };
   vm.runInNewContext(source, context);
-  return {calls, rendered, events, document, context, assigned, emitted, restoredScroll,
+  return {calls, rendered, events, windowEvents, document, context, assigned, emitted, restoredScroll,
     age: (milliseconds = 301000) => {clock += milliseconds;},
     async navigate(path) {assert.equal(context.window.awesomeInterviewNavigate(path), true); await tick();},
     async reply(call, html = call.url, status = 200) {
@@ -258,4 +258,66 @@ test('active navigation link is prevented without another request', () => {
   const app=browser();let prevented=false;
   app.events.click({target:{closest:()=>({href:app.context.location.href})},preventDefault(){prevented=true;}});
   assert.ok(prevented);assert.equal(app.calls.length,0);
+});
+
+test('resuming after a minute keeps the snapshot until one background request completes', async () => {
+  const app = browser({hidden:false, scrolling:true, initialPath:'/my-schedule'});
+  app.document.hidden = true; app.events.visibilitychange(); app.age(61000);
+  app.document.hidden = false; app.events.visibilitychange();
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.rendered.length, 0);
+  app.windowEvents.pageshow({persisted:true});
+  assert.equal(app.calls.length, 1);
+  await app.reply(app.calls[0], 'updated-calendar');
+  assert.deepEqual(app.rendered, ['updated-calendar']);
+  assert.equal(app.restoredScroll[0].scrollTop, 720);
+  assert.equal(app.assigned.length, 0);
+});
+
+test('brief tab switches do not send resume requests', () => {
+  const app = browser({hidden:false});
+  app.document.hidden = true; app.events.visibilitychange(); app.age(10000);
+  app.document.hidden = false; app.events.visibilitychange();
+  assert.equal(app.calls.length, 0);
+});
+
+test('failed resume refresh leaves visible content and never reloads', async () => {
+  const app = browser({hidden:false});
+  app.windowEvents.pageshow({persisted:true});
+  await app.reply(app.calls[0], 'unavailable', 503);
+  assert.equal(app.rendered.length, 0);
+  assert.equal(app.assigned.length, 0);
+});
+
+test('resume refresh cannot overwrite edits made while its request is in flight', async () => {
+  const app = browser({hidden:false});
+  app.windowEvents.pageshow({persisted:true});
+  app.events.input({target:{closest:()=>({})}});
+  await app.reply(app.calls[0], 'new-data');
+  assert.equal(app.rendered.length, 0);
+});
+
+test('resume refresh never replaces the live add form even if it has no input events', async () => {
+  const app = browser({hidden:false, initialPath:'/my-schedule/new'});
+  app.windowEvents.pageshow({persisted:true});
+  assert.equal(app.calls.length, 1);
+  await app.reply(app.calls[0], 'updated-add-form');
+  assert.equal(app.rendered.length, 0);
+});
+
+test('write invalidation discards the result of an older resume refresh', async () => {
+  const app = browser({hidden:false});
+  app.windowEvents.pageshow({persisted:true});
+  app.events.submit({target:{method:'post'}});
+  await app.reply(app.calls[0], 'before-save-data');
+  assert.equal(app.rendered.length, 0);
+});
+
+test('pending resume refresh cannot replace another page after navigation', async () => {
+  const app = browser({hidden:false});
+  app.windowEvents.pageshow({persisted:true});
+  await app.navigate('/my-schedule/interviews');
+  await app.reply(app.calls[1], 'interviews');
+  await app.reply(app.calls[0], 'old-plaza-result');
+  assert.deepEqual(app.rendered, ['interviews']);
 });

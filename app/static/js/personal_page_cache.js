@@ -220,20 +220,50 @@
   if ('requestIdleCallback' in window) requestIdleCallback(prefetch, { timeout: 1800 });
   else setTimeout(prefetch, 800);
 
-  // A deadline is a data refresh, not a navigation through an old snapshot.
-  window.awesomeInterviewRefreshCalendar = async () => {
+  // Keep the already visible snapshot while refreshing; never navigate on resume.
+  async function refreshVisiblePage() {
     const target = new URL(location.href);
-    if (!isCalendar(target) || document.hidden || pageEdited || document.querySelector('dialog[open]')) return;
-    const id = navigationId, key = pageKey(target);
+    if (!canNavigate(target) || document.hidden || pageEdited ||
+        document.querySelector('[data-experience-editor], dialog[open]')) return;
+    const id = navigationId, generation = cacheGeneration, key = pageKey(target);
+    const main = document.querySelector('.page > main');
+    const previous = (isCalendar(target) ? calendarPages : pages).get(key)?.html;
     const focused = () => document.activeElement?.matches('input, textarea, select, [contenteditable]');
     if (focused()) return;
     try {
       const html = await load(key, true);
-      if (id !== navigationId || pageKey(new URL(location.href)) !== key || pageEdited ||
+      if (id !== navigationId || generation !== cacheGeneration || pageKey(new URL(location.href)) !== key ||
+          main !== document.querySelector('.page > main') || pageEdited || html === previous ||
           document.hidden || focused() || document.querySelector('dialog[open]')) return;
+      // Even untouched forms may contain browser autofill or a selected file.
+      // Refresh their cached snapshot only, leaving the live form intact.
+      if (target.pathname === '/my-schedule/new' || target.pathname === '/my-schedule/profile' ||
+          target.pathname.endsWith('/edit')) return;
       render(html, false);
-    } catch { /* Keep the visible calendar and retry later; never reload on failure. */ }
+    } catch { /* Keep the visible page on network/DB failure; never reload. */ }
+  }
+
+  // A deadline is a data refresh, not a navigation through an old snapshot.
+  window.awesomeInterviewRefreshCalendar = () => {
+    if (isCalendar(new URL(location.href))) return refreshVisiblePage();
   };
+
+  const resumeDelay = 60000;
+  let hiddenAt = document.hidden ? Date.now() : null;
+  let lastResumeRefresh = -Infinity;
+  const resume = () => {
+    if (document.hidden || Date.now() - lastResumeRefresh < resumeDelay) return;
+    lastResumeRefresh = Date.now();
+    refreshVisiblePage();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+    hiddenAt = null;
+    if (away >= resumeDelay) resume();
+  });
+  // Back/forward cache restoration does not necessarily emit visibilitychange.
+  window.addEventListener('pageshow', event => { if (event.persisted) resume(); });
 
   // Native Android and Windows navigation can use the same cache-first path.
   window.awesomeInterviewNavigate = (url) => {
