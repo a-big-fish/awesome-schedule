@@ -9,7 +9,8 @@
     if (bubble.hidden) close();
     if (!snapshot || snapshot === painted) return;
     painted = snapshot;
-    bubble.querySelector('[data-idea-count]').textContent = snapshot.total;
+    bubble.querySelector('[data-idea-count]').textContent = snapshot.total > 99 ? '99+' : snapshot.total;
+    bubble.querySelector('summary').setAttribute('aria-label', `待安排事项，共 ${snapshot.total} 条，点击展开`);
     bubble.querySelector('[data-idea-preview]').textContent = snapshot.items[0]?.title || '';
     const list = bubble.querySelector('[data-idea-items]');
     list.replaceChildren();
