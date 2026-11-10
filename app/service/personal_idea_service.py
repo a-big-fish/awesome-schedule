@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.model.personal_idea import PersonalIdea
+from uuid import uuid5, NAMESPACE_URL
 
 
 class PersonalIdeaService:
@@ -25,6 +26,16 @@ class PersonalIdeaService:
                                               "reference_links": reference_links,
                                               "updated_at": datetime.now(ZoneInfo("Asia/Shanghai"))})
         return self.mapper.save(updated)
+
+    def pending_summary(self, schedule):
+        """Exclude converted ideas and expose a bounded title-only preview."""
+        items = self.list()
+        event_ids = {item.id: str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{item.id}"))
+                     for item in items}
+        arranged = schedule.mapper.existing_ids(list(event_ids.values()), self.owner_id)
+        pending = [item for item in items if event_ids[item.id] not in arranged]
+        return {"total": len(pending), "items": [{"id": item.id, "title": item.title}
+                                                 for item in pending[:5]]}
 
     def abandon(self, idea_id):
         idea = self.get(idea_id)

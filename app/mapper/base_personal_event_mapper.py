@@ -4,6 +4,11 @@ from app.model.personal_event import PersonalEvent
 
 
 class BasePersonalEventMapper(ABC):
+    def existing_ids(self, event_ids: list[str], owner_id: str) -> set[str]:
+        """Find arranged ideas without returning their event contents."""
+        wanted = set(event_ids)
+        return {event.id for event in self.list_all(owner_id) if event.id in wanted}
+
     @abstractmethod
     def save(self, event: PersonalEvent) -> PersonalEvent:
         """Create or update an event."""

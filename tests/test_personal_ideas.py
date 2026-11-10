@@ -58,3 +58,52 @@ def test_ideas_enforce_owner_and_csrf(tmp_path):
         assert client.post('/my-schedule/ideas', data={'title': '无令牌'}).status_code == 403
         assert client.post('/my-schedule/events', data={'csrf_token': csrf, 'source_idea_id': other.id}).status_code == 404
         assert not events.list_all(user.id)
+
+
+def test_pending_bubble_summary_is_private_bounded_and_excludes_arranged_ideas(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid5, NAMESPACE_URL
+    from app.model.personal_idea import PersonalIdea
+    from app.model.personal_event import PersonalEvent
+    app, users, _, events, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email='bubble@example.com', password_hash=hash_password('test-password'), email_verified=True)
+    users.create_user(user)
+    mapper = app.dependency_overrides[get_personal_idea_mapper]()
+    for index in range(7):
+        mapper.save(PersonalIdea(owner_id=user.id, title=f'待安排 {index}', note='不应在摘要返回的备注'))
+    arranged = mapper.save(PersonalIdea(owner_id=user.id, title='已经安排'))
+    mapper.save(PersonalIdea(owner_id=user.id, title='已经放弃', status='abandoned'))
+    mapper.save(PersonalIdea(owner_id='other', title='他人私有想法'))
+    start = datetime.now(timezone.utc)
+    events.save(PersonalEvent(id=str(uuid5(NAMESPACE_URL, f'idea:{user.id}:{arranged.id}')),
+                              owner_id=user.id, type='personal', title='安排后的任务',
+                              start_at=start, end_at=start + timedelta(hours=1)))
+    with TestClient(app, base_url='https://testserver') as client:
+        assert client.get('/my-schedule/ideas/summary', follow_redirects=False).status_code == 303
+        _login(client, user.email, 'test-password')
+        response = client.get('/my-schedule/ideas/summary')
+        assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
+        data = response.json()
+        assert data['total'] == 7 and len(data['items']) == 5
+        assert all(set(item) == {'id', 'title'} for item in data['items'])
+        assert all(item['title'].startswith('待安排 ') for item in data['items'])
+        assert '不应在摘要返回的备注' not in response.text
+        for item in mapper.list_all(user.id):
+            mapper.delete(item.id, user.id)
+        assert client.get('/my-schedule/ideas/summary').json() == {'total': 0, 'items': []}
+
+
+def test_bubble_arranged_lookup_is_one_scoped_id_only_query():
+    from unittest.mock import MagicMock
+    from app.mapper.postgres_personal_event_mapper import PostgresPersonalEventMapper
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.execute.return_value.fetchall.return_value = [{'id': 'event'}]
+    mapper = object.__new__(PostgresPersonalEventMapper)
+    mapper._connection_factory = lambda: connection
+    assert mapper.existing_ids([], 'owner') == set()
+    connection.execute.assert_not_called()
+    assert mapper.existing_ids(['event'], 'owner') == {'event'}
+    sql, params = connection.execute.call_args.args
+    assert 'SELECT id ' in sql and 'owner_id = %s' in sql and 'ANY(%s)' in sql
+    assert params == ('owner', ['event'])

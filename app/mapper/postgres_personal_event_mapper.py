@@ -12,6 +12,16 @@ from app.model.personal_event import PersonalEvent
 
 
 class PostgresPersonalEventMapper(BasePersonalEventMapper):
+    def existing_ids(self, event_ids: list[str], owner_id: str) -> set[str]:
+        if not event_ids:
+            return set()
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id FROM personal_schedule_events WHERE owner_id = %s AND id = ANY(%s)",
+                (owner_id, event_ids),
+            ).fetchall()
+        return {row["id"] for row in rows}
+
     def __init__(
         self,
         settings: Settings | None = None,

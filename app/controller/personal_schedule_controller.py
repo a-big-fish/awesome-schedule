@@ -350,6 +350,12 @@ def arrange_personal_idea(idea_id: str, request: Request,
         "source_idea_id": idea.id})
 
 
+@router.get("/ideas/summary", response_class=JSONResponse)
+def personal_ideas_summary(ideas: PersonalIdeaService = Depends(get_personal_idea_service),
+                           schedule: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    return JSONResponse(ideas.pending_summary(schedule), headers={"Cache-Control": "no-store"})
+
+
 @router.get("/ideas", response_class=HTMLResponse)
 def personal_ideas(request: Request, abandoned: bool = False, edit: str | None = None,
                    ideas: PersonalIdeaService = Depends(get_personal_idea_service),
