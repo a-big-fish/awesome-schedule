@@ -2,6 +2,8 @@
 .idea-bubble { position: fixed; right: 24px; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 90; width: 260px; color: #1c2942; }
 .idea-bubble > summary { cursor: pointer; list-style: none; border: 1px solid #ccd8f5; border-radius: 18px; background: #f0f4ff; box-shadow: 0 6px 24px #1c29421a; padding: 13px 18px; }
 .idea-bubble > summary::-webkit-details-marker { display: none; }
+.idea-bubble > summary { touch-action: none; user-select: none; cursor: grab; }
+.idea-bubble > summary:active { cursor: grabbing; }
 .idea-bubble-label { display: block; font-weight: 700; color: #2953cc; }
 .idea-bubble-preview { display: block; font-size: 13px; margin-top: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .idea-bubble-panel { position: absolute; bottom: calc(100% + 12px); right: 0; width: 350px; max-height: calc(100dvh - 140px); overflow-y: auto; max-width: calc(100vw - 32px); padding: 18px; background: white; border: 1px solid #d6dfef; border-radius: 18px; box-shadow: 0 12px 38px #1c294226; box-sizing: border-box; }
