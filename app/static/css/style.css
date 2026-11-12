@@ -916,6 +916,8 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-references-editor legend { font-weight: 600; }
 .personal-reference-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(150px, 2fr) auto; align-items: end; gap: 10px; margin-bottom: 12px; }
 .personal-reference-row label { min-width: 0; display: grid; gap: 6px; }
+.personal-reference-title-status { grid-column: 2; margin: 0; font-size: 12px; line-height: 1.5; color: #63718a; overflow-wrap: anywhere; }
+@media (max-width: 650px) { .personal-reference-title-status { grid-column: 1 / -1; } }
 .personal-references-editor details { margin-top: 12px; }
 .personal-references-editor summary { cursor: pointer; color: var(--primary); }
 .personal-reference-list { margin: 0; padding-left: 22px; }

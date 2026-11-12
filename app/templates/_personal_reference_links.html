@@ -8,6 +8,7 @@
       <label>名称（可选）<input class="input" name="reference_title" maxlength="200" value="{{ link.title }}" placeholder="例如：简历制作教程"></label>
       <label>链接<input class="input" type="url" name="reference_url" maxlength="2048" value="{{ link.url }}" placeholder="https://..."></label>
       <button class="btn secondary" type="button" data-reference-remove aria-label="移除此条参考资料">移除</button>
+      <p class="personal-reference-title-status" role="status" data-reference-title-status>名称留空时会尝试解析网页标题，请稍作等候；也可手动填写。</p>
     </div>
     {% endfor %}
   </div>
