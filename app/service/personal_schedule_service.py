@@ -139,6 +139,7 @@ class PersonalScheduleService:
         position: str | None = None,
         repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
+        workday_only: bool = False,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
         source_idea_id: str | None = None,
@@ -153,6 +154,7 @@ class PersonalScheduleService:
             owner_id=self.owner_id,
             type=event_type,
             repeat_weekdays=repeat_weekdays or [],
+            workday_only=workday_only,
             skip_weekends=skip_weekends if skip_weekends is not None else start_at.weekday() < 5,
             title=title.strip(),
             start_at=_localize(start_at, timezone),
@@ -188,6 +190,7 @@ class PersonalScheduleService:
         reference_links: list[dict] | None = None,
         repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
+        workday_only: bool = False,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
         """Preview a shared parser result as a personal event without persisting it."""
@@ -200,6 +203,7 @@ class PersonalScheduleService:
             owner_id=self.owner_id,
             type=resolved_type,
             repeat_weekdays=repeat_weekdays or [],
+            workday_only=workday_only,
             skip_weekends=skip_weekends if skip_weekends is not None else (start_at or facts.start_time).weekday() < 5,
             title=(title or facts.subject or ("未命名面试" if resolved_type == "interview" else "未命名会议")).strip(),
             start_at=_localize(start_at, timezone) if start_at else facts.start_time,

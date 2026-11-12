@@ -45,6 +45,7 @@ class PersonalEvent(BaseModel):
     end_at: datetime
     timezone: str = "Asia/Shanghai"
     skip_weekends: bool = False
+    workday_only: bool = False
     repeat_weekdays: list[int] = Field(default_factory=list)
     repeat_closed_on: str | None = None
     repeat_completions: dict[str, datetime] = Field(default_factory=dict)

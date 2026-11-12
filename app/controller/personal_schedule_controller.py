@@ -75,10 +75,17 @@ def _week_day_segments(events: list[dict[str, Any]], day: date) -> list[dict[str
             continue
         clipped_start = max(start, day_start)
         clipped_end = min(end, day_end)
+        if event.get("workday_only"):
+            work_start = datetime.fromisoformat(f"{day}T{event.get('display_workday_start', '08:00')}").replace(tzinfo=DISPLAY_ZONE)
+            work_end = datetime.fromisoformat(f"{day}T{event.get('display_workday_end', '18:00')}").replace(tzinfo=DISPLAY_ZONE)
+            clipped_start, clipped_end = max(clipped_start, work_start), min(clipped_end, work_end)
+        if clipped_start >= clipped_end:
+            continue
         start_minutes = int((clipped_start - day_start).total_seconds() // 60)
         end_minutes = int((clipped_end - day_start).total_seconds() // 60)
         segments.append({
             **event,
+            **({"start_time": clipped_start, "end_time": clipped_end} if event.get("workday_only") else {}),
             "start_minutes": start_minutes,
             "duration_minutes": end_minutes - start_minutes,
             "continues_before": start < day_start,
@@ -111,6 +118,8 @@ def _month_day_entries(events: list[dict[str, Any]], dates: list[date]) -> dict[
             for index in range(first, last + 1):
                 if item.get("skip_weekends") and week[index].weekday() >= 5:
                     continue
+                if item.get("workday_only") and not _week_day_segments([item], week[index]):
+                    continue
                 day_start = week_start + timedelta(days=index)
                 entries[week[index]].append({
                     **item, "month_lane": lane,
@@ -122,7 +131,8 @@ def _month_day_entries(events: list[dict[str, Any]], dates: list[date]) -> dict[
 
 def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                        selected_view: str = "day", events: list[PersonalEvent] | None = None,
-                       show_completed: bool = True) -> dict[str, Any]:
+                       show_completed: bool = True, workday_start: str = "08:00",
+                       workday_end: str = "18:00") -> dict[str, Any]:
     now = datetime.now(DISPLAY_ZONE)
     all_events = service.list_events() if events is None else events
     first = selected_date.replace(day=1)
@@ -137,7 +147,8 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                             if (occurrence := service.repeat_occurrence(item, day)) is not None)
         else:
             expanded.append(item)
-    event_views = [_event_view(item, now) for item in expanded]
+    event_views = [{**_event_view(item, now), "display_workday_start": workday_start,
+                    "display_workday_end": workday_end} for item in expanded]
     calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"] and not item["cancelled_at"]]
     views = _week_day_segments(calendar_views, selected_date)
     earliest = min((item["start_minutes"] // 60 for item in views), default=6)
@@ -280,7 +291,10 @@ def personal_dashboard(
     except ValueError:
         selected = datetime.now(DISPLAY_ZONE).date()
     # Always render both sets once; the calendar-only toggle reuses this DOM locally.
-    context = _dashboard_context(service, selected, view)
+    user = getattr(request.state, "user", None)
+    context = _dashboard_context(service, selected, view,
+        workday_start=user.workday_start if user else "08:00",
+        workday_end=user.workday_end if user else "18:00")
     context["show_all"] = show_all
     return templates.TemplateResponse(request, "personal_dashboard.html", context)
 
@@ -438,6 +452,7 @@ async def create_personal_event(
     if form.get("repeat_enabled") == "true" and not values["repeat_weekdays"]:
         values["repeat_weekdays"] = [-1]
     values["skip_weekends"] = form.get("skip_weekends") == "true"
+    values["workday_only"] = form.get("workday_only") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     preview = values.get("source") == "invitation"
@@ -456,6 +471,7 @@ async def create_personal_event(
             "title": values["title"],
             "event_type": values["event_type"],
             "skip_weekends": values["skip_weekends"],
+            "workday_only": values["workday_only"],
             "repeat_weekdays": values["repeat_weekdays"],
             "timezone": values.get("timezone") or "Asia/Shanghai",
             "position": values.get("position") or None,
@@ -467,7 +483,7 @@ async def create_personal_event(
             event = service.create_from_invitation(
                 values.get("raw_text", ""),
                 confirm_overlap=confirmed,
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], repeat_weekdays=common["repeat_weekdays"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"],
                 timezone=common["timezone"], position=common["position"], note=common["note"],
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 start_at=start, end_at=end,
@@ -478,7 +494,7 @@ async def create_personal_event(
             )
         else:
             event = service.create_manual(
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], repeat_weekdays=common["repeat_weekdays"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"],
                 start_at=start, end_at=end, timezone=common["timezone"],
                 location_text=values.get("location_text") or None,
                 location_url=values.get("location_url") or None,
@@ -575,6 +591,7 @@ async def edit_personal_event(
     if form.get("repeat_enabled") == "true" and not values["repeat_weekdays"]:
         values["repeat_weekdays"] = [-1]
     values["skip_weekends"] = form.get("skip_weekends") == "true"
+    values["workday_only"] = form.get("workday_only") == "true"
     values["reference_links"] = _reference_form(form)
     values["reminder_offsets_minutes"] = form.getlist("reminder_offsets_minutes")
     try:
@@ -584,6 +601,7 @@ async def edit_personal_event(
             title=values["title"].strip(),
             type=values["event_type"],
             skip_weekends=values["skip_weekends"],
+            workday_only=values["workday_only"],
             repeat_weekdays=values["repeat_weekdays"],
             start_at=datetime.fromisoformat(values["start_at"]),
             end_at=datetime.fromisoformat(values["end_at"]),
@@ -637,7 +655,9 @@ def personal_interview_workspace(
         selected = date.fromisoformat(date_value) if date_value else datetime.now(DISPLAY_ZONE).date()
     except ValueError:
         selected = datetime.now(DISPLAY_ZONE).date()
-    context = _interview_workspace_context(service, selected)
+    context = _interview_workspace_context(service, selected,
+        getattr(request.state.user, "workday_start", "08:00") if hasattr(request.state, "user") else "08:00",
+        getattr(request.state.user, "workday_end", "18:00") if hasattr(request.state, "user") else "18:00")
     context["resume_cache_scope"] = _resume_cache_scope(request)
     return templates.TemplateResponse(request, "personal_interviews.html", context)
 
@@ -689,11 +709,12 @@ def personal_interview_questions(
 
 def _interview_workspace_context(
     service: PersonalScheduleService,
-    selected: date,
+    selected: date, workday_start: str = "08:00", workday_end: str = "18:00",
 ) -> dict[str, Any]:
     """Adapt personal events to the original three-column interview layout."""
     events = service.list_events()
-    context = _dashboard_context(service, selected, events=events)
+    context = _dashboard_context(service, selected, events=events,
+                                 workday_start=workday_start, workday_end=workday_end)
     now = datetime.now(DISPLAY_ZONE)
     interview_views = [_event_view(item, now) for item in events if item.type == "interview"]
     context["entries"] = [item for item in interview_views if item["start_time"].date() == selected]
@@ -746,7 +767,9 @@ async def upload_personal_resume(
     try:
         parsed = await resume_service.parse_upload(resume, owner_id=service.owner_id)
     except ResumeParseError as exc:
-        context = _interview_workspace_context(service, datetime.now(DISPLAY_ZONE).date())
+        context = _interview_workspace_context(service, datetime.now(DISPLAY_ZONE).date(),
+            getattr(request.state.user, "workday_start", "08:00") if hasattr(request.state, "user") else "08:00",
+            getattr(request.state.user, "workday_end", "18:00") if hasattr(request.state, "user") else "18:00")
         context["resume_cache_scope"] = _resume_cache_scope(request)
         context["resume_error"] = str(exc)
         return templates.TemplateResponse(request, "personal_interviews.html", context, status_code=422)
