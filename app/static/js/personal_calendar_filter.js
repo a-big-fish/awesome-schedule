@@ -53,6 +53,34 @@
         lanes.length ? `repeat(${lanes.length}, 20px)` : ''; });
     }
   }
+  function keepDayTitlesVisible(calendar) {
+    const wrap = calendar.querySelector('.time-grid-wrap');
+    if (!wrap || !wrap.addEventListener) return;
+    let pending = false;
+    const update = () => {
+      pending = false;
+      if (!wrap.isConnected) return;
+      const viewport = wrap.getBoundingClientRect();
+      // Read all geometry before applying styles to avoid layout thrashing.
+      const offsets = [...wrap.querySelectorAll('.event-card')].map((card) => {
+        const content = card.querySelector('.personal-event-content');
+        if (!content || !card.getClientRects().length) return null;
+        const rect = card.getBoundingClientRect();
+        const limit = Math.max(0, card.clientHeight - content.offsetHeight - 20);
+        return {content, offset: Math.min(limit, Math.max(0, viewport.top - rect.top + 10))};
+      });
+      offsets.forEach((item) => {
+        if (item) item.content.style.setProperty('--content-offset', `${item.offset}px`);
+      });
+    };
+    const schedule = () => {
+      if (!pending) { pending = true; requestAnimationFrame(update); }
+    };
+    wrap.addEventListener('scroll', schedule, {passive: true});
+    calendar.addEventListener('click', schedule);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(schedule).observe(wrap);
+    schedule();
+  }
   function init() {
     const calendar = document.querySelector('.personal-calendar[data-calendar-completed]');
     if (!calendar || boundCalendars.has(calendar)) return;
@@ -68,6 +96,7 @@
       button.setAttribute('aria-pressed', String(incomplete));
     };
     apply(incompletePreference);
+    keepDayTitlesVisible(calendar);
     button.addEventListener('click', () => {
       const incomplete = !calendar.classList.contains('hide-completed');
       apply(incomplete);

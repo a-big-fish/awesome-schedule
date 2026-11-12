@@ -9,7 +9,7 @@ test('calendar defaults hidden and binds a freshly restored calendar', () => {
     const state = new Set();
     const button = {setAttribute() {}, addEventListener(_, fn) {this.click = fn;}};
     return {button, dataset: {}, classList: {toggle(key,on) {on ? state.add(key) : state.delete(key);}, contains: key => state.has(key)},
-      querySelector: () => button, querySelectorAll: () => []};
+      querySelector: (selector) => selector === '[data-calendar-toggle]' ? button : null, querySelectorAll: () => []};
   }
   let current = calendar();
   const document = {readyState: 'complete', querySelector: () => current, addEventListener(name, fn) {handlers[name] = fn;}};
@@ -59,4 +59,21 @@ test('checking skip weekends and submitting each require their own confirmation'
   listeners.submit(submit);assert.equal(confirmations,3);assert.equal(blocked,false);
   accept=false;listeners.submit(submit);assert.equal(blocked,true);assert.equal(confirmations,4);
   skip.checked=false;listeners.submit(submit);assert.equal(confirmations,4);
+});
+
+
+test('long day cards keep text visible and clamp it inside the event', () => {
+  const source = fs.readFileSync('app/static/js/personal_calendar_filter.js', 'utf8');
+  const code = source.slice(source.indexOf('  function keepDayTitlesVisible'), source.indexOf('  function init()'));
+  let top = -700, offset;
+  const frames = [], listeners = {};
+  const content = {offsetHeight: 60, style: {setProperty(_, value) {offset = value;}}};
+  const card = {clientHeight: 1000, querySelector: () => content, getClientRects: () => [1], getBoundingClientRect: () => ({top})};
+  const wrap = {isConnected: true, addEventListener(name, fn) {listeners[name] = fn;}, getBoundingClientRect: () => ({top: 100}), querySelectorAll: () => [card]};
+  const calendar = {querySelector: () => wrap, addEventListener() {}};
+  vm.runInNewContext(code + '; keepDayTitlesVisible(calendar);', {calendar, requestAnimationFrame(fn) {frames.push(fn);}});
+  frames.shift()(); assert.equal(offset, '810px');
+  top = -1200; listeners.scroll(); listeners.scroll(); assert.equal(frames.length, 1);
+  frames.shift()(); assert.equal(offset, '920px');
+  top = 200; listeners.scroll(); frames.shift()(); assert.equal(offset, '0px');
 });

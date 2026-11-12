@@ -32,8 +32,8 @@
           {% for item in entries %}
           <a class="event-card type-{{ item.type }}{% if item.repeat_weekdays %} is-repeating{% endif %}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" href="/my-schedule/events/{{ item.id }}"
              style="--start-min: {{ item.start_minutes }}; --duration: {{ item.duration_minutes }}; --column: {{ item.column }}; --columns: {{ item.columns }};">
-            <div class="event-head"><span class="event-title">{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</span><span>{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
-            <div class="event-meta">{{ item.type_label }}{% if item.completed_at %} · 已完成{% endif %}{% if item.location_text %} · {{ item.location_text }}{% endif %}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}</div>
+            <div class="personal-event-content"><div class="event-head"><span class="event-title">{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</span><span>{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
+            <div class="event-meta">{{ item.type_label }}{% if item.completed_at %} · 已完成{% endif %}{% if item.location_text %} · {{ item.location_text }}{% endif %}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}</div></div>
           </a>
           {% endfor %}
         </div>

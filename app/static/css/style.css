@@ -3129,3 +3129,13 @@ button:disabled {
 .personal-repeat-stats { color: #12705a; font-size: 12px; font-weight: normal; }
 
 .personal-repeat-days[hidden], .personal-event-form .personal-weekend-option[hidden] { display: none; }
+
+/* Personal day cards fill their repacked lanes; keep their text in view while scrolling. */
+.personal-time-table .event-card {
+  width: calc(100% / var(--columns) - 12px);
+  max-width: none;
+  justify-content: flex-start;
+}
+.personal-event-content { min-width: 0; transform: translateY(var(--content-offset, 0px)); }
+.personal-event-content .event-head { flex-wrap: wrap; }
+.personal-event-content .event-meta { margin-top: 5px; overflow-wrap: anywhere; }
