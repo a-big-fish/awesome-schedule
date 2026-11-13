@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import logging
 from contextlib import asynccontextmanager
@@ -7,6 +7,7 @@ from uuid import uuid4
 from psycopg import OperationalError
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -27,8 +28,14 @@ from app.controller import (
 )
 from app.core.auth_guard import AuthRequired, InvalidCsrf, require_current_user
 from app.core.config import Settings, get_settings
+from app.core.dependencies import (
+    get_interview_experience_mapper,
+    get_my_resume_mapper,
+    get_personal_event_mapper,
+    get_personal_idea_mapper,
+)
 from app.core.performance import RequestTimings, node_for_path, request_timings, channel_for_request
-from app.core.postgres_pool import close_pools
+from app.core.postgres_pool import SharedScope, close_pools, shared_connection
 from app.core.logging_setup import ApplicationLogs
 from app.mapper.postgres_auth_mapper import PostgresAuthMapper
 from app.service.auth_service import AuthService
@@ -37,9 +44,18 @@ from app.service.reference_title_service import ReferenceTitleService
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
+PERSISTENT_STORAGE = {"postgres", "rustfs", "minio"}
+
+
+def _warm_metadata_schema() -> None:
+    """Create missing metadata tables before the first visitor, not inside their request."""
+    for factory in (get_personal_event_mapper, get_personal_idea_mapper,
+                    get_my_resume_mapper, get_interview_experience_mapper):
+        factory()
 
 
 def create_app(settings: Settings | None = None, auth_service: AuthService | None = None) -> FastAPI:
+    deployment = settings is None
     settings = settings or get_settings()
     public = settings.app_mode == "public_personal"
     if public:
@@ -60,6 +76,12 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     @asynccontextmanager
     async def lifespan(_application):
         application_logs.start()
+        # Tests inject their own mappers, so only the deployment path pre-creates the schema.
+        if deployment and settings.storage_backend in PERSISTENT_STORAGE:
+            try:
+                await run_in_threadpool(_warm_metadata_schema)
+            except Exception as exc:  # noqa: BLE001 - a temporarily unreachable database must not stop startup
+                logger.warning("Metadata schema warm-up failed: %s", type(exc).__name__)
         performance.start()
         try:
             yield
@@ -192,6 +214,19 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
         application.include_router(ai_interview_controller.router)
         application.include_router(personal_schedule_controller.router)
         application.include_router(interview_experience_controller.router)
+
+    @application.middleware("http")
+    async def reuse_one_connection_per_read(request: Request, call_next):
+        """Read pages borrow one pooled connection for the whole request instead of one per query."""
+        if request.method not in {"GET", "HEAD"}:
+            return await call_next(request)
+        scope = SharedScope()
+        token = shared_connection.set(scope)
+        try:
+            return await call_next(request)
+        finally:
+            shared_connection.reset(token)
+            scope.close()
     return application
 
 

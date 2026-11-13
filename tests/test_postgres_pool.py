@@ -1,73 +1,123 @@
-from contextlib import contextmanager
+"""One read request keeps one pooled connection; writes keep borrowing their own."""
+
+import functools
 from unittest.mock import MagicMock
 
 import pytest
-from psycopg_pool import PoolTimeout
-from psycopg.rows import dict_row
 
 from app.core import postgres_pool
-from app.core.performance import RequestTimings, request_timings, timed_postgres_connect
+from app.core.postgres_pool import SharedScope, connection, shared_connection
+
+DSN = "postgresql://user:secret@db.local:5432/interview-system"
 
 
-def test_all_mappers_share_three_connections_and_fixed_timeouts(monkeypatch):
-    made = []
-    health_check = postgres_pool.ConnectionPool.check_connection
-    def create(*args, **kwargs):
-        pool = MagicMock(closed=False)
-        made.append((args, kwargs, pool))
-        return pool
-    create.check_connection = health_check
-    monkeypatch.setattr(postgres_pool, "ConnectionPool", create)
-    monkeypatch.setattr(postgres_pool, "_pools", {})
-    first = postgres_pool.get_pool("dbname=test", row_factory=dict_row)
-    assert first is postgres_pool.get_pool("dbname=test", row_factory=dict_row)
-    assert len(made) == 1
-    args, options, _ = made[0]
-    assert "connect_timeout=3" in args[0]
-    assert options["min_size"] == options["max_size"] == 3
-    assert options["timeout"] == 3 and options["max_lifetime"] == 1200
-    assert options["max_idle"] == 600
-    assert options["check"] is health_check
-    postgres_pool.close_pools()
-    first.close.assert_called_once_with(timeout=3)
-    assert postgres_pool.get_pool("dbname=test", row_factory=dict_row) is not first
+class FakePool:
+    def __init__(self):
+        self.borrows = 0
+        self.scopes: list[MagicMock] = []
+
+    def connection(self, timeout=3):
+        self.borrows += 1
+        scope = MagicMock()
+        scope.__enter__ = MagicMock(return_value=MagicMock(name=f"raw-{self.borrows}"))
+        scope.__exit__ = MagicMock(return_value=False)
+        self.scopes.append(scope)
+        return scope
 
 
-def test_lease_returns_connections_on_failure_and_does_not_close_raw_connection(monkeypatch):
-    raw = MagicMock()
-    pool = MagicMock()
-    outcomes = []
-    @contextmanager
-    def lease(**kwargs):
-        assert kwargs == {"timeout": 3}
-        try:
-            yield raw
-        except ValueError:
-            outcomes.append("rollback-return")
-            raise
-        else:
-            outcomes.append("commit-return")
-    pool.connection.side_effect = lease
+@pytest.fixture
+def fake_pool(monkeypatch):
+    pool = FakePool()
     monkeypatch.setattr(postgres_pool, "get_pool", lambda *args, **kwargs: pool)
-    with pytest.raises(ValueError):
-        with timed_postgres_connect("dbname=test"):
-            raise ValueError("failed transaction")
-    with timed_postgres_connect("dbname=test") as connection:
-        assert connection is raw
-    assert outcomes == ["rollback-return", "commit-return"]
-    raw.close.assert_not_called()
+    return pool
 
 
-def test_pool_timeout_propagates_and_is_measured(monkeypatch):
-    pool = MagicMock()
-    pool.connection.return_value.__enter__.side_effect = PoolTimeout("unavailable")
-    monkeypatch.setattr(postgres_pool, "get_pool", lambda *args, **kwargs: pool)
-    timings = RequestTimings()
-    token = request_timings.set(timings)
+def test_one_read_request_borrows_a_single_connection_for_every_query(fake_pool):
+    token = shared_connection.set(SharedScope())
     try:
-        with pytest.raises(PoolTimeout):
-            with timed_postgres_connect("dbname=test"):
-                pytest.fail("must not continue")
+        with connection(DSN, row_factory=dict) as first:
+            first.execute("SELECT payload FROM personal_ideas")
+        with connection(DSN, row_factory=dict) as second:
+            second.execute("SELECT id FROM personal_schedule_events")
+        assert fake_pool.borrows == 1
+        assert second is first
+        assert fake_pool.scopes[0].__exit__.call_count == 0  # released only when the request ends
+        shared_connection.get().close()
+        assert fake_pool.scopes[0].__exit__.call_count == 1
     finally:
-        request_timings.reset(token)
-    assert timings.values["db_pool_wait"] >= 0
+        shared_connection.reset(token)
+
+
+def test_a_failed_query_keeps_the_shared_connection_for_the_rest_of_the_request(fake_pool):
+    token = shared_connection.set(SharedScope())
+    try:
+        with pytest.raises(RuntimeError):
+            with connection(DSN, row_factory=dict):
+                raise RuntimeError("query failed")
+        with connection(DSN, row_factory=dict) as recovered:
+            recovered.execute("SELECT 1")
+        assert fake_pool.borrows == 1
+        assert fake_pool.scopes[0].__exit__.call_count == 0
+        shared_connection.get().close()
+    finally:
+        shared_connection.reset(token)
+
+
+def test_a_connection_is_never_shared_across_pool_shapes(fake_pool):
+    token = shared_connection.set(SharedScope())
+    try:
+        with connection(DSN, row_factory=dict) as first:
+            first.execute("SELECT 1")
+        with connection(DSN, row_factory=tuple) as other:
+            other.execute("SELECT 1")
+        assert fake_pool.borrows == 2 and other is not first
+        shared_connection.get().close()
+    finally:
+        shared_connection.reset(token)
+
+
+def test_without_a_request_scope_every_borrow_is_released_immediately(fake_pool):
+    with connection(DSN, row_factory=dict) as borrowed:
+        borrowed.execute("SELECT 1")
+    assert fake_pool.borrows == 1
+    assert fake_pool.scopes[0].__exit__.call_count == 1
+
+
+def test_write_requests_keep_their_own_connection(fake_pool):
+    """A POST never sets the scope, so each mapper block still borrows and releases."""
+    assert shared_connection.get() is None
+    with connection(DSN, row_factory=dict) as borrowed:
+        borrowed.execute("INSERT INTO personal_schedule_events VALUES (1)")
+    with connection(DSN, row_factory=dict) as again:
+        again.execute("INSERT INTO personal_schedule_events VALUES (2)")
+    assert fake_pool.borrows == 2 and again is not borrowed
+
+
+def test_schema_warm_up_builds_every_cached_mapper(monkeypatch):
+    import app.main as main
+    calls = []
+    for name in ("get_personal_event_mapper", "get_personal_idea_mapper",
+                 "get_my_resume_mapper", "get_interview_experience_mapper"):
+        monkeypatch.setattr(main, name, functools.partial(calls.append, name))
+    main._warm_metadata_schema()
+    assert calls == ["get_personal_event_mapper", "get_personal_idea_mapper",
+                     "get_my_resume_mapper", "get_interview_experience_mapper"]
+
+
+def test_tests_do_not_warm_the_deployment_schema(monkeypatch, tmp_path):
+    """create_app(settings) is the test path; only create_app() prepares the real database."""
+    import app.main as main
+    from app.core.config import Settings
+    from app.mapper.memory_auth_mapper import MemoryAuthMapper
+    from app.service.auth_service import AuthService
+
+    calls = []
+    monkeypatch.setattr(main, "_warm_metadata_schema", lambda: calls.append("warm"))
+    settings = Settings(_env_file=None, app_mode="public_personal", storage_backend="postgres",
+                        public_base_url="https://testserver", registration_mode="closed",
+                        performance_enabled=False, log_dir=str(tmp_path))
+    app = main.create_app(settings, AuthService(MemoryAuthMapper(), settings))
+    from fastapi.testclient import TestClient
+    with TestClient(app, base_url="https://testserver"):
+        pass
+    assert calls == []
