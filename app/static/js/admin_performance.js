@@ -99,8 +99,14 @@
     table(panel.querySelector('[data-performance-slow]'), ['接收时间', '渠道', '节点', '采集端', '指标', '耗时', '状态'],
       data.slow.map(row => [date(row.received), row.channel_label, row.node, sourceName(row.source), row.metric, ms(row.duration),
         row.metric_key === 'request' ? row.status === 0 ? '网络失败' : row.status : '—']));
+    const health = data.persisted;
+    const cumulative = health
+      ? ` · 落盘累计已写入 ${Number(health.samples).toLocaleString('zh-CN')} 条 · 累计丢弃 ${Number(health.dropped).toLocaleString('zh-CN')} 条` +
+        `${health.last_drop ? `（最近 ${date(health.last_drop)}）` : ''} · 累计写入失败 ${Number(health.write_failures).toLocaleString('zh-CN')} 次` +
+        `${health.last_failure ? `（最近 ${date(health.last_failure)}）` : ''}`
+      : ' · 尚未落盘健康数据（本进程还没成功写入）';
     status.textContent = !data.enabled ? '性能采集已关闭。' :
-      `${data.ready ? '采集存储正常' : '存储暂不可用或正在初始化'} · 排队 ${data.queued} 条 · 本进程丢弃 ${data.dropped} 条 · 写入失败 ${data.write_failures} 次 · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
+      `${data.ready ? '采集存储正常' : '存储暂不可用或正在初始化'} · 排队 ${data.queued} 条 · 本进程写入 ${data.written} 条 · 本进程丢弃 ${data.dropped} 条 · 写入失败 ${data.write_failures} 次${cumulative} · 更新于 ${new Date().toLocaleTimeString('zh-CN')}`;
   }
   let generation = 0, inflight;
   async function load() {

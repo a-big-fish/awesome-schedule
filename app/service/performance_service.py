@@ -32,6 +32,19 @@ class PerformanceService:
         self.ready = False
         self.dropped = 0
         self.write_failures = 0
+        self.written = 0
+        self.last_drop: float | None = None
+        self.last_failure: float | None = None
+        self._health_state: tuple | None = None
+        self._last_drop_log = 0.0
+
+    def _drop(self, count: int) -> None:
+        """Count and (rate-limited) announce samples that never reach the disk."""
+        self.dropped += count
+        self.last_drop = time.time()
+        if self.last_drop - self._last_drop_log >= 30:
+            self._last_drop_log = self.last_drop
+            logger.warning("Performance samples dropped: %s total, %s samples just now", self.dropped, count)
 
     def start(self) -> None:
         if not self.enabled or self.worker and self.worker.is_alive():
@@ -53,7 +66,7 @@ class PerformanceService:
             self.queue.put_nowait((time.time(), node, source, metric, round(duration, 2), status,
                                    channel if channel in CHANNEL_LABELS else "unknown"))
         except Full:
-            self.dropped += 1
+            self._drop(1)
 
     def _write_loop(self) -> None:
         connection = None
@@ -81,26 +94,38 @@ class PerformanceService:
                         connection.execute("CREATE TABLE IF NOT EXISTS samples (id INTEGER PRIMARY KEY, "
                                            "received REAL, node TEXT, source TEXT, metric TEXT, duration REAL, status INTEGER)")
                         connection.execute("CREATE INDEX IF NOT EXISTS sample_time ON samples(received)")
+                        connection.execute("CREATE TABLE IF NOT EXISTS writer_health (id INTEGER PRIMARY KEY CHECK (id = 1), "
+                                           "updated REAL, samples INTEGER NOT NULL DEFAULT 0, "
+                                           "dropped INTEGER NOT NULL DEFAULT 0, write_failures INTEGER NOT NULL DEFAULT 0, "
+                                           "last_drop REAL, last_failure REAL)")
                         columns = {row[1] for row in connection.execute("PRAGMA table_info(samples)")}
                         if "channel" not in columns:
                             connection.execute("ALTER TABLE samples ADD COLUMN channel TEXT NOT NULL DEFAULT 'unknown'")
                     if batch:
                         connection.executemany("INSERT INTO samples(received,node,source,metric,duration,status,channel) "
                                                "VALUES (?,?,?,?,?,?,?)", batch)
+                        self.written += len(batch)
                         connection.execute("DELETE FROM samples WHERE id <= (SELECT MAX(id) FROM samples) - 100000")
                     now = time.time()
                     if now - last_prune >= 60:
                         connection.execute("DELETE FROM samples WHERE received < ?", (now - self.retention_days * 86400,))
                         last_prune = now
+                    self._persist_health(connection)
                     connection.commit()
                     self.ready = True
                 except (OSError, sqlite3.Error) as exc:
                     self.ready = False
-                    self.dropped += len(batch)
                     self.write_failures += 1
+                    self.last_failure = time.time()
+                    self._drop(len(batch))
                     if self.write_failures == 1 or self.write_failures % 60 == 0:
                         logger.warning("Performance storage unavailable: %s", type(exc).__name__)
                     if connection:
+                        try:
+                            self._persist_health(connection)
+                            connection.commit()
+                        except (OSError, sqlite3.Error):
+                            pass
                         connection.close()
                         connection = None
                     if self.stopping.wait(1):
@@ -109,7 +134,7 @@ class PerformanceService:
                             try:
                                 self.queue.get_nowait()
                                 self.queue.task_done()
-                                self.dropped += 1
+                                self._drop(1)
                             except Empty:
                                 break
                 finally:
@@ -119,10 +144,25 @@ class PerformanceService:
             if connection:
                 connection.close()
 
+    def _persist_health(self, connection: sqlite3.Connection) -> None:
+        """Keep cumulative writer health on disk so restarts do not hide lost samples."""
+        state = (self.written, self.dropped, self.write_failures, self.last_drop, self.last_failure)
+        if state == self._health_state:
+            return
+        connection.execute("INSERT INTO writer_health(id, updated, samples, dropped, write_failures, last_drop, last_failure) "
+                           "VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated = excluded.updated, "
+                           "samples = excluded.samples, dropped = excluded.dropped, "
+                           "write_failures = excluded.write_failures, last_drop = excluded.last_drop, "
+                           "last_failure = excluded.last_failure",
+                           (time.time(), self.written, self.dropped, self.write_failures,
+                            self.last_drop, self.last_failure))
+        self._health_state = state
+
     def dashboard(self, hours: int = 24, channel: str = "all") -> dict:
         now = time.time()
         result = {"enabled": self.enabled, "ready": self.ready, "dropped": self.dropped,
                   "write_failures": self.write_failures, "queued": self.queue.qsize(),
+                  "written": self.written, "persisted": None,
                   "hours": hours, "channel": channel, "channels": [], "groups": [], "trend": [], "slow": [],
                   "server_count": 0, "browser_count": 0, "errors": 0, "longtasks": 0}
         if not self.enabled:
@@ -131,9 +171,17 @@ class PerformanceService:
             with sqlite3.connect(f"{self.path.resolve().as_uri()}?mode=ro", uri=True, timeout=.3) as connection:
                 rows = connection.execute("SELECT received,node,source,metric,duration,status,channel FROM samples "
                                           "WHERE received >= ? ORDER BY received LIMIT 100000", (now - hours * 3600,)).fetchall()
+                try:
+                    health = connection.execute("SELECT updated, samples, dropped, write_failures, last_drop, last_failure "
+                                                "FROM writer_health WHERE id = 1").fetchone()
+                except sqlite3.Error:
+                    health = None
         except (OSError, sqlite3.Error):
             result["ready"] = False
             return result
+        if health:
+            result["persisted"] = {"updated": health[0], "samples": health[1], "dropped": health[2],
+                                   "write_failures": health[3], "last_drop": health[4], "last_failure": health[5]}
         groups = defaultdict(list)
         for key, label in CHANNEL_LABELS.items():
             samples = [row for row in rows if row[6] == key and row[3] == "request" and row[2] == "server"]

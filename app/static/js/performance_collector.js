@@ -83,6 +83,10 @@
     if (!queue.length || navigator.onLine === false) { schedule(); return; }
     sending = true;
     const batch = queue.slice(0, 20);
+    // Leave the durable queue before awaiting the response: a page torn down mid-flush
+    // would otherwise restore the same samples and report them a second time.
+    queue = queue.filter(sample => !batch.includes(sample));
+    save();
     const form = new FormData();
     form.set('csrf_token', config.content);
     form.set('payload', JSON.stringify({samples: batch.map(({node, metric, duration, status}) =>
@@ -98,10 +102,15 @@
         stopped = true;
         queue = [];
       } else if (response.ok || response.status === 422 || response.status === 413) {
-        queue = queue.filter(sample => !batch.includes(sample));
         backoff = 15000;
-      } else backoff = Math.min(backoff * 2, 300000);
-    } catch { backoff = Math.min(backoff * 2, 300000); }
+      } else {
+        queue = batch.concat(queue).slice(-100);
+        backoff = Math.min(backoff * 2, 300000);
+      }
+    } catch {
+      queue = batch.concat(queue).slice(-100);
+      backoff = Math.min(backoff * 2, 300000);
+    }
     finally { clearTimeout(timeout); sending = false; save(); schedule(); }
   }
   window.fetch = function(input, init) {

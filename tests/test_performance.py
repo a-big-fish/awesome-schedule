@@ -49,6 +49,28 @@ def test_async_storage_persists_distributions_and_prunes_old_samples(tmp_path):
         assert connection.execute("SELECT COUNT(*) FROM samples").fetchone()[0] == 6
 
 
+def test_writer_health_is_persisted_so_restarts_cannot_hide_dropped_samples(tmp_path):
+    path = tmp_path / "health.sqlite3"
+    store = PerformanceService(path)
+    for _ in range(2001):
+        store.record("calendar", "server", "request", 10)
+    assert store.dropped == 1  # The queue is bounded; one sample never enqueued.
+    store.start()
+    store.stop()
+    snapshot = store.dashboard()
+    assert snapshot["dropped"] == 1 and snapshot["written"] > 0
+    assert snapshot["persisted"]["dropped"] == 1
+    assert snapshot["persisted"]["samples"] == snapshot["written"]
+    assert snapshot["persisted"]["last_drop"] is not None and snapshot["persisted"]["write_failures"] == 0
+    restarted = PerformanceService(path)
+    restarted.start()
+    restarted.stop()
+    fresh = restarted.dashboard()
+    assert fresh["dropped"] == 0 and fresh["written"] == 0  # In-process counters start over.
+    assert fresh["persisted"]["dropped"] == 1  # The on-disk record keeps the loss visible.
+    assert fresh["persisted"]["samples"] == snapshot["written"]
+
+
 def test_full_queue_and_broken_storage_do_not_raise_into_business_requests(tmp_path):
     invalid_path = tmp_path / "not-a-directory"
     invalid_path.write_text("occupied")

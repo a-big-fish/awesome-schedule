@@ -4,12 +4,13 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync('app/static/js/performance_collector.js', 'utf8');
 
-function browser({storageFails = false} = {}) {
+function browser({storageFails = false, hang = false} = {}) {
   const timers = new Map(), storage = new Map(), calls = [], events = new Map();
   let nextTimer = 0, reply = 204, failed = false;
   const location = new URL('https://test.local/my-schedule/experiences/private-id?title=private-title');
   const fetch = async (url, options) => {
     calls.push({url, options});
+    if (hang && url === '/my-schedule/telemetry') return new Promise(() => {});
     if (failed) throw new TypeError('network unavailable');
     return {status: url === '/my-schedule/telemetry' ? reply : 200, ok: reply < 400};
   };
@@ -70,8 +71,7 @@ test('failed background reports retain samples and back off before retrying', as
   assert.equal(app.queued().length, 0);
 });
 
-test('403 clears queued samples and stops retrying', async () => {
-  const app = browser();
+test('403 clears queued samples and stops retrying', async () => {  const app = browser();
   app.add(50);
   app.reply(403);
   await app.fire(15000);
@@ -79,6 +79,13 @@ test('403 clears queued samples and stops retrying', async () => {
   assert.equal(app.timers.size, 0);
 });
 
+test('a flush interrupted by teardown cannot report the same samples twice', async () => {
+  const app = browser({hang: true});
+  app.add(50);
+  await app.fire(15000);
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.queued().length, 0);
+});
 test('blocked browser storage and network failures preserve business fetch behavior', async () => {
   const app = browser({storageFails: true});
   app.fail(true);
