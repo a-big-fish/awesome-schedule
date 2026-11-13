@@ -23,7 +23,7 @@ public sealed class NativeApi : IDisposable
     readonly System.Collections.Concurrent.ConcurrentQueue<object> timings=new();
     readonly Timer flushTimer;
     int flushing;
-    static string Node(string path) => path.Contains("/plaza")?"plaza":path.Contains("/profile")?"profile":path.Contains("/parse")?"event_parse":path.Contains("/events")?"event_write":path.Contains("/snapshot")?"mobile":"mobile";
+    static string Node(string path) => path.Contains("/plaza/")?"plaza_detail":path.Contains("/plaza")?"plaza":path.Contains("/ideas")?"ideas":path.Contains("/calendar")||path.Contains("/todos")?"calendar":path.Contains("/profile")?"profile":path.Contains("/parse")?"event_parse":path.Contains("/events")?"event_write":path.Contains("/snapshot")?"mobile":"mobile";
     public void RecordPage(string node,double duration){if(Session!=null&&timings.Count<100)timings.Enqueue(new{node,metric="cache_render",duration=Math.Clamp(duration,0,120000),status=200});}
     async Task FlushAsync(){if(Session==null||Interlocked.Exchange(ref flushing,1)!=0)return;try{var batch=new List<object>();while(batch.Count<20&&timings.TryDequeue(out var sample))batch.Add(sample);if(batch.Count==0)return;using var req=new HttpRequestMessage(HttpMethod.Post,"my-schedule/telemetry"){Content=new FormUrlEncodedContent(new Dictionary<string,string>{{"payload",JsonSerializer.Serialize(new{samples=batch},Wire.Json)}})};req.Headers.Add("X-CSRF-Token",Session.CsrfToken);using var response=await http.SendAsync(req);}catch(Exception e)when(e is HttpRequestException or OperationCanceledException or ObjectDisposedException){}finally{Interlocked.Exchange(ref flushing,0);}}
 
@@ -114,9 +114,10 @@ public sealed class NativeApi : IDisposable
         if (response.Content.Headers.ContentType?.MediaType != expectedType) throw new ApiFailure(401,"下载内容无效或登录已过期。");
         return await response.Content.ReadAsByteArrayAsync();
     }
-    public async Task DeleteEventAsync(string id)
+    public async Task DeleteEventAsync(string id) => await DeleteAsync("api/mobile/v1/events/"+Uri.EscapeDataString(id));
+    public async Task DeleteAsync(string path)
     {
-        using var request=new HttpRequestMessage(HttpMethod.Delete,"api/mobile/v1/events/"+Uri.EscapeDataString(id));
+        using var request=new HttpRequestMessage(HttpMethod.Delete,path);
         request.Headers.Add("X-CSRF-Token",Session?.CsrfToken??throw new ApiFailure(401,"请先登录。"));
         using var response=await http.SendAsync(request);
         if(response.StatusCode!=HttpStatusCode.NoContent)throw Failure((int)response.StatusCode);

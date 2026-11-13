@@ -32,6 +32,7 @@ public record EventData
     public required DateTimeOffset EndAt { get; init; }
     public string Timezone { get; init; } = "Asia/Shanghai";
     public bool SkipWeekends { get; init; }
+    public bool WorkdayOnly { get; init; }
     public List<int> RepeatWeekdays { get; init; } = new();
     public string? RepeatClosedOn { get; init; }
     public Dictionary<string, DateTimeOffset> RepeatCompletions { get; init; } = new();
@@ -114,6 +115,8 @@ public record ExperienceData
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; init; }
 }
 public record TodoData(string Id, string OwnerId, string Title, DateOnly DueDate, DateTimeOffset? CompletedAt, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public record IdeaData(string Id, string OwnerId, string Title, string Note, List<ReferenceLink> ReferenceLinks, string Status, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, string? ArrangedEventId = null);
+public record CalendarState(int SchemaVersion, string UserId, DateTimeOffset ServerTime, List<EventData> Events, List<TodoData> Todos, List<IdeaData> Ideas, ProfileData Profile);
 public record Snapshot
 {
     public required int SchemaVersion { get; init; }
@@ -122,6 +125,8 @@ public record Snapshot
     public required List<EventData> Events { get; init; }
     public required List<ExperienceData> Experiences { get; init; }
     public required List<TodoData> Todos { get; init; }
+    public List<IdeaData> Ideas { get; init; } = new();
+    public ProfileData? Profile { get; init; }
     public void Validate(string owner)
     {
         if (SchemaVersion != 1 || string.IsNullOrWhiteSpace(owner) || UserId != owner || ServerTime == default || Events == null || Experiences == null || Todos == null)
@@ -132,6 +137,22 @@ public record Snapshot
         if (Events.Select(e => e.Id).Distinct().Count() != Events.Count || Experiences.Select(e => e.Id).Distinct().Count() != Experiences.Count || Todos.Select(t => t.Id).Distinct().Count() != Todos.Count)
             throw new InvalidDataException("快照包含重复记录。");
         foreach (var e in Events) _ = e.Zone;
+        if (Ideas == null || Ideas.Any(i => i.OwnerId != owner || string.IsNullOrWhiteSpace(i.Id)) ||
+            Ideas.Select(i => i.Id).Distinct().Count() != Ideas.Count || (Profile != null && Profile.UserId != owner))
+            throw new InvalidDataException("日历附加数据的账号不匹配。");
+    }
+}
+
+public static class CalendarProjection
+{
+    public static DateTime Now => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;
+    public static (DateTime Start, DateTime End)? Segment(EventData item, DateTime day, TimeSpan workStart, TimeSpan workEnd)
+    {
+        day = day.Date;
+        var from = item.Local(item.StartAt) > day ? item.Local(item.StartAt) : day;
+        var until = item.Local(item.EndAt) < day.AddDays(1) ? item.Local(item.EndAt) : day.AddDays(1);
+        if(item.WorkdayOnly) { from = from > day.Add(workStart) ? from : day.Add(workStart); until = until < day.Add(workEnd) ? until : day.Add(workEnd); }
+        return until > from ? (from, until) : null;
     }
 }
 

@@ -106,14 +106,14 @@ public partial class MainWindow
     {
         var api=repository.Api??throw new ApiFailure(401,"请先登录。");string scope=api.Server.AbsoluteUri+repository.Current?.UserId;
         if(profile!=null&&profileScope==scope)return;profile=null;
-        var result=await api.GetAsync<ProfileData>("api/mobile/v1/profile");if(repository.Api!=api||repository.Current?.UserId!=result.UserId)return;profile=result;profileScope=scope;
+        var result=await api.GetAsync<ProfileData>("api/mobile/v1/profile");if(repository.Api!=api||repository.Current?.UserId!=result.UserId)return;profile=result;profileScope=scope;repository.SetProfile(result);
     }
     void ShowWorkdaySettings(StackPanel body)
     {
         body.Children.Add(Text("默认工作时段",19));body.Children.Add(Text("只选日期的新日程使用该起止时刻；已有日程不受影响。格式 HH:mm，同一天内结束须晚于开始。",13,"#64748B",new(0,10,0,18)));
         if(profile==null||profileScope!=repository.Api?.Server.AbsoluteUri+repository.Current?.UserId){var message=Text("正在读取…",14);body.Children.Add(message);if(!repository.Online){message.Text="连接后可设置工作时段。";return;}Run(async()=>{try{await LoadProfileAsync();if(page=="settings")ShowSettings();}catch(Exception e)when(WorkspaceRepository.Expected(e)){message.Text=WorkspaceRepository.Explain(e);body.Children.Add(Button("重新读取",ShowSettings));}});return;}
         body.Children.Add(Text("开始时间"));var start=new TextBox{Text=profile.WorkdayStart,MaxLength=5};body.Children.Add(start);body.Children.Add(Text("结束时间"));var end=new TextBox{Text=profile.WorkdayEnd,MaxLength=5};body.Children.Add(end);var feedback=Text("",13);body.Children.Add(feedback);
-        var save=Button("保存工作时段",()=>Run(async()=>{try{profile=await repository.Api!.WriteAsync<ProfileData>(HttpMethod.Put,"api/mobile/v1/profile",new{display_name=profile.EffectiveName,workday_start=start.Text.Trim(),workday_end=end.Text.Trim()});feedback.Text=profile.WorkdayStart==start.Text.Trim()&&profile.WorkdayEnd==end.Text.Trim()?"已同步；下次新增日程生效。":"服务器未保存该时段，请更新服务端后重试。";}catch(Exception e)when(WorkspaceRepository.Expected(e)){feedback.Text=WorkspaceRepository.Explain(e);}}));save.IsEnabled=repository.Online;save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);
+        var save=Button("保存工作时段",()=>Run(async()=>{try{profile=await repository.Api!.WriteAsync<ProfileData>(HttpMethod.Put,"api/mobile/v1/profile",new{display_name=profile.EffectiveName,workday_start=start.Text.Trim(),workday_end=end.Text.Trim()});repository.SetProfile(profile);feedback.Text=profile.WorkdayStart==start.Text.Trim()&&profile.WorkdayEnd==end.Text.Trim()?"已同步；下次新增日程生效。":"服务器未保存该时段，请更新服务端后重试。";}catch(Exception e)when(WorkspaceRepository.Expected(e)){feedback.Text=WorkspaceRepository.Explain(e);}}));save.IsEnabled=repository.Online;save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);
     }
     void ShowProfileSettings(StackPanel body)
     {
@@ -124,6 +124,6 @@ public partial class MainWindow
         if(profile==null){var loading=Text(repository.Online?"正在获取账号信息…":"连接后可查看和修改账号信息。",14,"#64748B");body.Children.Add(loading);if(!repository.Online)return;var api=repository.Api;Run(async()=>{try{var result=await api!.GetAsync<ProfileData>("api/mobile/v1/profile");if(repository.Api!=api||repository.Current?.UserId!=result.UserId)return;profile=result;if(page=="settings")ShowSettings();}catch(Exception failure)when(WorkspaceRepository.Expected(failure)){loading.Text=WorkspaceRepository.Explain(failure);if(page=="settings")body.Children.Add(Button("重新加载账号信息",ShowSettings));}});return;}
         body.Children.Add(Text("邮箱（不可修改）",12,"#8492A6"));body.Children.Add(Text(profile.Email??"未绑定邮箱",14,margin:new(0,6,0,18)));
         body.Children.Add(Text("公开显示的用户名"));var name=new TextBox{Text=profile.EffectiveName,MaxLength=40};body.Children.Add(name);if(string.IsNullOrWhiteSpace(profile.DisplayName))body.Children.Add(Text("账号尚未设置昵称，已填入默认用户名；保存后同步。",12,"#64748B"));body.Children.Add(Button("重新读取账号资料",()=>{profile=null;ShowSettings();}));
-        var save=Button("保存用户名",()=>Run(async()=>{profile=await repository.Api!.WriteAsync<ProfileData>(HttpMethod.Put,"api/mobile/v1/profile",new{display_name=name.Text.Trim()});status.Text="用户名已同步，广场将显示新名称。";}));save.IsEnabled=repository.Online;body.Children.Add(save);
+        var save=Button("保存用户名",()=>Run(async()=>{profile=await repository.Api!.WriteAsync<ProfileData>(HttpMethod.Put,"api/mobile/v1/profile",new{display_name=name.Text.Trim()});repository.SetProfile(profile);status.Text="用户名已同步，广场将显示新名称。";}));save.IsEnabled=repository.Online;body.Children.Add(save);
     }
 }

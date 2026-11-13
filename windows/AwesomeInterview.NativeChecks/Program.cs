@@ -46,6 +46,64 @@ using (var api = new NativeApi("https://example.test/",new Reply("{}","applicati
 try { using var api = new NativeApi("http://example.com/"); throw new Exception("HTTP accepted"); } catch(ArgumentException) { Check(true,"credentials require TLS outside localhost"); }
 using(var api=new NativeApi("https://example.test/",new Reply("{\"detail\":{\"conflicts\":[\"existing task\"]}}","application/json",HttpStatusCode.Conflict)))
     try { await api.GetAsync<EventData>("api/mobile/v1/events");throw new Exception("conflict ignored"); } catch(ApiFailure e) { Check(e.Status==409&&e.ConflictTitles.Single()=="existing task","conflict titles available for native confirmation"); }
+
+var workEvent=snapshot.Events[0] with { WorkdayOnly=true,SkipWeekends=false,StartAt=DateTimeOffset.Parse("2026-11-05T10:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-07T12:00:00+08:00") };
+Check(CalendarProjection.Segment(workEvent,new(2026,11,6),new(9,30,0),new(17,30,0))==(new DateTime(2026,11,6,9,30,0),new DateTime(2026,11,6,17,30,0)),"cross-day clipping uses personal work hours");
+Check(CalendarProjection.Segment(workEvent,new(2026,11,5),TimeSpan.FromHours(8),TimeSpan.FromHours(18))!.Value.Start.Hour==10,"first day preserves actual start inside work hours");
+Check(CalendarProjection.Segment(workEvent with{EndAt=DateTimeOffset.Parse("2026-11-07T07:00:00+08:00")},new(2026,11,7),TimeSpan.FromHours(8),TimeSpan.FromHours(18))==null,"empty work-hour intersection occupies no slot");
+
+var repoDir=Path.Combine(Path.GetTempPath(),"awesome-repo-checks-"+Guid.NewGuid());
+var repoCache=new AccountCache(repoDir);
+var noteFixture=new ExperienceData{Id="note",OwnerId="a",Title="fixture",Questions=new()};
+var initialState=snapshot with{Experiences=new(){noteFixture},Profile=profileContract};
+await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+await repoCache.SaveSnapshotAsync("https://example.test/",initialState);
+var paths=new List<string>();int writes=0;
+var transport=new Routing(async request=>{
+    string path=request.RequestUri!.AbsolutePath;paths.Add(path);
+    if(path.EndsWith("/session"))return Json(new SessionInfo("a","fixture"));
+    if(path.EndsWith("/snapshot"))return Json(initialState);
+    if(path.EndsWith("/calendar"))return Json(new CalendarState(1,"a",DateTimeOffset.UtcNow,new(){workEvent},new(),new(),profileContract));
+    if(path.EndsWith("/events")&&request.Method==HttpMethod.Post){writes++;return Json(workEvent with{Title="saved"});}
+    if(path.Contains("/completion"))return Json(workEvent with{CompletedAt=DateTimeOffset.UtcNow});
+    await Task.Yield();return new(HttpStatusCode.NoContent);
+});
+try {
+    using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,transport))){
+        await repo.RestoreAsync();Check(repo.Online&&repo.Current!.Profile!.EffectiveName=="自定义昵称","restored snapshot carries account preferences");
+        var before=paths.Count;var saved=await repo.SaveEventAsync(new{title="fixture"});
+        Check(writes==1&&paths.Count==before+1&&repo.Current!.Events.Single().Title=="saved","successful write patches immediately with exactly one HTTP call");
+        await repo.RefreshCalendarAsync();
+        Check(repo.Current!.Experiences.Single().Id=="note"&&repo.Current.Events.Single().WorkdayOnly,"calendar-only refresh preserves note resources and updates display rules");
+        await repo.FlushCacheAsync();
+        Check((await repoCache.ReadSnapshotAsync("https://example.test/","a"))!.Events.Single().WorkdayOnly,"ordered encrypted persistence retains latest resource state");
+        await repo.LogoutAsync();Check(await repoCache.ReadConnectionAsync()==null,"logout waits for persistence then clears identity");
+    }
+    await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+    await repoCache.SaveSnapshotAsync("https://example.test/",snapshot);
+    var badFile=Directory.GetFiles(repoDir).Single(f=>!f.EndsWith("connection.bin"));await File.WriteAllTextAsync(badFile,"corrupt");
+    using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,new Reply("{}","application/json",HttpStatusCode.ServiceUnavailable)))){
+        await repo.RestoreAsync();Check(!repo.Online&&repo.Current==null,"corrupt snapshot and unreachable backend handled without crash");
+        await repo.LogoutAsync();Check(await repoCache.ReadConnectionAsync()==null&&!File.Exists(badFile),"corrupt snapshot does not prevent clearing saved identity");
+    }
+    await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+    await repoCache.SaveSnapshotAsync("https://example.test/",snapshot with{ServerTime=DateTimeOffset.UtcNow});
+    var freshPaths=new List<string>();
+    using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,new Routing(request=>{freshPaths.Add(request.RequestUri!.AbsolutePath);return Task.FromResult(Json(new SessionInfo("a","fixture")));})))){
+        await repo.RestoreAsync();Check(repo.Online&&freshPaths.SequenceEqual(new[]{"/api/mobile/v1/session"}),"fresh 18-hour cache validates session without reloading calendar dates or snapshot");
+        await repo.LogoutAsync();
+    }
+    await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+    await repoCache.SaveSnapshotAsync("https://example.test/",snapshot);
+    var wrongIdentity=new Routing(request=>Task.FromResult(Json(new SessionInfo("b","fixture"))));
+    using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,wrongIdentity))){
+        await repo.RestoreAsync();Check(!repo.Online&&repo.Current!.UserId=="a","unexpected session account never replaces the displayed owner snapshot");
+        await repo.LogoutAsync();
+    }
+} finally {foreach(var file in Directory.GetFiles(repoDir))File.Delete(file);Directory.Delete(repoDir);}
+static HttpResponseMessage Json<T>(T value)=>new(HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(value,Wire.Json),Encoding.UTF8,"application/json")};
+
+
 // Optional real-server read-only acceptance. No credentials or response bodies are printed or saved.
 var server = Environment.GetEnvironmentVariable("AWESOME_TEST_SERVER"); var cookie = Environment.GetEnvironmentVariable("AWESOME_TEST_COOKIE");
 if (server != null && cookie != null) {
@@ -57,4 +115,8 @@ Console.WriteLine($"{passed} checks passed.");
 
 sealed class Reply(string body,string type,HttpStatusCode code) : HttpMessageHandler {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation) => Task.FromResult(new HttpResponseMessage(code) { Content = new StringContent(body,Encoding.UTF8,type) });
+}
+
+sealed class Routing(Func<HttpRequestMessage,Task<HttpResponseMessage>> callback) : HttpMessageHandler {
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken cancellation)=>callback(request);
 }

@@ -48,13 +48,15 @@ public partial class MainWindow
         var controls=new WrapPanel{Margin=new(0,0,0,14)};
         foreach(var (key,caption) in new[]{("day","日视图"),("week","周视图"),("month","月视图")})
         {var b=Button(caption,()=>{calendarView=key;ShowCalendar();});if(key==calendarView){b.Background=Brush("#E9F0FF");b.Foreground=Brush("#2357CE");}controls.Children.Add(b);}
+        controls.Children.Add(Button("待安排 · "+(repository.Current?.Ideas.Count(i=>i.Status=="pending"&&i.ArrangedEventId==null)??0),()=>Navigate(()=>ShowIdeas())));
+        controls.Children.Add(Button("刷新日历",()=>Run(repository.RefreshCalendarAsync)));
         controls.Children.Add(Button(focusCurrentTime?"查看24小时概览":"聚焦当前时间",()=>{focusCurrentTime=!focusCurrentTime;ShowCalendar();}));content.Children.Add(controls);
         var datebar=new Grid{Margin=new(0,0,0,16)};
         datebar.ColumnDefinitions.Add(new(){Width=new(44)});datebar.ColumnDefinitions.Add(new());datebar.ColumnDefinitions.Add(new(){Width=GridLength.Auto});datebar.ColumnDefinitions.Add(new(){Width=new(44)});
         void Shift(int direction){selected=calendarView=="month"?selected.AddMonths(direction):selected.AddDays(direction*(calendarView=="week"?7:1));ShowCalendar();}
         Button Arrow(string glyph,string name,Action action){var button=Button("",action);button.Content=new TextBlock{Text=glyph,FontFamily=new("Segoe MDL2 Assets"),FontSize=16};button.Padding=new(8);button.Margin=new(0);System.Windows.Automation.AutomationProperties.SetName(button,name);return button;}
         datebar.Children.Add(Arrow("\uE76B","上一日期",()=>Shift(-1)));var next=Arrow("\uE76C","下一日期",()=>Shift(1));Grid.SetColumn(next,3);datebar.Children.Add(next);
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=DateTime.Today;ShowCalendar();}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=CalendarProjection.Now.Date;ShowCalendar();}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
         var first=calendarView=="week"?selected.Date.AddDays(-(((int)selected.DayOfWeek+6)%7)):selected.Date;
         var label=Text(calendarView=="month"?selected.ToString("yyyy年M月"):calendarView=="week"?$"{first:yyyy-MM-dd} — {first.AddDays(6):MM-dd}":selected.ToString("yyyy-MM-dd dddd"),19);
         label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0,0,0,12);content.Children.Add(label);content.Children.Add(datebar);
@@ -71,7 +73,7 @@ public partial class MainWindow
         for(int c=0;c<7;c++){var title=Text(new[]{"周一","周二","周三","周四","周五","周六","周日"}[c],12,"#64748B");title.HorizontalAlignment=HorizontalAlignment.Center;Grid.SetColumn(title,c);grid.Children.Add(title);}
         for(int i=0;i<42;i++)
         {
-            var day=first.AddDays(i);var body=new StackPanel{Margin=new(5)};var date=Button(day.Day.ToString(),()=>{selected=day;calendarView="day";ShowCalendar();});date.Padding=new(6,3,6,3);date.MinHeight=26;date.HorizontalAlignment=HorizontalAlignment.Left;date.Margin=new(0,0,0,4);date.BorderThickness=new(0);date.Background=day==DateTime.Today?Brush("#285DDD"):Brushes.Transparent;date.Foreground=day==DateTime.Today?Brushes.White:Brush(day.Month==selected.Month?"#192C46":"#94A0B2");body.Children.Add(date);
+            var day=first.AddDays(i);var body=new StackPanel{Margin=new(5)};var date=Button(day.Day.ToString(),()=>{selected=day;calendarView="day";ShowCalendar();});date.Padding=new(6,3,6,3);date.MinHeight=26;date.HorizontalAlignment=HorizontalAlignment.Left;date.Margin=new(0,0,0,4);date.BorderThickness=new(0);date.Background=day==CalendarProjection.Now.Date?Brush("#285DDD"):Brushes.Transparent;date.Foreground=day==CalendarProjection.Now.Date?Brushes.White:Brush(day.Month==selected.Month?"#192C46":"#94A0B2");body.Children.Add(date);
             foreach(var item in EventsFor(day).Where(e=>!hideCompleted||e.CompletedAt==null))
             {
                 string text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":"");
@@ -94,13 +96,13 @@ public partial class MainWindow
         for(int c=0;c<days;c++)
         {
             var day=first.AddDays(c);var column=new DockPanel();Grid.SetColumn(column,c+1);grid.Children.Add(column);
-            var title=Text(day.ToString("ddd M/d"),12,day==DateTime.Today?"#285DDD":"#64748B",new(4,8,4,8));title.HorizontalAlignment=HorizontalAlignment.Center;DockPanel.SetDock(title,Dock.Top);column.Children.Add(title);
+            var title=Text(day.ToString("ddd M/d"),12,day==CalendarProjection.Now.Date?"#285DDD":"#64748B",new(4,8,4,8));title.HorizontalAlignment=HorizontalAlignment.Center;DockPanel.SetDock(title,Dock.Top);column.Children.Add(title);
             var canvas=new Canvas{Height=timelineHeight,ClipToBounds=true,Background=Brushes.White};column.Children.Add(canvas);
             for(int h=0;h<=span;h++){var line=new Border{Height=1,Background=Brush("#EBEFF6")};Canvas.SetTop(line,h*timelineHeight/span);canvas.Children.Add(line);line.SetBinding(WidthProperty,new System.Windows.Data.Binding("ActualWidth"){Source=canvas});}
             var items=EventsFor(day).Where(e=>!hideCompleted||e.CompletedAt==null).ToList();
             // Recalculate lanes from visible entries, so hidden completed events never leave empty columns.
             var laneEnds=new List<DateTime>();var placed=new List<(EventData Item,int Lane,DateTime Start,DateTime End)>();
-            foreach(var item in items){var from=item.Local(item.StartAt)<day?day:item.Local(item.StartAt);var to=item.Local(item.EndAt)>day.AddDays(1)?day.AddDays(1):item.Local(item.EndAt);int lane=laneEnds.FindIndex(e=>e<=from);if(lane<0){lane=laneEnds.Count;laneEnds.Add(to);}else laneEnds[lane]=to;placed.Add((item,lane,from,to));}
+            foreach(var item in items){var segment=CalendarProjection.Segment(item,day,WorkTime(false),WorkTime(true));if(segment==null)continue;var (from,to)=segment.Value;int lane=laneEnds.FindIndex(e=>e<=from);if(lane<0){lane=laneEnds.Count;laneEnds.Add(to);}else laneEnds[lane]=to;placed.Add((item,lane,from,to));}
             void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(item.Local(item.StartAt).Date<day?"‹ ":"")+item.Title+(item.Local(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,FontWeight=FontWeights.Medium};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Stretch;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(30,(row.End-row.Start).TotalHours*timelineHeight/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=16;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*timelineHeight/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}refreshTitles();}
             canvas.SizeChanged+=(_,_)=>Layout();refreshLayout.Add(Layout);
         }
@@ -131,32 +133,43 @@ public partial class MainWindow
 
     void ShowAdd()=>Run(async()=>{if(repository.Online){try{await LoadProfileAsync();}catch(Exception e)when(WorkspaceRepository.Expected(e)){status.Text=WorkspaceRepository.Explain(e);}}ShowEditor(null);});
     TimeSpan WorkTime(bool end)=>TimeSpan.TryParse(end?profile?.WorkdayEnd:profile?.WorkdayStart,out var value)?value:TimeSpan.FromHours(end?18:8);
-    void ShowEditor(EventData? existing)
+    void ShowEditor(EventData? existing, IdeaData? source = null)
     {
-        page="editor";bSelect("添加日程");Begin(existing==null?"添加日程":"编辑日程","时间、地点与参考资料，一次整理清楚");if(NeedAccount())return;
+        page="editor";bSelect("添加日程");Begin(existing==null?"添加日程":"编辑日程",source==null?"时间、地点与参考资料，一次整理清楚":"由待安排事项创建；取消不会修改原事项");if(NeedAccount())return;
         if(!repository.Online){Paragraph("离线状态不能新增或编辑，请先同步连接。");return;}
-        if(existing?.RepeatWeekdays.Count>0){Paragraph("重复日程的整组编辑规则仍待适配，请暂时在 Web 中修改。单日完成与恢复已支持。");return;}
-        var fields=new StackPanel{MaxWidth=800,HorizontalAlignment=HorizontalAlignment.Stretch};
-        var types=new[]{"personal","interview","meeting","exam","course","recruiting"};var type=new ComboBox{ItemsSource=types.Select(TypeLabel),SelectedIndex=existing==null?0:Array.IndexOf(types,existing.Type),Padding=new(10),Margin=new(0,8,0,18)};
+        var fields=new StackPanel{MaxWidth=900,HorizontalAlignment=HorizontalAlignment.Stretch};
+        var types=new[]{"personal","interview","meeting","exam","course","recruiting"};
+        var type=new ComboBox{ItemsSource=types.Select(TypeLabel),SelectedIndex=existing==null?0:Array.IndexOf(types,existing.Type),Padding=new(10),Margin=new(0,8,0,18)};
         fields.Children.Add(Text("类型"));fields.Children.Add(type);
-        var invitation=new TextBox{AcceptsReturn=true,Height=94,TextWrapping=TextWrapping.Wrap};var invitationBox=new StackPanel();invitationBox.Children.Add(Text("粘贴会议邀请"));invitationBox.Children.Add(invitation);
-        string? raw=null;var title=new TextBox{Text=existing?.Title??"",MaxLength=200};
+        string? raw=null;
+        var title=new TextBox{Text=existing?.Title??source?.Title??"",MaxLength=200};
         var start=new TextBox{Text=(existing?.Local(existing.StartAt)??selected.Date.Add(WorkTime(false))).ToString("yyyy-MM-dd HH:mm")};
         var end=new TextBox{Text=(existing?.Local(existing.EndAt)??selected.Date.Add(WorkTime(true))).ToString("yyyy-MM-dd HH:mm")};
-        var location=new TextBox{Text=existing?.LocationText??""};var note=new TextBox{Text=existing?.Note??"",Height=100,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap};
-        foreach(var pair in new[]{(title,"事件标题"),(start,"开始时间 yyyy-MM-dd HH:mm"),(end,"结束时间 yyyy-MM-dd HH:mm"),(location,"地点"),(note,"备注"),(invitation,"会议邀请原文")})System.Windows.Automation.AutomationProperties.SetName(pair.Item1,pair.Item2);
-        invitationBox.Children.Add(Button("解析并填入",()=>Run(async()=>{var parsed=await repository.Api!.WriteAsync<EventData>(HttpMethod.Post,"api/mobile/v1/events/parse",new{raw_text=invitation.Text});raw=invitation.Text;title.Text=parsed.Title;start.Text=parsed.Local(parsed.StartAt).ToString("yyyy-MM-dd HH:mm");end.Text=parsed.Local(parsed.EndAt).ToString("yyyy-MM-dd HH:mm");formDirty=true;})));
-        fields.Children.Add(invitationBox);void UpdateInvitationVisibility(){invitationBox.Visibility=existing==null&&type.SelectedIndex is 1 or 2?Visibility.Visible:Visibility.Collapsed;}UpdateInvitationVisibility();type.SelectionChanged+=(_,_)=>{UpdateInvitationVisibility();formDirty=true;};
-        fields.Children.Add(Text("标题"));fields.Children.Add(title);
-        var skip=new CheckBox{Content="任务跳过周末",IsChecked=existing?.SkipWeekends??selected.DayOfWeek is not(DayOfWeek.Saturday or DayOfWeek.Sunday),Margin=new(0,0,0,20)};
+        var location=new TextBox{Text=existing?.LocationText??""};var map=new TextBox{Text=existing?.LocationUrl??""};
+        var position=new TextBox{Text=existing?.Position??""};
+        var note=new TextBox{Text=existing?.Note??source?.Note??"",Height=100,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap};
+        var invitation=new TextBox{AcceptsReturn=true,Height=94,TextWrapping=TextWrapping.Wrap};
+        var invitationBox=new StackPanel();invitationBox.Children.Add(Text("粘贴会议邀请"));invitationBox.Children.Add(invitation);
+        invitationBox.Children.Add(Button("解析并填入",()=>Run(async()=>{
+            var parsed=await repository.Api!.WriteAsync<EventData>(HttpMethod.Post,"api/mobile/v1/events/parse",new{raw_text=invitation.Text});
+            raw=invitation.Text;title.Text=parsed.Title;start.Text=parsed.Local(parsed.StartAt).ToString("yyyy-MM-dd HH:mm");end.Text=parsed.Local(parsed.EndAt).ToString("yyyy-MM-dd HH:mm");formDirty=true;
+        })));
+        fields.Children.Add(invitationBox);
+        var positionBox=new StackPanel();positionBox.Children.Add(Text("应聘岗位"));positionBox.Children.Add(position);
+        void TypeVisibility(){invitationBox.Visibility=existing==null&&source==null&&type.SelectedIndex is 1 or 2?Visibility.Visible:Visibility.Collapsed;positionBox.Visibility=type.SelectedIndex==1?Visibility.Visible:Visibility.Collapsed;}
+        TypeVisibility();type.SelectionChanged+=(_,_)=>{TypeVisibility();formDirty=true;};
+        fields.Children.Add(Text("标题"));fields.Children.Add(title);fields.Children.Add(positionBox);
+        var skip=new CheckBox{Content="任务跳过周末",IsChecked=existing?.SkipWeekends??selected.DayOfWeek is not(DayOfWeek.Saturday or DayOfWeek.Sunday),VerticalAlignment=VerticalAlignment.Center};
+        var workOnly=new CheckBox{Content="仅在默认工作时段显示",IsChecked=existing?.WorkdayOnly??false,Margin=new(0,0,0,14)};
         bool ValidTime(string text,out DateTime value)=>DateTime.TryParseExact(text,"yyyy-MM-dd HH:mm",CultureInfo.InvariantCulture,DateTimeStyles.None,out value);
-        void SyncWeekend(){if(ValidTime(start.Text,out var value)){bool weekend=value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend;if(weekend)skip.IsChecked=false;}}
+        var weekdays=Enumerable.Range(0,7).Select(i=>new CheckBox{Content=new[]{"周一","周二","周三","周四","周五","周六","周日"}[i],IsChecked=existing?.RepeatWeekdays.Contains(i)??false,Margin=new(0,5,14,5)}).ToArray();
+        void SyncWeekend(){if(ValidTime(start.Text,out var value)){bool weekend=value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;skip.IsEnabled=!weekend&&!weekdays.Any(d=>d.IsChecked==true);if(!skip.IsEnabled)skip.IsChecked=false;}}
         string previousStart=start.Text;
         UIElement TimeInput(TextBox input,bool isEnd)
         {
             var row=new DockPanel();var choose=Button("选择",()=>{
                 if(!ValidTime(input.Text,out var initial))initial=selected.Date.Add(WorkTime(isEnd));
-                var choice=PickScheduleTime(isEnd?"结束时间":"开始时间",initial,isEnd,existing?.Timezone??"Asia/Shanghai");
+                var choice=PickScheduleTime(isEnd?"结束时间":"开始时间",initial,isEnd,existing?.Timezone??"Asia/Shanghai",existing!=null);
                 if(choice is not ScheduleTimeChoice picked)return;
                 input.Text=picked.Value.ToString("yyyy-MM-dd HH:mm");
                 if(!isEnd){if(existing==null)end.Text=ScheduleTime.SuggestedEnd(picked,WorkTime(true)).ToString("yyyy-MM-dd HH:mm");previousStart=start.Text;SyncWeekend();}
@@ -164,21 +177,44 @@ public partial class MainWindow
             });choose.Padding=new(10,8,10,8);choose.Margin=new(8,8,0,20);System.Windows.Automation.AutomationProperties.SetName(choose,isEnd?"选择结束日期和时间":"选择开始日期和时间");DockPanel.SetDock(choose,Dock.Right);row.Children.Add(choose);row.Children.Add(input);return row;
         }
         var times=new Grid();times.ColumnDefinitions.Add(new());times.ColumnDefinitions.Add(new(){Width=new(18)});times.ColumnDefinitions.Add(new());
-        var a=new StackPanel();a.Children.Add(Text("开始时间"));a.Children.Add(TimeInput(start,false));times.Children.Add(a);var b=new StackPanel();b.Children.Add(Text("结束时间"));b.Children.Add(TimeInput(end,true));Grid.SetColumn(b,2);times.Children.Add(b);fields.Children.Add(times);fields.Children.Add(skip);SyncWeekend();
+        var a=new StackPanel();a.Children.Add(Text("开始时间"));a.Children.Add(TimeInput(start,false));times.Children.Add(a);var b=new StackPanel();b.Children.Add(Text("结束时间"));b.Children.Add(TimeInput(end,true));Grid.SetColumn(b,2);times.Children.Add(b);fields.Children.Add(times);
+        var dateHint=new DockPanel{Margin=new(0,0,0,18)};DockPanel.SetDock(skip,Dock.Right);dateHint.Children.Add(skip);
+        dateHint.Children.Add(Text($"只选日期使用 {WorkTime(false):hh\\:mm}–{WorkTime(true):hh\\:mm}；可在个人设置中修改。",12,"#64748B"));fields.Children.Add(dateHint);
         start.LostFocus+=(_,_)=>{if(ValidTime(start.Text,out var from)){if(existing==null&&start.Text!=previousStart)end.Text=from.AddHours(1).ToString("yyyy-MM-dd HH:mm");SyncWeekend();previousStart=start.Text;}};
-        fields.Children.Add(Text("地点"));fields.Children.Add(location);fields.Children.Add(Text("备注"));fields.Children.Add(note);
-        Paragraph($"只选日期时使用默认工作时段 {WorkTime(false):hh\\:mm}–{WorkTime(true):hh\\:mm}；也可指定时分或使用当前时间。默认时段可在日程偏好中修改。");
-        foreach(var input in new[]{title,start,end,location,note,invitation})input.TextChanged+=(_,_)=>formDirty=true;skip.Click+=(_,_)=>formDirty=true;
+        fields.Children.Add(workOnly);
+        var recurring=new WrapPanel();foreach(var weekday in weekdays){recurring.Children.Add(weekday);weekday.Click+=(_,_)=>{SyncWeekend();formDirty=true;};}
+        fields.Children.Add(new Expander{Header=existing?.RepeatWeekdays.Count>0?"重复任务 · 编辑整个系列":"重复任务（可选）",Content=recurring,IsExpanded=existing?.RepeatWeekdays.Count>0,Margin=new(0,0,0,18)});
+        var reminders=new WrapPanel();var offsets=new[]{10,60,1440};var checks=offsets.Select(x=>new CheckBox{Content=x==10?"提前10分钟":x==60?"提前1小时":"提前1天",IsChecked=existing?.ReminderOffsetsMinutes.Contains(x)??false,Margin=new(0,8,18,8)}).ToArray();foreach(var check in checks){reminders.Children.Add(check);check.Click+=(_,_)=>formDirty=true;}
+        fields.Children.Add(new Expander{Header="系统提醒（默认关闭）",Content=reminders,IsExpanded=existing?.ReminderOffsetsMinutes.Count>0,Margin=new(0,0,0,18)});
+        fields.Children.Add(Text("提醒设置会与服务端同步；此预览版的 Windows 通知送达尚待适配。",12,"#64748B",new(0,0,0,18)));
+        fields.Children.Add(Text("地点"));fields.Children.Add(location);fields.Children.Add(Text("地图链接（可选）"));fields.Children.Add(map);
+        var links=new ReferenceEditor(existing?.ReferenceLinks??source?.ReferenceLinks??new(),()=>formDirty=true);
+        fields.Children.Add(new Expander{Header="参考资料（可选，最多20条）",Content=links,IsExpanded=links.HasLinks,Margin=new(0,0,0,18)});
+        fields.Children.Add(Text("备注"));fields.Children.Add(note);
+        foreach(var pair in new[]{(title,"事件标题"),(start,"开始时间"),(end,"结束时间"),(location,"地点"),(map,"地图链接"),(position,"应聘岗位"),(note,"备注"),(invitation,"会议邀请原文")}){System.Windows.Automation.AutomationProperties.SetName(pair.Item1,pair.Item2);pair.Item1.TextChanged+=(_,_)=>formDirty=true;}
+        skip.Click+=(_,_)=>formDirty=true;workOnly.Click+=(_,_)=>formDirty=true;SyncWeekend();
         var error=Text("",14,"#B42332");fields.Children.Add(error);Button? save=null;
         save=Button("保存日程",()=>Run(async()=>{
             if(string.IsNullOrWhiteSpace(title.Text)||!ValidTime(start.Text,out var from)||!ValidTime(end.Text,out var to)||to<=from){error.Text="请填写标题和有效的起止时间，格式为 yyyy-MM-dd HH:mm。";return;}
             if(type.SelectedIndex<0){error.Text="请选择事件类型。";return;}save!.IsEnabled=false;
-            try{var zone=TimeZoneInfo.FindSystemTimeZoneById(existing?.Timezone??"Asia/Shanghai");object Payload(bool confirm)=>new {title=title.Text.Trim(),event_type=types[type.SelectedIndex],start_at=new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(from,DateTimeKind.Unspecified),zone)),end_at=new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(to,DateTimeKind.Unspecified),zone)),timezone=zone.Id,location_text=location.Text,note=note.Text,skip_weekends=skip.IsChecked==true,reference_links=existing?.ReferenceLinks??new List<ReferenceLink>(),location_url=existing?.LocationUrl,position=existing?.Position,reminder_offsets_minutes=existing?.ReminderOffsetsMinutes??new List<int>(),raw_invitation=raw,confirm_overlap=confirm};
-                try{await repository.SaveEventAsync(Payload(false),existing?.Id);}catch(ApiFailure failure) when(failure.Status==409){if(!Confirm("时间冲突","这段时间与已有日程重叠：\n"+string.Join("\n",failure.ConflictTitles),"仍然保存","返回修改"))return;await repository.SaveEventAsync(Payload(true),existing?.Id);}
+            try{
+                var references=links.Read();if(!string.IsNullOrWhiteSpace(map.Text))ReferenceEditor.ValidateUrl(map.Text.Trim());
+                var repeat=weekdays.Select((d,i)=>(d,i)).Where(p=>p.d.IsChecked==true).Select(p=>p.i).ToArray();
+                if(repeat.Length>0&&from.Date!=to.Date){error.Text="重复任务起止时刻必须在同一天。";return;}
+                var zone=TimeZoneInfo.FindSystemTimeZoneById(existing?.Timezone??"Asia/Shanghai");
+                object Payload(bool confirm)=>new {title=title.Text.Trim(),event_type=types[type.SelectedIndex],
+                    start_at=new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(from,DateTimeKind.Unspecified),zone)),end_at=new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(to,DateTimeKind.Unspecified),zone)),
+                    timezone=zone.Id,location_text=location.Text,note=note.Text,skip_weekends=skip.IsChecked==true,workday_only=workOnly.IsChecked==true,repeat_weekdays=repeat,reference_links=references,
+                    location_url=string.IsNullOrWhiteSpace(map.Text)?null:map.Text.Trim(),position=type.SelectedIndex==1?position.Text:null,
+                    reminder_offsets_minutes=checks.Select((d,i)=>(d,i)).Where(p=>p.d.IsChecked==true).Select(p=>offsets[p.i]).ToArray(),raw_invitation=type.SelectedIndex is 1 or 2?raw:null,source_idea_id=source?.Id,confirm_overlap=confirm};
+                EventData saved;try{saved=await repository.SaveEventAsync(Payload(false),existing?.Id);}catch(ApiFailure failure)when(failure.Status==409){if(!Confirm("时间冲突","这段时间与已有日程重叠：\n"+string.Join("\n",failure.ConflictTitles),"仍然保存","返回修改"))return;saved=await repository.SaveEventAsync(Payload(true),existing?.Id);}
+                if(source!=null)repository.LinkIdea(source.Id,saved.Id);
                 formDirty=false;selected=from.Date;calendarView="day";ShowCalendar();
-            }catch(Exception failure) when(WorkspaceRepository.Expected(failure)){error.Text=WorkspaceRepository.Explain(failure);}finally{save.IsEnabled=true;}
-        }));fields.Children.Add(save);content.Children.Add(Surface(fields,new(26)));formDirty=false;
+            }catch(Exception failure)when(WorkspaceRepository.Expected(failure)){error.Text=WorkspaceRepository.Explain(failure);}finally{save.IsEnabled=true;}
+        }));fields.Children.Add(save);fields.Children.Add(Button("取消",()=>Navigate(source==null?ShowCalendar:()=>ShowIdeas())));
+        content.Children.Add(Surface(fields,new(26)));formDirty=false;
     }
+
 
     void ShowEventDetail(EventData item)
     {
@@ -190,6 +226,11 @@ public partial class MainWindow
         if(item.ReferenceLinks.Count>0){Field("参考资料","");foreach(var link in item.ReferenceLinks)body.Children.Add(Button(string.IsNullOrWhiteSpace(link.Title)?new Uri(link.Url).Host:link.Title,()=>OpenLink(link.Url)));}
         Field("备注",item.Note);var dialog=new Window{Title="日程详情",Owner=IsVisible?this:portable,Width=620,Height=580,MaxHeight=SystemParameters.WorkArea.Height-60,WindowStartupLocation=WindowStartupLocation.CenterOwner,Content=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto},Background=Brushes.White,FontFamily=FontFamily};
         var edit=Button("编辑日程",()=>{dialog.Close();RestoreMain();Navigate(()=>ShowEditor(item));});edit.IsEnabled=repository.Online&&!item.Id.Contains('~');body.Children.Add(edit);
+        if(item.RepeatWeekdays.Count>0){
+            var series=repository.Current?.Events.FirstOrDefault(e=>e.Id==item.Id.Split('~')[0]);
+            var editSeries=Button("编辑整个重复系列",()=>{if(series!=null&&Confirm("编辑重复系列","修改将应用到整个系列；单日完成记录保留。","继续编辑","取消",dialog)){dialog.Close();Navigate(()=>ShowEditor(series));}});editSeries.IsEnabled=repository.Online;body.Children.Add(editSeries);
+            var closeSeries=Button("结束重复系列",()=>{if(Confirm("结束重复系列","从明天起不再生成任务，历史记录保留。","结束系列","取消",dialog))Run(async()=>{await repository.CloseRepeatAsync(item);dialog.Close();});});closeSeries.IsEnabled=repository.Online;body.Children.Add(closeSeries);
+        }
         if(item.RepeatWeekdays.Count==0){var remove=Button("删除日程",()=>{if(Confirm("删除日程","删除后无法恢复，是否删除这条日程？","删除日程","取消",dialog))Run(async()=>{await repository.DeleteEventAsync(item);dialog.Close();});});remove.Foreground=Brush("#B42332");remove.IsEnabled=repository.Online&&!repository.Busy;body.Children.Add(remove);}
         body.Children.Add(Button("关闭",()=>dialog.Close()));dialog.ShowDialog();
     }

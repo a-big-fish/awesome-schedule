@@ -20,7 +20,7 @@ public partial class MainWindow
     Window? portable;
     StackPanel? portableContent;
     readonly DispatcherTimer dayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
-    DateTime portableDay = DateTime.Today;
+    DateTime portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
     bool exiting, formDirty;
     string PreferencesPath => Path.Combine(Path.GetDirectoryName(dataPath)!, "desktop-settings.json");
 
@@ -44,7 +44,7 @@ public partial class MainWindow
             if (!exiting && preferences.CloseToTray) {
                 args.Cancel = true;
                 if (!preferences.TrayHintShown) {
-                    Confirm("关闭到系统托盘","关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。","知道了","返回");
+                    if(!Confirm("关闭到系统托盘","关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。","知道了","返回"))return;
                     preferences = preferences with { TrayHintShown = true }; SavePreferences();
                 }
                 Hide();
@@ -52,7 +52,7 @@ public partial class MainWindow
         };
         Closed += (_, _) => { exiting = true; dayTimer.Stop(); portable?.Close(); tray?.Dispose(); System.Windows.Application.Current.Shutdown(); };
         dayTimer.Tick += (_, _) => {
-            if (portableDay != DateTime.Today) { portableDay = DateTime.Today; RefreshPortable(); if(page=="today"&&!formDirty)ShowTasks(false); }
+            if (portableDay != AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date) { portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date; RefreshPortable(); if(page=="today"&&!formDirty)ShowTasks(false); }
             if(repository.Online&&!repository.Busy&&repository.Current!=null&&DateTimeOffset.UtcNow-repository.Current.ServerTime>TimeSpan.FromHours(18))Run(repository.SynchronizeAsync);
         };
         dayTimer.Start();
@@ -101,11 +101,11 @@ public partial class MainWindow
     void RefreshPortable()
     {
         if (portableContent == null) return;
-        ProjectTasks(DateTime.Today);
+        ProjectTasks(AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date);
         portableContent.Children.Clear();
-        portableContent.Children.Add(new TextBlock { Text = $"{DateTime.Today:MM月dd日 dddd}", FontSize = 24, FontWeight = FontWeights.SemiBold });
+        portableContent.Children.Add(new TextBlock { Text = $"{AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date:MM月dd日 dddd}", FontSize = 24, FontWeight = FontWeights.SemiBold });
         portableContent.Children.Add(new TextBlock { Text = repository.Online ? "与账号同步" : "缓存只读 · 连接后可完成或恢复", Foreground = Brushes.SlateGray, Margin = new Thickness(0,8,0,16) });
-        var dayTasks = tasks.Where(t => t.Day.Date == DateTime.Today).ToList();
+        var dayTasks = tasks.Where(t => t.Day.Date == AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date).ToList();
         var timeline = new Canvas { Height = 960, Background = Brushes.White, Margin = new Thickness(0,8,0,16) };
         for (int hour=0; hour<24; hour++) {
             var label = new TextBlock { Text = $"{hour:00}:00", Foreground = Brushes.SlateGray, FontSize = 12 };
@@ -152,7 +152,7 @@ public partial class MainWindow
             body.Children.Add(Text("桌面行为",19,margin:new(0,0,0,20)));var keep=new CheckBox{Content="关闭窗口后保留在系统托盘",IsChecked=preferences.CloseToTray,Margin=new(0,8,0,18)};body.Children.Add(keep);var feedback=Text("",13);body.Children.Add(feedback);
             var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
         }else if(settingsCategory=="日程偏好")ShowWorkdaySettings(body);
-        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.4.3-W · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
+        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.5.0-W · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
         content.Children.Add(Surface(layout,new(26)));
     }
 }

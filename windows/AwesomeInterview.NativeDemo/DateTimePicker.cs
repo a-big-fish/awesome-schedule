@@ -6,9 +6,9 @@ using AwesomeInterview.NativeDemo.Data;
 namespace AwesomeInterview.NativeDemo;
 public partial class MainWindow
 {
-    ScheduleTimeChoice? PickScheduleTime(string caption,DateTime initial,bool end,string timezone)
+    ScheduleTimeChoice? PickScheduleTime(string caption,DateTime initial,bool end,string timezone,bool preciseInitially=false)
     {
-        ScheduleTimeChoice? result=null;bool precise=false;
+        ScheduleTimeChoice? result=null;bool precise=preciseInitially;
         var window=new Window{Title=caption,Owner=this,Width=440,SizeToContent=SizeToContent.Height,MaxHeight=SystemParameters.WorkArea.Height-48,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Background=Brush("#F6F8FC"),FontFamily=FontFamily};
         var body=new StackPanel{Margin=new(24)};body.Children.Add(Text(caption,21));
         var step=Text("选择日期",13,"#64748B",new(0,8,0,16));body.Children.Add(step);
@@ -26,6 +26,6 @@ public partial class MainWindow
         confirm=Button("确认日期",()=>{if(calendar.SelectedDate==null){feedback.Text="请选择日期。";return;}if(precise&&times.Visibility!=Visibility.Visible){calendar.Visibility=Visibility.Collapsed;times.Visibility=Visibility.Visible;step.Text=$"{calendar.SelectedDate:yyyy-MM-dd} · 选择时间";confirm!.Content="确认日期和时间";hours.Focus();return;}if(hours.SelectedIndex<0||minutes.SelectedIndex<0){feedback.Text="请选择小时和分钟。";return;}result=new(ScheduleTime.Select(calendar.SelectedDate.Value,!precise,new TimeSpan(hours.SelectedIndex,minutes.SelectedIndex,0),WorkTime(end)),!precise);window.DialogResult=true;});confirm.IsDefault=true;confirm.Background=Brush("#285DDD");confirm.Foreground=Brush("#FFFFFF");actions.Children.Add(confirm);
         var now=Button("当前时间",()=>{var current=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById(timezone)).DateTime;calendar.SelectedDate=current.Date;calendar.DisplayDate=current.Date;hours.SelectedIndex=current.Hour;minutes.SelectedIndex=current.Minute;precise=true;ModeAppearance();calendar.Visibility=Visibility.Collapsed;times.Visibility=Visibility.Visible;step.Text=$"{current:yyyy-MM-dd} · 当前时间";confirm.Content="确认日期和时间";});actions.Children.Add(now);
         actions.Children.Add(Button("返回日期",DateStep));var cancel=Button("取消",()=>window.DialogResult=false);cancel.IsCancel=true;actions.Children.Add(cancel);body.Children.Add(actions);window.Content=body;
-        ModeAppearance();window.ShowDialog();return result;
+        DateStep();window.ShowDialog();return result;
     }
 }

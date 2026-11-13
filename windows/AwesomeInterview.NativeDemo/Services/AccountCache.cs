@@ -26,8 +26,7 @@ public sealed class AccountCache
     }
     async Task SaveAsync<T>(string path, T value)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, Wire.Json);
-        var encrypted = await Task.Run(() => ProtectedData.Protect(bytes, entropy, DataProtectionScope.CurrentUser));
+        var encrypted = await Task.Run(() => ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(value, Wire.Json), entropy, DataProtectionScope.CurrentUser));
         Directory.CreateDirectory(folder); var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try { await File.WriteAllBytesAsync(temp, encrypted); File.Move(temp, path, true); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -44,4 +43,5 @@ public sealed class AccountCache
         var path = PathFor(server, owner); if (File.Exists(path)) File.Delete(path);
         if (File.Exists(ConnectionPath)) File.Delete(ConnectionPath);
     }
+    public void ForgetConnection() { if (File.Exists(ConnectionPath)) File.Delete(ConnectionPath); }
 }

@@ -26,13 +26,13 @@ public partial class MainWindow : Window
     readonly List<Button> nav = new();
     readonly TextBlock connectionLabel = new() { Text="尚未登录", Foreground=Brush("#64748B"), FontSize=12, TextWrapping=TextWrapping.Wrap };
     readonly TextBlock subtitle = new() { Foreground=Brush("#64748B"), Margin=new(0,0,0,24) };
-    DateTime selected = DateTime.Today;
-    string page = "today", calendarView = "week";
+    DateTime selected = CalendarProjection.Now.Date;
+    string page = "today", calendarView = "day";
     bool hideCompleted;
 
     public MainWindow()
     {
-        Title="Awesome Interview · Windows 1.4.3-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        Title="Awesome Interview · Windows 1.5.0-W"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
         UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;
@@ -92,11 +92,12 @@ public partial class MainWindow : Window
         if(page=="admin"&&adminNav.Visibility!=Visibility.Visible){Begin("管理员监控","需要管理员身份并保持在线连接。");}
         status.Text=repository.Busy?"正在后台同步，仍可浏览当前页面…":repository.Message;
         connectionLabel.Text=repository.Current==null?"尚未登录":repository.Online?"账号已连接":"离线 · 缓存只读";
-        ProjectTasks(DateTime.Today);RefreshPortable();
+        if(repository.Current?.Profile is ProfileData cachedProfile){profile=cachedProfile;profileScope=repository.Api?.Server.AbsoluteUri+repository.Current.UserId;}else if(repository.Current==null){profile=null;profileScope="";}
+        ProjectTasks(CalendarProjection.Now.Date);RefreshPortable();
         if(formDirty)return;
-        if(page=="today")ShowTasks(false); else if(page=="calendar")ShowCalendar(); else if(page=="calendar-day")ShowTasks(true); else if(page=="experiences")ShowExperience();
+        if(page=="today")ShowTasks(false); else if(page=="calendar")ShowCalendar(); else if(page=="calendar-day")ShowTasks(true); else if(page=="experiences")ShowExperience();else if(page=="ideas")ShowIdeas(showAbandoned);
     }
-    List<EventData> EventsFor(DateTime day)=>repository.Current?.Events.Select(e=>e.OnDay(day)).OfType<EventData>().OrderBy(e=>e.StartAt).ToList()??new();
+    List<EventData> EventsFor(DateTime day)=>repository.Current?.Events.Select(e=>e.OnDay(day)).OfType<EventData>().Where(e=>CalendarProjection.Segment(e,day,WorkTime(false),WorkTime(true))!=null).OrderBy(e=>e.StartAt).ToList()??new();
     void ProjectTasks(DateTime day)=>tasks=EventsFor(day).Select(e=>new DemoTask(e.Title,day,e.Note??"",e.CompletedAt!=null,
         e.Local(e.StartAt).Date<day.Date?TimeSpan.Zero:e.Local(e.StartAt).TimeOfDay,
         e.Local(e.EndAt).Date>day.Date?TimeSpan.FromHours(24):e.Local(e.EndAt).TimeOfDay,e)).ToList();
@@ -108,15 +109,14 @@ public partial class MainWindow : Window
     }
     void ShowTasks(bool calendar)
     {
-        page=calendar?"calendar-day":"today";if(!calendar)selected=DateTime.Today;bSelect(calendar?"日历与日程":"今日待办");
+        page=calendar?"calendar-day":"today";if(!calendar)selected=CalendarProjection.Now.Date;bSelect(calendar?"日历与日程":"今日待办");
         Begin(calendar?selected.ToString("yyyy年M月d日 dddd"):"今日待办",calendar?"日程详情与完成状态":"把注意力留给今天要做的事");if(NeedAccount())return;
         var entries=EventsFor(selected);var pending=entries.Where(e=>e.CompletedAt==null&&e.CancelledAt==null).ToList();
         var toolbar=new DockPanel{Margin=new(0,0,0,18)};var add=Button("＋ 添加日程",()=>Navigate(ShowAdd));DockPanel.SetDock(add,Dock.Right);toolbar.Children.Add(add);
         toolbar.Children.Add(Text($"{selected:M月d日 dddd}    {pending.Count} 项未完成",18));content.Children.Add(toolbar);
         foreach(var item in pending)content.Children.Add(EventRow(item));
         if(pending.Count==0)content.Children.Add(Surface(Text("今天暂无待完成日程。",16,"#64748B")));
-        var todos=repository.Current!.Todos.Where(t=>t.DueDate==DateOnly.FromDateTime(selected)).ToList();
-        if(todos.Count>0){content.Children.Add(Text("独立待办",18,margin:new(0,12,0,12)));foreach(var item in todos)content.Children.Add(Surface(Text((item.CompletedAt!=null?"✓  ":"○  ")+item.Title+"   （独立待办，仅展示）")));}
+        AddTodos(selected);AddOverdue();
         var done=new StackPanel();foreach(var item in entries.Where(e=>e.CompletedAt!=null))done.Children.Add(EventRow(item));
         content.Children.Add(new Expander{Header=$"今日已完成  {entries.Count(e=>e.CompletedAt!=null)}",Content=done,Margin=new(0,18,0,0)});
     }
