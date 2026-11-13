@@ -63,12 +63,13 @@ def test_writer_health_is_persisted_so_restarts_cannot_hide_dropped_samples(tmp_
     assert snapshot["persisted"]["samples"] == snapshot["written"]
     assert snapshot["persisted"]["last_drop"] is not None and snapshot["persisted"]["write_failures"] == 0
     restarted = PerformanceService(path)
+    restarted.record("calendar", "server", "request", 20)
     restarted.start()
     restarted.stop()
     fresh = restarted.dashboard()
-    assert fresh["dropped"] == 0 and fresh["written"] == 0  # In-process counters start over.
+    assert fresh["dropped"] == 0 and fresh["written"] == 1  # In-process counters start over.
     assert fresh["persisted"]["dropped"] == 1  # The on-disk record keeps the loss visible.
-    assert fresh["persisted"]["samples"] == snapshot["written"]
+    assert fresh["persisted"]["samples"] == snapshot["written"] + 1  # Totals accumulate across restarts.
 
 
 def test_full_queue_and_broken_storage_do_not_raise_into_business_requests(tmp_path):

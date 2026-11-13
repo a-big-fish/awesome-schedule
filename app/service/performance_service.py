@@ -145,17 +145,24 @@ class PerformanceService:
                 connection.close()
 
     def _persist_health(self, connection: sqlite3.Connection) -> None:
-        """Keep cumulative writer health on disk so restarts do not hide lost samples."""
+        """Accumulate writer health on disk so restarts cannot hide lost samples."""
         state = (self.written, self.dropped, self.write_failures, self.last_drop, self.last_failure)
         if state == self._health_state:
             return
+        written, dropped, failures = state[:3]
+        if self._health_state:
+            # Counters are per process, so store only what this process added since the last write.
+            written -= self._health_state[0]
+            dropped -= self._health_state[1]
+            failures -= self._health_state[2]
         connection.execute("INSERT INTO writer_health(id, updated, samples, dropped, write_failures, last_drop, last_failure) "
                            "VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated = excluded.updated, "
-                           "samples = excluded.samples, dropped = excluded.dropped, "
-                           "write_failures = excluded.write_failures, last_drop = excluded.last_drop, "
-                           "last_failure = excluded.last_failure",
-                           (time.time(), self.written, self.dropped, self.write_failures,
-                            self.last_drop, self.last_failure))
+                           "samples = writer_health.samples + excluded.samples, "
+                           "dropped = writer_health.dropped + excluded.dropped, "
+                           "write_failures = writer_health.write_failures + excluded.write_failures, "
+                           "last_drop = COALESCE(excluded.last_drop, writer_health.last_drop), "
+                           "last_failure = COALESCE(excluded.last_failure, writer_health.last_failure)",
+                           (time.time(), written, dropped, failures, self.last_drop, self.last_failure))
         self._health_state = state
 
     def dashboard(self, hours: int = 24, channel: str = "all") -> dict:
