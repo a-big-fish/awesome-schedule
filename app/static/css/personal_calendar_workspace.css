@@ -67,3 +67,24 @@
 .calendar-day-heading,.calendar-workspace-toolbar,.calendar-workspace-subtoolbar,.calendar-cross-summary{flex-shrink:0}
 
 .personal-dashboard-page .personal-period-event{align-self:start}
+
+/* A small date navigator uses the same cache-first navigation as the main calendar. */
+.personal-layout.has-quick-calendar{position:relative;grid-template-columns:176px minmax(0,1.7fr) minmax(270px,.7fr)}
+.personal-layout.has-quick-calendar.quick-calendar-collapsed{grid-template-columns:minmax(0,1.7fr) minmax(270px,.7fr)}
+.personal-quick-calendar{padding:10px 0;align-self:start;min-width:0}
+.personal-quick-calendar[hidden]{display:none!important}
+.quick-calendar-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:14px}
+.quick-calendar-heading strong{font-size:14px}.quick-calendar-heading>div{display:flex;gap:2px}
+.quick-calendar-heading button{width:28px;height:30px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:21px;cursor:pointer}
+.quick-calendar-heading button:hover{background:var(--primary-soft);color:var(--primary)}
+.quick-calendar-weekdays,.quick-calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px 0;text-align:center}
+.quick-calendar-weekdays{font-size:11px;color:var(--muted);margin-bottom:8px}.quick-calendar-days a{display:grid;place-items:center;width:24px;height:28px;margin:auto;border-radius:8px;text-decoration:none;color:var(--text);font-size:12px;font-variant-numeric:tabular-nums}
+.quick-calendar-days a.outside-month{color:#a6afbd}.quick-calendar-days a.is-today{box-shadow:inset 0 0 0 1px var(--primary);color:var(--primary)}.quick-calendar-days a.is-selected{background:var(--primary);color:#fff;box-shadow:none}.quick-calendar-days a:hover{background:var(--primary-soft);color:var(--primary)}
+.quick-calendar-today{display:block;margin-top:18px;border-top:1px solid var(--border);padding-top:14px;color:var(--primary);font-size:12px;text-decoration:none}.personal-quick-calendar p{color:var(--muted);font-size:11px;line-height:1.8;margin-top:12px}
+.quick-calendar-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:38px;padding-inline:9px}
+.personal-quick-calendar :focus-visible{outline:3px solid #91a9ff;outline-offset:2px}
+@media(max-width:1150px){.personal-layout.has-quick-calendar,.personal-layout.has-quick-calendar.quick-calendar-collapsed{grid-template-columns:minmax(0,1.7fr) minmax(270px,.7fr)}.personal-quick-calendar{position:absolute;top:0;left:0;width:250px;padding:18px;background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 10px 35px #17203326;z-index:25}.quick-calendar-days a{width:28px;height:30px}}
+@media(max-width:1000px){.personal-layout.has-quick-calendar,.personal-layout.has-quick-calendar.quick-calendar-collapsed{grid-template-columns:minmax(0,1fr)}}
+
+.calendar-toolbar-end .personal-view-switch a{min-width:34px}
+@media(min-width:1151px) and (max-width:1350px){.calendar-workspace-toolbar{grid-template-columns:1fr 1fr}.calendar-date-navigation{grid-column:1/-1;grid-row:1}}

@@ -292,7 +292,7 @@
       load(pageKey(target)).catch(() => {});
   });
   document.addEventListener('click', (event) => {
-    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-view-switch a[href], .personal-form-page a[href], .personal-side-list a[href]');
+    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-quick-calendar a[href], .personal-view-switch a[href], .personal-form-page a[href], .personal-side-list a[href]');
     if (!link || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
         link.target || document.querySelector('[data-experience-editor]')) return;
     const target = new URL(link.href, location.href);
