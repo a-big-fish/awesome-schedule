@@ -1,12 +1,13 @@
 """Authenticated Android snapshot and dated tasks."""
 
 from datetime import date, datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, Response
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.dependencies import (get_interview_experience_service, get_personal_schedule_service,
-                                   get_personal_todo_service)
+                                   get_personal_todo_service, get_personal_idea_service)
 from app.core.exceptions import PersonalEventConflictWarning
 from app.core.exceptions import MeetingParseError
 from app.model.personal_event import PersonalEventType
@@ -14,6 +15,7 @@ from app.model.personal_event import ReferenceLink
 from app.service.interview_experience_service import InterviewExperienceService
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.personal_todo_service import PersonalTodoService
+from app.service.personal_idea_service import PersonalIdeaService
 
 
 router = APIRouter(prefix="/api/mobile/v1", tags=["mobile"])
@@ -34,6 +36,8 @@ class NativeEventInput(BaseModel):
     confirm_overlap: bool = False
     raw_invitation: str | None = None
     skip_weekends: bool | None = None
+    workday_only: bool = False
+    source_idea_id: UUID | None = None
     repeat_weekdays: list[int] = Field(default_factory=list)
     location_url: str | None = None
     reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
@@ -63,31 +67,42 @@ def parse_event(payload: NativeInvitationInput,
 
 
 @router.post("/events", status_code=201)
-def create_event(payload: NativeEventInput,
-                 schedule: PersonalScheduleService = Depends(get_personal_schedule_service)) -> dict:
+def create_event(payload: NativeEventInput, request: Request, background: BackgroundTasks,
+                 schedule: PersonalScheduleService = Depends(get_personal_schedule_service),
+                 ideas: PersonalIdeaService = Depends(get_personal_idea_service)) -> dict:
     """Create an event with the same ownership, validation and overlap rules as Web."""
     try:
+        if payload.source_idea_id:
+            if ideas.get(str(payload.source_idea_id)).status != "pending":
+                raise ValueError("已放弃事项不能安排")
+            if payload.raw_invitation:
+                raise ValueError("待安排事项请使用手动日程表单安排")
         fields = dict(title=payload.title, event_type=payload.event_type,
                       start_at=payload.start_at, end_at=payload.end_at,
                       timezone=payload.timezone, position=payload.position,
                       location_text=payload.location_text, note=payload.note,
                       reminder_offsets_minutes=payload.reminder_offsets_minutes,
                       skip_weekends=payload.skip_weekends,
+                      workday_only=payload.workday_only,
                       repeat_weekdays=payload.repeat_weekdays,
                       location_url=payload.location_url,
                       reference_links=[link.model_dump(mode="json") for link in payload.reference_links],
                       confirm_overlap=payload.confirm_overlap)
         event = (schedule.create_from_invitation(payload.raw_invitation, **fields)
-                 if payload.raw_invitation else schedule.create_manual(**fields))
+                 if payload.raw_invitation else schedule.create_manual(
+                     **fields, source_idea_id=str(payload.source_idea_id) if payload.source_idea_id else None))
+    except LookupError as error:
+        raise HTTPException(404, detail=str(error)) from error
     except PersonalEventConflictWarning as error:
         raise HTTPException(409, detail={"conflicts": error.event_titles}) from error
     except (ValueError, ValidationError, MeetingParseError) as error:
         raise _event_error(error) from error
+    background.add_task(request.app.state.reference_titles.enrich_event, schedule, event)
     return event.model_dump(mode="json", exclude={"raw_invitation"})
 
 
 @router.put("/events/{event_id}")
-def update_event(event_id: str, payload: NativeEventInput,
+def update_event(event_id: str, payload: NativeEventInput, request: Request, background: BackgroundTasks,
                  schedule: PersonalScheduleService = Depends(get_personal_schedule_service)) -> dict:
     """Update one owned event and preserve its existing source metadata."""
     try:
@@ -98,7 +113,7 @@ def update_event(event_id: str, payload: NativeEventInput,
             location_text=payload.location_text, note=payload.note,
             reminder_offsets_minutes=payload.reminder_offsets_minutes,
             **{key: value for key, value in payload.model_dump(mode="python", exclude_unset=True).items()
-               if key in {"skip_weekends", "repeat_weekdays", "location_url", "reference_links"}},
+               if key in {"skip_weekends", "workday_only", "repeat_weekdays", "location_url", "reference_links"}},
             confirm_overlap=payload.confirm_overlap,
         )
     except LookupError as error:
@@ -107,6 +122,7 @@ def update_event(event_id: str, payload: NativeEventInput,
         raise HTTPException(409, detail={"conflicts": error.event_titles}) from error
     except (ValueError, ValidationError) as error:
         raise _event_error(error) from error
+    background.add_task(request.app.state.reference_titles.enrich_event, schedule, event)
     return event.model_dump(mode="json", exclude={"raw_invitation"})
 
 
@@ -129,6 +145,32 @@ def complete_event(event_id: str, payload: NativeCompletionInput,
     except ValueError as error:
         raise _event_error(error) from error
     return event.model_dump(mode="json", exclude={"raw_invitation"})
+
+
+class NativeOverdueInput(BaseModel):
+    action: str = Field(pattern="^(defer|cancel)$")
+    end_at: datetime | None = None
+
+
+@router.post("/events/{event_id}/overdue")
+def resolve_overdue(event_id: str, payload: NativeOverdueInput,
+                    schedule: PersonalScheduleService = Depends(get_personal_schedule_service)) -> dict:
+    try:
+        return schedule.resolve_overdue(event_id, payload.action, payload.end_at).model_dump(
+            mode="json", exclude={"raw_invitation"})
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise _event_error(error) from error
+
+
+@router.post("/events/{event_id}/close-repeat")
+def close_repeat(event_id: str,
+                 schedule: PersonalScheduleService = Depends(get_personal_schedule_service)) -> dict:
+    try:
+        return schedule.close_repeat(event_id).model_dump(mode="json", exclude={"raw_invitation"})
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
 
 
 def _profile(user) -> dict:
@@ -216,24 +258,89 @@ def snapshot(
     schedule: PersonalScheduleService = Depends(get_personal_schedule_service),
     experiences: InterviewExperienceService = Depends(get_interview_experience_service),
     todos: PersonalTodoService = Depends(get_personal_todo_service),
+    ideas: PersonalIdeaService = Depends(get_personal_idea_service),
 ) -> dict:
     """Return one authoritative, owner-scoped snapshot for read-only offline use."""
     response.headers["Cache-Control"] = "no-store"
-    notes = []
-    for item in experiences.list_experiences():
-        public_fields = item.model_dump(mode="json", exclude={"raw_text_draft"})
-        notes.append({
-            **public_fields,
-            "questions": [question.model_dump(mode="json") for question in experiences.list_questions(item.id)],
-        })
     return {
         "schema_version": 1,
         "user_id": request.state.user.id,
         "server_time": datetime.now(timezone.utc).isoformat(),
         "events": [event.model_dump(mode="json", exclude={"raw_invitation"}) for event in schedule.list_events()],
-        "experiences": notes,
+        "experiences": experiences.snapshot_experiences(),
         "todos": [todo.model_dump(mode="json") for todo in todos.list_todos()],
+        "ideas": _ideas_payload(ideas, schedule),
+        "profile": _profile(request.state.user),
     }
+
+
+def _ideas_payload(ideas: PersonalIdeaService, schedule: PersonalScheduleService) -> list[dict]:
+    pending = ideas.list()
+    arranged = ideas.arranged_event_ids(schedule, pending)
+    return [{**item.model_dump(mode="json"), "arranged_event_id": arranged.get(item.id)}
+            for item in pending + ideas.list(True)]
+
+
+@router.get("/calendar")
+def calendar(request: Request, response: Response,
+             schedule: PersonalScheduleService = Depends(get_personal_schedule_service),
+             todos: PersonalTodoService = Depends(get_personal_todo_service),
+             ideas: PersonalIdeaService = Depends(get_personal_idea_service)) -> dict:
+    """Refresh scheduling resources without reading notes/questions or resume files."""
+    response.headers["Cache-Control"] = "no-store"
+    return {"schema_version": 1, "user_id": request.state.user.id,
+            "server_time": datetime.now(timezone.utc).isoformat(),
+            "events": [e.model_dump(mode="json", exclude={"raw_invitation"}) for e in schedule.list_events()],
+            "todos": [t.model_dump(mode="json") for t in todos.list_todos()],
+            "ideas": _ideas_payload(ideas, schedule), "profile": _profile(request.state.user)}
+
+
+class NativeIdeaInput(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="", max_length=20000)
+    reference_links: list[ReferenceLink] = Field(default_factory=list, max_length=20)
+
+
+@router.post("/ideas", status_code=201)
+@router.put("/ideas/{idea_id}")
+def save_idea(payload: NativeIdeaInput, idea_id: str | None = None,
+              ideas: PersonalIdeaService = Depends(get_personal_idea_service)) -> dict:
+    try:
+        return ideas.save(**payload.model_dump(mode="json"), idea_id=idea_id).model_dump(mode="json")
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise _event_error(error) from error
+
+
+@router.post("/ideas/{idea_id}/abandon")
+def abandon_idea(idea_id: str, ideas: PersonalIdeaService = Depends(get_personal_idea_service)) -> dict:
+    try:
+        return ideas.abandon(idea_id).model_dump(mode="json")
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+class NativeTodoInput(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    due_date: date
+
+
+@router.put("/todos", status_code=201)
+def create_native_todo(payload: NativeTodoInput,
+                       todos: PersonalTodoService = Depends(get_personal_todo_service)) -> dict:
+    if not payload.title.strip():
+        raise HTTPException(422, "请输入待办内容")
+    return todos.create(payload.title, payload.due_date).model_dump(mode="json")
+
+
+@router.post("/todos/{todo_id}/completion")
+def complete_native_todo(todo_id: str, payload: NativeCompletionInput,
+                         todos: PersonalTodoService = Depends(get_personal_todo_service)) -> dict:
+    try:
+        return todos.set_completed(todo_id, payload.completed).model_dump(mode="json")
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
 
 
 @router.get("/session")

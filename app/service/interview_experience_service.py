@@ -124,6 +124,14 @@ class InterviewExperienceService:
     def delete_experience(self, experience_id: str) -> bool:
         return self.mapper.delete_experience(experience_id, self.owner_id)
 
+    def snapshot_experiences(self) -> list[dict]:
+        """Two bounded reads instead of one questions query per experience."""
+        grouped: dict[str, list[dict]] = {}
+        for question in self.mapper.list_owned_questions(self.owner_id):
+            grouped.setdefault(question.experience_id, []).append(question.model_dump(mode="json"))
+        return [{**item.model_dump(mode="json", exclude={"raw_text_draft"}),
+                 "questions": grouped.get(item.id, [])} for item in self.list_experiences()]
+
     def list_questions(self, experience_id: str) -> list[InterviewQuestion]:
         if not self.get_experience(experience_id):
             raise LookupError("面经不存在")

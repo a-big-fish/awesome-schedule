@@ -72,6 +72,10 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         tail = path[len("/api/mobile/v1"):]
         if tail == "/profile":
             return "profile"
+        if tail == "/calendar" or tail.startswith("/todos"):
+            return "calendar"
+        if tail.startswith("/ideas"):
+            return "ideas"
         if tail == "/plaza":
             return "plaza"
         if tail.startswith("/plaza/"):

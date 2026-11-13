@@ -128,6 +128,12 @@ class MemoryInterviewExperienceMapper(BaseInterviewExperienceMapper):
                      if item.experience_id == experience_id]
         return sorted(items, key=lambda item: (item.asked_order, item.id))
 
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        with self._lock:
+            ids = {e.id for e in self._experiences.values() if e.owner_id == owner_id}
+            return sorted([q.model_copy(deep=True) for q in self._questions.values()
+                           if q.experience_id in ids], key=lambda q: (q.asked_order, q.id))
+
     def delete_questions(self, question_ids: list[str], owner_id: str) -> None:
         with self._lock:
             for question_id in question_ids:

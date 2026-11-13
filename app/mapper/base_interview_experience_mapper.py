@@ -59,6 +59,11 @@ class BaseInterviewExperienceMapper(ABC):
     def list_questions(self, experience_id: str, owner_id: str) -> list[InterviewQuestion]: ...
 
     @abstractmethod
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        """Load snapshot questions in one owner-scoped query."""
+        ...
+
+    @abstractmethod
     def delete_questions(self, question_ids: list[str], owner_id: str) -> None: ...
 
     @abstractmethod

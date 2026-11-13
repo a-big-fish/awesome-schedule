@@ -26,5 +26,17 @@ class PersonalTodoService:
         todo.updated_at = now
         return self.mapper.save(todo)
 
+    def set_completed(self, todo_id: str, completed: bool) -> PersonalTodo:
+        """Explicit completion is safe to repeat after an ambiguous response."""
+        todo = self.mapper.find_by_id(todo_id, self.owner_id)
+        if todo is None:
+            raise LookupError("待办不存在")
+        if (todo.completed_at is not None) == completed:
+            return todo
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        todo.completed_at = now if completed else None
+        todo.updated_at = now
+        return self.mapper.save(todo)
+
     def delete(self, todo_id: str) -> bool:
         return self.mapper.delete(todo_id, self.owner_id)

@@ -241,6 +241,15 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
             ).fetchall()
         return [InterviewQuestion.model_validate(row["payload"]) for row in rows]
 
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT q.payload FROM personal_interview_questions q "
+                "JOIN personal_interview_experiences e ON e.id=q.experience_id "
+                "WHERE e.owner_id=%s ORDER BY q.asked_order, q.id", (owner_id,),
+            ).fetchall()
+        return [InterviewQuestion.model_validate(row["payload"]) for row in rows]
+
     def delete_questions(self, question_ids: list[str], owner_id: str) -> None:
         if not question_ids:
             return
