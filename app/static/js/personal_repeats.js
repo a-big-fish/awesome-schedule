@@ -16,4 +16,5 @@
   }
   document.addEventListener('DOMContentLoaded', init);
   document.addEventListener('personal:navigated', init);
+document.addEventListener('personal:event-dialog-rendered', init);
 })();

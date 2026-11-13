@@ -248,6 +248,14 @@
     if (isCalendar(new URL(location.href))) return refreshVisiblePage();
   };
 
+  window.awesomeInterviewCalendarChanged = async () => {
+    clearPages(); channel?.postMessage('invalidate'); pageEdited = false;
+    const target = new URL(location.href), id = navigationId;
+    if (!isCalendar(target)) return;
+    const html = await load(target.href, true);
+    if (id === navigationId && pageKey(new URL(location.href)) === pageKey(target)) render(html, false);
+  };
+
   const resumeDelay = 60000;
   let hiddenAt = document.hidden ? Date.now() : null;
   let lastResumeRefresh = -Infinity;

@@ -1,0 +1,4 @@
+{% if cross_day_summary %}<div class="calendar-cross-summary" style="--summary-cols: {{ 7 if selected_view == 'week' else 1 }};">
+<span class="calendar-cross-label">跨天</span>
+{% for item in cross_day_summary %}<a class="calendar-cross-item{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" style="grid-column: {{ item.summary_first }} / {{ item.summary_last }}; grid-row: {{ loop.index }};" href="/my-schedule/events/{{ item.id }}">{{ item.title }} · {{ item.start_time.strftime('%m-%d') }}—{{ item.end_time.strftime('%m-%d') }}</a>{% endfor %}
+</div>{% endif %}

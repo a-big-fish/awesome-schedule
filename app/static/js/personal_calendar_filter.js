@@ -30,6 +30,38 @@
       element.style.setProperty('--column', String(lane + 1));
       element.style.setProperty('--columns', String(width));
     });
+    const dayCards = visible('.time-grid .event-card');
+    if (dayCards.length && document.createElement) {
+      const context = document.createElement('canvas').getContext('2d');
+      const placed = [];
+      const grid = dayCards[0].closest('.time-grid');
+      for (const card of dayCards.sort((a,b) => Number(a.style.getPropertyValue('--start-min')) - Number(b.style.getPropertyValue('--start-min')))) {
+        const title = card.querySelector('.event-title'), time = card.querySelector('.event-time');
+        const measure = element => {
+          if (!element) return 0;
+          context.font = getComputedStyle(element).font;
+          return context.measureText(element.textContent).width;
+        };
+        const width = Math.ceil(Math.min([...title.textContent].length > 12 ? 240 : Infinity,
+          Math.max(measure(title), measure(time)) + 24));
+        const start = Number(card.style.getPropertyValue('--start-min'));
+        const end = start + Number(card.style.getPropertyValue('--duration'));
+        let left = 10;
+        const overlaps = placed.filter(item => item.start < end && item.end > start).sort((a,b) => a.left - b.left);
+        for (const prior of overlaps) {
+          if (left + width + 20 <= prior.left) break;
+          left = Math.max(left, prior.left + prior.width + 20);
+        }
+        placed.push({left, width, start, end});
+        card.style.left = `${left}px`; card.style.width = `${width}px`;
+      }
+      grid.style.minWidth = `${Math.max(0, ...placed.map(item => item.left + item.width + 10))}px`;
+    }
+    const boardCards = visible('.calendar-board-event');
+    const boardRows = [...new Set(boardCards.map(item => Number(item.dataset.boardRow)))].sort((a,b) => a-b);
+    for (const card of boardCards) card.style.gridRow = String(boardRows.indexOf(Number(card.dataset.boardRow)) + 1);
+    const board = calendar.querySelector('.calendar-board-columns');
+    if (board?.style) board.style.setProperty('--board-rows', String(Math.max(1, boardRows.length)));
     calendar.querySelectorAll('.personal-week-day').forEach((day) => {
       packOverlaps([...day.querySelectorAll('.personal-week-event')].filter((element) =>
         !calendar.classList.contains('hide-completed') || (!element.classList.contains('is-completed') && !element.classList.contains('is-cancelled'))),
@@ -49,8 +81,10 @@
         !calendar.classList.contains('hide-completed') || (!item.classList.contains('is-completed') && !item.classList.contains('is-cancelled')));
       const lanes = [...new Set(active.map((item) => Number(item.dataset.originalLane)))].sort((a, b) => a - b);
       active.forEach((item) => { item.style.gridRow = String(lanes.indexOf(Number(item.dataset.originalLane)) + 1); });
+      const heights = lanes.map(lane => Math.max(24, ...active.filter(item => Number(item.dataset.originalLane) === lane)
+        .map(item => item.scrollHeight)));
       week.forEach((day) => { day.querySelector('.personal-period-events').style.gridTemplateRows =
-        lanes.length ? `repeat(${lanes.length}, 20px)` : ''; });
+        heights.map(height => `${height}px`).join(' '); });
     }
   }
   function keepDayTitlesVisible(calendar) {

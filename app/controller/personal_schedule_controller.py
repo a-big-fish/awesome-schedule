@@ -224,7 +224,37 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
             "is_today": day == now.date(),
             "is_selected": day == selected_date,
         } for day in period_dates]
+    board_rows: dict[str, int] = {}
+    originals_by_id = {item["id"]: item for item in calendar_views}
+    if selected_view == "week":
+        board_items = sorted((item for day in calendar_days for item in day["week_segments"]),
+                             key=lambda item: (item["start_time"].date() == item["end_time"].date(),
+                                               item["start_time"], item["id"]))
+        for item in board_items:
+            board_rows.setdefault(item["id"].split("~", 1)[0], len(board_rows) + 1)
+        for day in calendar_days:
+            for item in day["week_segments"]:
+                item["board_key"] = item["id"].split("~", 1)[0]
+                item["board_row"] = board_rows[item["board_key"]]
+                original = originals_by_id[item["id"]]
+                item["board_before"] = item["continues_before"] and bool(_week_day_segments([original], day["date"] - timedelta(days=1)))
+                item["board_after"] = item["continues_after"] and bool(_week_day_segments([original], day["date"] + timedelta(days=1)))
+                item["board_start"] = f"{item['start_minutes'] // 60:02d}:{item['start_minutes'] % 60:02d}"
+                end_minutes = item["start_minutes"] + item["duration_minutes"]
+                item["board_end"] = f"{end_minutes // 60:02d}:{end_minutes % 60:02d}"
+    summary_days = period_dates if selected_view == "week" else [selected_date]
+    cross_day_summary = []
+    if selected_view != "month":
+        for item in calendar_views:
+            if item["start_time"].date() == (item["end_time"] - timedelta(microseconds=1)).date():
+                continue
+            indexes = [i for i, day in enumerate(summary_days) if _week_day_segments([item], day)]
+            if indexes:
+                cross_day_summary.append({**item, "summary_first": min(indexes) + 1,
+                                          "summary_last": max(indexes) + 2})
     return {
+        "board_row_count": len(board_rows),
+        "cross_day_summary": cross_day_summary,
         "selected_date": selected_date,
         "today_date": now.date(),
         "selected_view": selected_view,
@@ -630,6 +660,8 @@ async def edit_personal_event(
             "error": str(exc), "warnings": [], "values": values, "editing": True,
         }, status_code=422)
     request.app.state.reference_titles.enrich_event(service, event)
+    if request.headers.get("x-event-dialog") == "1":
+        return JSONResponse({"saved": True})
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
     return RedirectResponse(url=f"/my-schedule?view=day&date_value={event_day}", status_code=303)
 

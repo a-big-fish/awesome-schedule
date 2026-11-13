@@ -126,5 +126,6 @@
   }
   document.addEventListener('DOMContentLoaded', initTitles);
   document.addEventListener('personal:navigated', initTitles);
+document.addEventListener('personal:event-dialog-rendered', initTitles);
   window.addEventListener('pagehide', () => { controller?.abort(); clearTimeout(timer); });
 })();

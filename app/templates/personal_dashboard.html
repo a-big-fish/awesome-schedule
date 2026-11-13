@@ -5,23 +5,25 @@
 {% if request.state.is_guest|default(false) %}<p class="guest-demo-notice">游客体验 · 以下均为示例日程，登录后查看和管理你的安排。</p>{% endif %}
 <div class="personal-toolbar">
   <div><h1 class="section-title">我的日程</h1><p class="section-description">北京时间 · 面试、笔试、课程与其他安排集中查看</p></div>
-  <div class="personal-toolbar-actions"><a class="btn secondary" href="/my-schedule/ideas">待安排</a><a class="btn" href="/my-schedule/new">＋ 添加日程</a></div>
 </div>
-<nav class="personal-view-switch" aria-label="日程视图">
-  {% set completed_query = '&show_completed=false' if not show_completed else '' %}
-  <a href="/my-schedule?view=day&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'day' %}aria-current="page"{% endif %}>日视图</a>
-  <a href="/my-schedule?view=week&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'week' %}aria-current="page"{% endif %}>周视图</a>
-  <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'month' %}aria-current="page"{% endif %}>月视图</a>
-</nav>
+{% set completed_query = '&show_completed=false' if not show_completed else '' %}
+
 <div class="personal-layout">
   <section class="card personal-calendar hide-completed" data-next-deadline="{{ next_deadline.isoformat() if next_deadline else '' }}" data-calendar-completed="incomplete" data-selected-date="{{ selected_date.isoformat() }}" data-selected-view="{{ selected_view }}">
-    <div class="date-nav-row">
-      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}{{ completed_query }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a>
-      <h2>{{ period_title }}</h2>
-      <div class="personal-calendar-actions"><a class="personal-today-link" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ today_date.isoformat() }}{{ completed_query }}">回到今天</a><button class="personal-calendar-toggle" type="button" data-calendar-toggle aria-pressed="true">切换全部日程</button></div>
-      <a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ next_date }}{{ completed_query }}" aria-label="下一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">›</a>
+    <div class="calendar-workspace-toolbar">
+      <div class="personal-toolbar-actions"><a class="btn secondary" href="/my-schedule/ideas">待安排</a><a class="btn" href="/my-schedule/new">＋ 添加日程</a></div>
+      <div class="calendar-date-navigation"><a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ prev_date }}{{ completed_query }}" aria-label="上一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">‹</a><strong>{{ selected_date.strftime('%Y / %m / %d') if selected_view == 'day' else selected_date.strftime('%Y 年 %m 月') }}</strong><a class="date-nav" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ next_date }}{{ completed_query }}" aria-label="下一个{{ '月' if selected_view == 'month' else '周' if selected_view == 'week' else '日' }}">›</a></div>
+      <div class="calendar-toolbar-end"><a class="btn secondary personal-today-link" href="/my-schedule?view={{ selected_view }}&amp;date_value={{ today_date.isoformat() }}">今天</a><nav class="personal-view-switch" aria-label="日程视图">
+  {% set completed_query = '&show_completed=false' if not show_completed else '' %}
+  <a href="/my-schedule?view=day&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'day' %}aria-current="page"{% endif %} aria-label="日视图">日</a>
+  <a href="/my-schedule?view=week&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'week' %}aria-current="page"{% endif %} aria-label="周视图">周</a>
+  <a href="/my-schedule?view=month&amp;date_value={{ selected_date.isoformat() }}{{ completed_query }}" {% if selected_view == 'month' %}aria-current="page"{% endif %} aria-label="月视图">月</a>
+</nav></div>
     </div>
+    <div class="calendar-workspace-subtoolbar"><span>北京时间 · 跨天安排连续展示</span><button class="personal-calendar-toggle" type="button" data-calendar-toggle aria-pressed="true">切换全部日程</button></div>
+    <div class="calendar-day-heading"><h2>{{ period_title }}</h2></div>
     {% if selected_view == 'day' %}
+    {% include '_personal_cross_day_summary.html' %}
     <div class="time-table personal-time-table">
       <div class="time-grid-wrap" style="--hour-height: 88px; --start-hour: {{ start_hour }};">
         <div class="time-labels">
@@ -32,7 +34,7 @@
           {% for item in entries %}
           <a class="event-card type-{{ item.type }}{% if item.repeat_weekdays %} is-repeating{% endif %}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" href="/my-schedule/events/{{ item.id }}"
              style="--start-min: {{ item.start_minutes }}; --duration: {{ item.duration_minutes }}; --column: {{ item.column }}; --columns: {{ item.columns }};">
-            <div class="personal-event-content"><div class="event-head"><span class="event-title">{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</span><span>{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
+            <div class="personal-event-content"><div class="event-head"><span class="event-title">{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</span><span class="event-time">{{ item.start_time.strftime('%H:%M') }}–{{ item.end_time.strftime('%H:%M') }}</span></div>
             <div class="event-meta">{{ item.type_label }}{% if item.completed_at %} · 已完成{% endif %}{% if item.location_text %} · {{ item.location_text }}{% endif %}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}</div></div>
           </a>
           {% endfor %}
@@ -52,38 +54,18 @@
     {% endfor %}
     </div>
     {% elif selected_view == 'week' %}
-    <div class="personal-week-timeline" aria-label="周日程，按 24 小时显示">
-      <div class="personal-week-inner">
-        <div class="personal-week-header">
-          <span class="personal-week-corner">时间</span>
-          {% for day in calendar_days %}
-          <a href="/my-schedule?view=day&amp;date_value={{ day.date.isoformat() }}" {% if day.is_today %}class="is-today"{% endif %}>{{ ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][loop.index0] }}<strong>{{ day.date.strftime('%m/%d') }}</strong></a>
-          {% endfor %}
-        </div>
-        <div class="personal-week-body">
-          <div class="personal-week-hours" aria-hidden="true">
-            {% for hour in range(25) %}<span style="top: {{ hour * 100 / 24 }}%;">{{ '%02d:00'|format(hour) }}</span>{% endfor %}
-          </div>
-          <div class="personal-week-columns">
-            {% for day in calendar_days %}
-            <div class="personal-week-day" data-calendar-date="{{ day.date.isoformat() }}">
-              {% for item in day.week_segments %}
-              <a class="personal-week-event type-{{ item.type }}{% if item.repeat_weekdays %} is-repeating{% endif %}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
-                 href="/my-schedule/events/{{ item.id }}"
-                 style="top: {{ item.start_minutes * 100 / 1440 }}%; height: {{ item.duration_minutes * 100 / 1440 }}%; left: calc({{ (item.column - 1) * 100 / item.columns }}% + 2px); width: calc({{ 100 / item.columns }}% - 4px);"
-                 title="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · {{ '上周延续' if day.date.weekday() == 0 else '前一天延续' }}{% endif %}{% if item.continues_after %} · {{ '延续到下周' if day.date.weekday() == 6 else '延续到次日' }}{% endif %}">
-                <strong>{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}{% if item.duration_minutes < 90 %}{% if item.continues_before %} ↖{% elif item.continues_after %} ↘{% endif %}{% endif %}</strong>
-                {% if item.duration_minutes >= 90 %}
-                  {% if item.continues_before %}<span class="personal-week-tail">↖ {{ '上周延续' if day.date.weekday() == 0 else '前一天延续' }}</span>{% else %}<span>{{ item.start_time.strftime('%H:%M') }}</span>{% endif %}
-                  {% if item.continues_after %}<span class="personal-week-tail">{{ '延续到下周' if day.date.weekday() == 6 else '延续到次日' }} ↘</span>{% endif %}
-                {% endif %}
-              </a>
-              {% endfor %}
-            </div>
-            {% endfor %}
-            {% for boundary in week_bridges %}<span class="personal-week-bridge" style="left: {{ boundary * 100 / 7 }}%;" aria-hidden="true"></span>{% endfor %}
-          </div>
-        </div>
+    <div class="calendar-week-board" aria-label="周日程，按任务对齐">
+      <div class="calendar-board-heading">{% for day in calendar_days %}<a href="/my-schedule?view=day&amp;date_value={{ day.date.isoformat() }}" {% if day.is_today %}class="is-today"{% endif %}><span>{{ ['周一','周二','周三','周四','周五','周六','周日'][loop.index0] }}</span><strong>{{ day.date.day }}</strong><small>{{ day.week_segments|length }} 项安排</small></a>{% endfor %}</div>
+      {% include '_personal_cross_day_summary.html' %}
+      <div class="calendar-board-columns" style="--board-rows: {{ [board_row_count|default(1), 1]|max }};">
+      {% for day in calendar_days %}<div class="calendar-board-day{% if day.is_today %} is-today{% endif %}">
+        {% for item in day.week_segments %}
+        <a class="calendar-board-event type-{{ item.type }}{% if item.repeat_weekdays %} is-repeating{% endif %}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}" href="/my-schedule/events/{{ item.id }}" data-board-key="{{ item.board_key|default(item.id.split('~')[0]) }}" data-board-row="{{ item.board_row|default(loop.index) }}" style="grid-row: {{ item.board_row|default(loop.index) }};">
+          <span class="calendar-board-label">{{ '重复任务' if item.repeat_weekdays else '跨天 · 当日安排' if item.continues_before or item.continues_after else item.type_label }}</span>
+          <strong>{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</strong><small>{{ item.board_start|default(item.start_time.strftime('%H:%M')) }}—{{ item.board_end|default(item.end_time.strftime('%H:%M')) }}</small>
+          {% if item.board_before %}<span class="calendar-task-arrow from-left" aria-label="从前一天延续">←</span>{% endif %}{% if item.board_after %}<span class="calendar-task-arrow to-right" aria-label="延续到次日">→</span>{% endif %}
+        </a>{% endfor %}
+      </div>{% endfor %}
       </div>
     </div>
     {% else %}
@@ -100,7 +82,7 @@
             <a class="personal-period-event type-{{ item.type }}{% if item.repeat_weekdays %} is-repeating{% endif %}{% if item.completed_at %} is-completed{% endif %}{% if item.cancelled_at %} is-cancelled{% endif %}{% if item.continues_before %} continues-before{% endif %}{% if item.continues_after %} continues-after{% endif %}"
                style="grid-row: {{ item.month_lane + 1 }};" href="/my-schedule/events/{{ item.id }}"
                aria-label="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.completed_at %} · 已完成{% endif %}"
-               title="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}{% if item.completed_at %} · 已完成{% endif %}">{% if item.continues_before %}← {% endif %}{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}</a>
+               title="{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %} · {{ item.start_time.strftime('%m/%d %H:%M') }}–{{ item.end_time.strftime('%m/%d %H:%M') }}{% if item.continues_before %} · 从前一天延续{% endif %}{% if item.continues_after %} · 延续到次日{% endif %}{% if item.completed_at %} · 已完成{% endif %}">{% if item.continues_before %}← {% endif %}{% if item.completed_at %}✓ {% endif %}{{ item.title }}{% if item.cancelled_at %} · 已废除{% endif %}{% if item.continues_after %} →{% endif %}</a>
             {% endfor %}
           </div>
         </div>

@@ -374,6 +374,7 @@ function initTimePicker() {
 }
 document.addEventListener('DOMContentLoaded', initTimePicker);
 document.addEventListener('personal:navigated', initTimePicker);
+document.addEventListener('personal:event-dialog-rendered', initTimePicker);
 if (typeof MutationObserver === 'function') new MutationObserver(records => {
   if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 &&
     (node.matches?.('input[type="datetime-local"]') || node.querySelector?.('input[type="datetime-local"]'))))) initTimePicker();

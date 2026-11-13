@@ -171,7 +171,7 @@ def test_dashboard_completion_moves_events_and_grays_calendar_views():
             assert 'class="personal-side-row is-completed"' in day.text
             week = client.get("/my-schedule?view=week")
             month = client.get("/my-schedule?view=month")
-            assert 'personal-week-event type-personal is-completed' in week.text
+            assert 'calendar-board-event type-personal is-completed' in week.text
             assert 'personal-period-event type-personal is-completed' in month.text
 
             restored = client.post(f"/my-schedule/events/{today_event.id}/completion", data={
@@ -216,16 +216,16 @@ def test_personal_calendar_week_and_month_views_keep_period_navigation():
             week = client.get("/my-schedule?view=week&date_value=2026-10-10")
             month = client.get("/my-schedule?view=month&date_value=2026-10-10")
         assert week.status_code == month.status_code == 200
-        assert 'personal-week-timeline' in week.text
-        assert '24:00' in week.text
+        assert 'calendar-week-board' in week.text
+        assert '09:00—10:00' in week.text
         assert '2026-10-05 — 10-11 · 1 项安排' in week.text
         assert 'view=week&amp;date_value=2026-10-03' in week.text
-        assert 'class="personal-today-link" href="/my-schedule?view=week&amp;date_value=' in week.text
+        assert 'class="btn secondary personal-today-link" href="/my-schedule?view=week&amp;date_value=' in week.text
         assert '周内面试' in week.text
         assert 'personal-period-month' in month.text
         assert '2026 年 10 月 · 1 项安排' in month.text
         assert 'view=month&amp;date_value=2026-11-01' in month.text
-        assert 'class="personal-today-link" href="/my-schedule?view=month&amp;date_value=' in month.text
+        assert 'class="btn secondary personal-today-link" href="/my-schedule?view=month&amp;date_value=' in month.text
         assert '查看 2026-11-01 的日程' in month.text
     finally:
         app.dependency_overrides.pop(get_personal_schedule_service, None)
@@ -336,12 +336,13 @@ def test_week_timeline_splits_overnight_events_at_day_and_week_boundaries():
             monday = client.get("/my-schedule?view=week&date_value=2026-10-12")
         assert sunday.status_code == monday.status_code == 200
         assert '2026-10-05 — 10-11 · 1 项安排' in sunday.text
-        assert '延续到下周' in sunday.text
-        assert '上周延续' in monday.text
+        assert '延续到次日' in sunday.text
+        assert '从前一天延续' in monday.text
         assert '2026-10-12 — 10-18 · 2 项安排' in monday.text
         assert '延续到次日' in monday.text
-        assert '前一天延续' in monday.text
-        assert monday.text.count('class="personal-week-bridge"') == 1
+        assert '从前一天延续' in monday.text
+        assert monday.text.count('class="calendar-task-arrow to-right"') == 1
+        assert monday_late_segment['board_row'] == tuesday_segment['board_row']
     finally:
         app.dependency_overrides.pop(get_personal_schedule_service, None)
 
