@@ -102,6 +102,8 @@ def test_empty_performance_dashboard_has_an_explicit_healthy_empty_state(tmp_pat
 
 @pytest.mark.parametrize("path,method,node", [
     ("/my-schedule", "GET", "calendar"),
+    ("/my-schedule/", "GET", "calendar"),
+    ("/", "GET", "home"),
     ("/my-schedule/new", "GET", "schedule_new"),
     ("/my-schedule/experiences/plaza", "GET", "plaza"),
     ("/my-schedule/experiences/plaza/private-id", "GET", "plaza_detail"),
@@ -110,6 +112,12 @@ def test_empty_performance_dashboard_has_an_explicit_healthy_empty_state(tmp_pat
     ("/my-schedule/interviews/private-id", "GET", "interview_detail"),
     ("/my-schedule/profile", "GET", "profile"),
     ("/auth/logout", "POST", "logout"),
+    ("/auth/forgot-password", "GET", "account"),
+    ("/auth/reset-password", "POST", "account"),
+    ("/auth/verify", "GET", "account"),
+    ("/auth/resend-verification", "POST", "account"),
+    ("/my-schedule/reference-title?url=https://private.example/secret", "GET", "reference_titles"),
+    ("/resumes/private-id/images/private-image-id", "GET", "resume_file"),
     ("/my-schedule/experiences/private-id/export.pdf?title=secret", "GET", "pdf"),
     ("/my-schedule/experiences/private-id/draft", "POST", "draft"),
     ("/my-schedule/experiences/private-id/parse-file", "POST", "parse"),
@@ -120,6 +128,15 @@ def test_empty_performance_dashboard_has_an_explicit_healthy_empty_state(tmp_pat
 ])
 def test_nodes_never_retain_resource_ids_or_query_parameters(path, method, node):
     assert node_for_path(path, method) == node
+
+
+def test_client_collector_reports_exactly_the_server_node_catalog():
+    import re
+    from pathlib import Path
+    from app.core.performance import NODE_LABELS
+    source = Path(__file__).resolve().parents[1] / "app/static/js/performance_collector.js"
+    block = source.read_text(encoding="utf-8").split("const nodes = new Set([", 1)[1].split("]);", 1)[0]
+    assert set(re.findall(r"'([a-z_]+)'", block)) == set(NODE_LABELS)
 
 
 def test_database_phases_include_failed_queries_without_retaining_sql(monkeypatch):

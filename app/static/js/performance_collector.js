@@ -5,23 +5,27 @@
   const key = 'awesome-interview-performance-v1';
   const metrics = new Set(['request', 'ttfb', 'load', 'lcp', 'longtask', 'cache_render']);
   const nodes = new Set(['calendar', 'schedule_new', 'event', 'event_write', 'event_parse', 'plaza',
-    'plaza_detail', 'experiences', 'ideas',
+    'plaza_detail', 'experiences', 'ideas', 'home', 'account',
     'editor', 'draft', 'experience_write', 'parse', 'pdf', 'markdown', 'export', 'interviews',
     'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file', 'reference_titles']);
   const nodeFor = (value, method = 'GET') => {
     try {
       const url = new URL(value, location.href);
       if (url.origin !== location.origin) return null;
-      const path = url.pathname.replace(/\/$/, '');
+      const path = url.pathname.replace(/\/$/, '') || '/';
+      if (path === '/') return 'home';
       if (path === '/auth/login') return 'login';
       if (path === '/auth/register') return 'register';
       if (path === '/auth/logout') return 'logout';
+      if (['/auth/forgot-password', '/auth/reset-password', '/auth/verify', '/auth/resend-verification']
+        .includes(path)) return 'account';
       if (path.startsWith('/api/mobile/v1/')) return 'mobile';
-      if (path.startsWith('/resumes/') && /\/(pdf|download)$/.test(path)) return 'resume_file';
+      if (path.startsWith('/resumes/') && (/\/images\//.test(path) || /\/(pdf|download)$/.test(path))) return 'resume_file';
       if (!path.startsWith('/my-schedule')) return null;
       const tail = path.slice('/my-schedule'.length);
       if (tail === '/ideas' || tail.startsWith('/ideas/')) return 'ideas';
       if (tail === '/resume/current') return 'resume_state';
+      if (tail === '/reference-title') return 'reference_titles';
       if (tail.startsWith('/admin') || tail.startsWith('/telemetry')) return null;
       if (tail === '') return 'calendar';
       if (tail === '/new') return 'schedule_new';

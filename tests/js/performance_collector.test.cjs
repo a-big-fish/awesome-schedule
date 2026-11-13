@@ -106,6 +106,21 @@ test('telemetry and administrator fetches never collect themselves', async () =>
   assert.equal(app.queued().length, 0);
 });
 
+test('home, account recovery, reference lookup and resume images keep fixed nodes', async () => {
+  const app = browser();
+  const expected = [
+    ['/', 'home'],
+    ['/auth/forgot-password', 'account'], ['/auth/reset-password', 'account'],
+    ['/auth/verify', 'account'], ['/auth/resend-verification', 'account'],
+    ['/my-schedule/reference-title?url=https://private.example/secret', 'reference_titles'],
+    ['/resumes/private-id/images/private-image-id', 'resume_file'],
+  ];
+  for (const [path] of expected) await app.context.window.fetch(path);
+  await app.fire(500);
+  assert.deepEqual(app.queued().map(sample => sample.node), expected.map(([, node]) => node));
+  assert.equal(JSON.stringify(app.queued()).includes('private'), false);
+});
+
 test('top navigation pages retain separate fixed monitoring nodes', async () => {
   const app = browser();
   const expected = [

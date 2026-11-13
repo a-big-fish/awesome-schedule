@@ -22,9 +22,11 @@ NODE_LABELS = {
     "resume_state": "当前简历状态", "resume_file": "简历文件",
     "reference_titles": "参考资料标题状态",
     "ideas": "待安排事项",
+    "home": "首页",
+    "account": "账号验证/找回",
 }
 METRIC_LABELS = {
-    "request": "请求", "auth": "会话鉴权", "db_connect": "数据库连接",
+    "request": "请求", "auth": "会话鉴权",
     "db_pool_wait": "数据库连接池借用等待",
     "db_query": "数据库执行/提交", "ttfb": "首字节 TTFB", "load": "页面加载",
     "lcp": "最大内容绘制 LCP", "longtask": "主线程长任务", "cache_render": "缓存页面呈现",
@@ -54,13 +56,18 @@ def channel_for_request(request) -> str:
 
 def node_for_path(path: str, method: str = "GET") -> str | None:
     """Map paths to fixed names; never retain IDs, query strings, or titles."""
-    path = path.split("?", 1)[0].rstrip("/")
+    path = path.split("?", 1)[0].rstrip("/") or "/"
+    if path == "/":
+        return "home"
     if path == "/auth/login":
         return "login"
     if path == "/auth/register":
         return "register"
     if path == "/auth/logout":
         return "logout"
+    if path in {"/auth/forgot-password", "/auth/reset-password", "/auth/verify",
+                "/auth/resend-verification"}:
+        return "account"
     if path.startswith("/api/mobile/v1/"):
         tail = path[len("/api/mobile/v1"):]
         if tail == "/profile":
@@ -74,7 +81,7 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         if tail.startswith("/events"):
             return "event_write" if method != "GET" else "calendar"
         return "mobile"
-    if path.startswith("/resumes/") and path.endswith(("/pdf", "/download")):
+    if path.startswith("/resumes/") and ("/images/" in path or path.endswith(("/pdf", "/download"))):
         return "resume_file"
     if not path.startswith("/my-schedule"):
         return None
@@ -99,6 +106,8 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         if tail.endswith("/reference-titles"):
             return "reference_titles"
         return "event" if method == "GET" else "event_write"
+    if tail == "/reference-title":
+        return "reference_titles"
     if tail == "/interviews" or tail == "/resume":
         return "interviews"
     if tail.startswith("/interviews/"):
