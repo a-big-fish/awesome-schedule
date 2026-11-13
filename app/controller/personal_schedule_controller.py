@@ -4,7 +4,7 @@ from itertools import zip_longest
 from hashlib import sha256
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
@@ -25,7 +25,9 @@ from app.service.resume_parser_service import ResumeParserService
 from app.service.personal_resume_service import PersonalResumeStateService
 from app.core.dependencies import get_personal_idea_service
 from app.service.personal_idea_service import PersonalIdeaService
-from uuid import uuid5, NAMESPACE_URL
+from uuid import UUID, uuid5, NAMESPACE_URL
+from app.controller.schema.calendar_sync_dto import CalendarSyncInput
+from app.service.calendar_sync_service import CalendarSyncService
 
 router = APIRouter(prefix="/my-schedule", tags=["personal-schedule"])
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
@@ -370,6 +372,28 @@ def personal_calendar_data(request: Request,
     context.update(request=request, show_all=False, calendar_bootstrap=None)
     payload["shell"] = templates.get_template("personal_dashboard.html").render(context)
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/calendar-sync/{operation_id}")
+def sync_personal_calendar(operation_id: UUID, command: CalendarSyncInput, request: Request,
+                           background: BackgroundTasks,
+                           service: PersonalScheduleService = Depends(get_personal_schedule_service),
+                           ideas: PersonalIdeaService = Depends(get_personal_idea_service)):
+    try:
+        result = CalendarSyncService.apply(service, ideas, str(operation_id), command)
+    except PersonalEventConflictWarning as exc:
+        return JSONResponse({"detail": "日程时间有重叠", "conflicts": exc.event_titles}, status_code=409)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (ValueError, MeetingParseError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if command.action in {"create", "edit"} and result["event"]:
+        def enrich():
+            event = service.get_event(result["event"]["id"])
+            if event:
+                request.app.state.reference_titles.enrich_event(service, event)
+        background.add_task(enrich)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/events/{event_id}/completion")

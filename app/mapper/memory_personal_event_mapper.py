@@ -1,6 +1,7 @@
 from threading import RLock
+from copy import deepcopy
 
-from app.mapper.base_personal_event_mapper import BasePersonalEventMapper
+from app.mapper.base_personal_event_mapper import BasePersonalEventMapper, SyncApply, SyncResult
 from app.model.personal_event import PersonalEvent
 
 
@@ -8,6 +9,25 @@ class MemoryPersonalEventMapper(BasePersonalEventMapper):
     def __init__(self) -> None:
         self._events: dict[str, PersonalEvent] = {}
         self._lock = RLock()
+        self._sync_receipts = {}
+
+    def execute_sync_once(self, owner_id: str, operation_id: str, request_hash: str,
+                          apply: SyncApply) -> SyncResult:
+        with self._lock:
+            key = (owner_id, operation_id)
+            receipt = self._sync_receipts.get(key)
+            if receipt:
+                if receipt[0] != request_hash:
+                    raise ValueError("同步操作标识已被用于其他内容")
+                return deepcopy(receipt[1])
+            before = deepcopy(self._events)
+            try:
+                result = apply(self)
+                self._sync_receipts[key] = (request_hash, deepcopy(result))
+                return result
+            except Exception:
+                self._events = before
+                raise
 
     def save(self, event: PersonalEvent) -> PersonalEvent:
         with self._lock:

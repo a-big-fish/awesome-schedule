@@ -143,6 +143,7 @@ class PersonalScheduleService:
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
         source_idea_id: str | None = None,
+        event_id: str | None = None,
     ) -> PersonalEvent:
         idea_event_id = str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{source_idea_id}")) if source_idea_id else None
         if idea_event_id:
@@ -170,6 +171,8 @@ class PersonalScheduleService:
         )
         if idea_event_id:
             event.id = idea_event_id
+        elif event_id:
+            event.id = event_id
         return self.save_event(event, confirm_overlap)
 
     def from_invitation(

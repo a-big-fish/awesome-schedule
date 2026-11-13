@@ -8,6 +8,10 @@
 .calendar-toolbar-end .personal-view-switch { margin: 0; padding: 3px; gap: 2px; background: #f3f5fa; border-radius: 9px; }
 .calendar-toolbar-end .personal-view-switch a { padding: 6px 10px; border: 0; }
 .calendar-workspace-subtoolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 18px; color: var(--muted); border-bottom: 1px solid var(--border); font-size: 12px; }
+.calendar-outbox-status { flex-shrink: 0; padding: 8px 18px; background: #f4f7ff; color: #33456e; font-size: 12px; max-height: 160px; overflow: auto; }
+.calendar-outbox-status[hidden] { display: none; }
+.calendar-outbox-status > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.calendar-outbox-status .btn { padding: 4px 8px; min-height: 32px; font-size: 12px; }
 .calendar-day-heading { display: flex; justify-content: center; align-items: center; min-height: 72px; padding: 14px 20px; }
 .calendar-day-heading h2 { margin: 0; text-align: center; font-size: 18px; line-height: 1.5; }
 .personal-dashboard-page .personal-time-table { margin: 0; }

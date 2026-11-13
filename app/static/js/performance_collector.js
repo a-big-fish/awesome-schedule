@@ -26,6 +26,8 @@
       if (tail === '') return 'calendar';
       if (tail === '/new') return 'schedule_new';
       if (tail === '/parse') return 'event_parse';
+      if (tail.startsWith('/calendar-sync/')) return 'event_write';
+      if (tail === '/calendar-data') return 'calendar';
       if (tail.startsWith('/events')) return tail.endsWith('/reference-titles') ? 'reference_titles' : method === 'GET' ? 'event' : 'event_write';
       if (tail === '/interviews' || tail === '/resume') return 'interviews';
       if (tail.startsWith('/interviews/')) return 'interview_detail';

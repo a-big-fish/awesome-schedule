@@ -1,9 +1,18 @@
 from abc import ABC, abstractmethod
+from typing import Any, Callable
 
 from app.model.personal_event import PersonalEvent
 
+SyncResult = dict[str, Any]
+SyncApply = Callable[["BasePersonalEventMapper"], SyncResult]
+
 
 class BasePersonalEventMapper(ABC):
+    def execute_sync_once(self, owner_id: str, operation_id: str, request_hash: str,
+                          apply: SyncApply) -> SyncResult:
+        """Atomically persist an event change and its idempotency receipt."""
+        raise NotImplementedError
+
     def existing_ids(self, event_ids: list[str], owner_id: str) -> set[str]:
         """Find arranged ideas without returning their event contents."""
         wanted = set(event_ids)

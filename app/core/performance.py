@@ -91,6 +91,10 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         return "schedule_new"
     if tail == "/parse":
         return "event_parse"
+    if tail.startswith("/calendar-sync/"):
+        return "event_write"
+    if tail == "/calendar-data":
+        return "calendar"
     if tail.startswith("/events"):
         if tail.endswith("/reference-titles"):
             return "reference_titles"

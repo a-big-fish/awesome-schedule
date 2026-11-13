@@ -21,6 +21,7 @@
     content.querySelectorAll('script').forEach(script => script.remove());
     dialog.scrollTop = 0; dirty = false;
     document.dispatchEvent(new CustomEvent('personal:event-dialog-rendered'));
+    window.awesomeInterviewCalendarData?.rememberForm(content.querySelector('.personal-event-form'));
     content.querySelector('h1')?.setAttribute('tabindex', '-1');
     content.querySelector('h1')?.focus({preventScroll: true});
   }
@@ -35,6 +36,9 @@
     if (!dialog.open) dialog.showModal();
     message('正在加载日程…'); content.setAttribute('aria-busy', 'true');
     try {
+      const local = await window.awesomeInterviewCalendarData?.eventPage(activeUrl);
+      if (version !== generation) return;
+      if (local) { paint(local); message(''); return; }
       const response = await fetch(activeUrl, {credentials: 'same-origin', cache: 'no-store',
         signal: controller.signal, headers: {Accept: 'text/html'}});
       if (version !== generation) return;
@@ -47,6 +51,7 @@
     } catch (error) { if (error.name !== 'AbortError' && version === generation) message(error.message, true); }
     finally { if (version === generation) content.removeAttribute('aria-busy'); }
   }
+  window.awesomeInterviewOpenEvent = url => open(url);
   document.addEventListener('click', event => {
     const link = event.target.closest('a[href]');
     if (!link || event.defaultPrevented || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.target || link.hasAttribute('download')) return;
@@ -68,6 +73,12 @@
     if (busy) return;
     busy = true; message('正在保存…'); content.setAttribute('aria-busy', 'true');
     try {
+      if (window.awesomeInterviewCalendarData?.queueForm) {
+        const result = await window.awesomeInterviewCalendarData.queueForm(form);
+        if (!result) { message(''); return; }
+        dirty = false; busy = false; close();
+        await window.awesomeInterviewCalendarData.showQueued(result); return;
+      }
       const response = await fetch(form.action, {method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: {Accept: 'text/html', 'X-Event-Dialog': '1', ...(window.awesomeInterviewCalendarData ? {'X-Calendar-Cache': '1'} : {})}, body: new FormData(form)});
       const resolved = new URL(response.url, location.href);

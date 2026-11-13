@@ -262,7 +262,10 @@
   };
 
   window.awesomeInterviewCalendarChanged = async () => {
-    clearPages(); channel?.postMessage('invalidate'); pageEdited = false;
+    clearPages();
+    // The outbox broadcasts its committed state itself; do not trigger unrelated remote refreshes.
+    if (!window.awesomeInterviewCalendarData?.queueForm) channel?.postMessage('invalidate');
+    pageEdited = false;
     const target = new URL(location.href), id = navigationId;
     if (!isCalendar(target)) return;
     const html = await load(target.href, true);
