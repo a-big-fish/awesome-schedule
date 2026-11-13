@@ -1,4 +1,6 @@
 from fastapi.testclient import TestClient
+
+import pytest
 from app.core.dependencies import get_personal_idea_mapper
 from app.model.auth import AuthUser
 from app.service.auth_service import hash_password
@@ -91,6 +93,27 @@ def test_pending_bubble_summary_is_private_bounded_and_excludes_arranged_ideas(t
         for item in mapper.list_all(user.id):
             mapper.delete(item.id, user.id)
         assert client.get('/my-schedule/ideas/summary').json() == {'total': 0, 'items': []}
+
+
+def test_ideas_page_matches_arranged_ideas_without_listing_every_event(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid5, NAMESPACE_URL
+    from app.model.personal_event import PersonalEvent
+    from app.model.personal_idea import PersonalIdea
+    app, users, _, events, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email='ideapage@example.com', password_hash=hash_password('test-password'), email_verified=True)
+    users.create_user(user)
+    mapper = app.dependency_overrides[get_personal_idea_mapper]()
+    idea = mapper.save(PersonalIdea(owner_id=user.id, title='待安排的想法'))
+    start = datetime.now(timezone.utc)
+    events.save(PersonalEvent(id=str(uuid5(NAMESPACE_URL, f'idea:{user.id}:{idea.id}')), owner_id=user.id,
+                              type='personal', title='安排后的任务', start_at=start, end_at=start + timedelta(hours=1)))
+    events.list_all = lambda *args, **kwargs: pytest.fail('ideas page must not list every event')
+    with TestClient(app, base_url='https://testserver') as client:
+        _login(client, user.email, 'test-password')
+        page = client.get('/my-schedule/ideas')
+        assert page.status_code == 200 and '待安排的想法' in page.text and '已创建日程' in page.text
+        assert client.get('/my-schedule/ideas?abandoned=true').status_code == 200
 
 
 def test_bubble_arranged_lookup_is_one_scoped_id_only_query():

@@ -39,6 +39,14 @@ class MemoryPersonalEventMapper(BasePersonalEventMapper):
             event = self._events.get(event_id)
             return event.model_copy(deep=True) if event and event.owner_id == owner_id else None
 
+    def existing_ids(self, event_ids: list[str], owner_id: str) -> set[str]:
+        wanted = set(event_ids)
+        if not wanted:
+            return set()
+        with self._lock:
+            return {event_id for event_id, event in self._events.items()
+                    if event_id in wanted and event.owner_id == owner_id}
+
     def list_all(self, owner_id: str = "local") -> list[PersonalEvent]:
         with self._lock:
             events = [event for event in self._events.values() if event.owner_id == owner_id]

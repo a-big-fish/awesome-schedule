@@ -25,7 +25,7 @@ from app.service.resume_parser_service import ResumeParserService
 from app.service.personal_resume_service import PersonalResumeStateService
 from app.core.dependencies import get_personal_idea_service
 from app.service.personal_idea_service import PersonalIdeaService
-from uuid import UUID, uuid5, NAMESPACE_URL
+from uuid import UUID
 from app.controller.schema.calendar_sync_dto import CalendarSyncInput
 from app.service.calendar_sync_service import CalendarSyncService
 
@@ -481,13 +481,12 @@ def personal_ideas(request: Request, abandoned: bool = False, edit: str | None =
         raise HTTPException(404, str(exc)) from exc
     if selected and selected.status != "pending":
         raise HTTPException(409, "已放弃事项不能修改")
-    event_ids = {event.id for event in schedule.list_events()}
     items = ideas.list(abandoned)
-    scheduled = {item.id: str(uuid5(NAMESPACE_URL, f"idea:{ideas.owner_id}:{item.id}")) for item in items}
+    # Only the deterministic event ids are needed, so the ideas page no longer loads every event.
+    scheduled = {} if abandoned else ideas.arranged_event_ids(schedule, items)
     return templates.TemplateResponse(request, "personal_ideas.html", {
         "ideas": items, "abandoned": abandoned, "selected": selected,
-        "values": selected, "error": None,
-        "scheduled": {key: value for key, value in scheduled.items() if value in event_ids}})
+        "values": selected, "error": None, "scheduled": scheduled})
 
 
 @router.post("/ideas", response_class=HTMLResponse)

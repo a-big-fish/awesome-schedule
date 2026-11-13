@@ -27,13 +27,18 @@ class PersonalIdeaService:
                                               "updated_at": datetime.now(ZoneInfo("Asia/Shanghai"))})
         return self.mapper.save(updated)
 
+    def arranged_event_ids(self, schedule, items=None) -> dict[str, str]:
+        """Map arranged ideas to their event ids without loading whole event payloads."""
+        candidates = {item.id: str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{item.id}"))
+                      for item in (self.list() if items is None else items)}
+        arranged = schedule.mapper.existing_ids(list(candidates.values()), self.owner_id)
+        return {idea_id: event_id for idea_id, event_id in candidates.items() if event_id in arranged}
+
     def pending_summary(self, schedule):
         """Exclude converted ideas and expose a bounded title-only preview."""
         items = self.list()
-        event_ids = {item.id: str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{item.id}"))
-                     for item in items}
-        arranged = schedule.mapper.existing_ids(list(event_ids.values()), self.owner_id)
-        pending = [item for item in items if event_ids[item.id] not in arranged]
+        arranged = self.arranged_event_ids(schedule, items)
+        pending = [item for item in items if item.id not in arranged]
         return {"total": len(pending), "items": [{"id": item.id, "title": item.title}
                                                  for item in pending[:5]]}
 
