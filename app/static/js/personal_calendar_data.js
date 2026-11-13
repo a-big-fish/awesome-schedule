@@ -196,9 +196,15 @@
     if(event.repeat_weekdays.length){if(get('start_at').slice(0,10)!==get('end_at').slice(0,10))throw Error('重复任务不允许跨天');event.skip_weekends=false}
     return event;
   }
+  function cleanEditNavigation(section) {
+    // Older cached shells may already contain several generated return-button rows.
+    // Strip them both when reading and writing a shell, rather than caching rendered UI recursively.
+    section.querySelectorAll('[data-local-edit-return], :scope > .settings-actions, .personal-edit-heading > a').forEach(node=>node.remove());
+  }
   function safeFormShell(form) {
     const section=form.closest('.personal-form-page');if(!section)return snapshot.form_shell;
     const copy=section.cloneNode(true);
+    cleanEditNavigation(copy);
     copy.querySelectorAll('script,dialog,.parse-tip').forEach(node=>node.remove());
     copy.querySelectorAll('[name=csrf_token]').forEach(node=>node.remove());
     copy.querySelectorAll('input:not([type=checkbox]):not([type=radio]),textarea').forEach(node=>{node.value='';node.setAttribute('value','');if(node.tagName==='TEXTAREA')node.textContent=''});
@@ -264,6 +270,7 @@
       if(!snapshot.form_shell)return null;
       if(failed)e={...e,...failed.command.event};
       const doc=new DOMParser().parseFromString(snapshot.form_shell,'text/html'),section=doc.querySelector('.personal-form-page'),form=section.querySelector('.personal-event-form');
+      cleanEditNavigation(section);
       section.querySelectorAll('form:not(.personal-event-form),.personal-type-selection,.section-description').forEach(node=>node.remove());
       section.querySelector('h1').textContent='编辑日程';form.action='/my-schedule/events/'+parent+'/edit';
       const set=(name,value)=>form.querySelectorAll(`[name="${name}"]`).forEach(node=>{
@@ -283,7 +290,9 @@
       let csrfInput=form.querySelector('[name=csrf_token]');if(!csrfInput){csrfInput=document.createElement('input');csrfInput.type='hidden';csrfInput.name='csrf_token';form.append(csrfInput)}csrfInput.setAttribute('value',csrf());
       form.querySelector('[type=submit]').textContent='保存修改';
       section.querySelectorAll('a[href]').forEach(link=>{if(!link.target)link.href='/my-schedule/events/'+parent});
-      const actions=document.createElement('div');actions.className='settings-actions';actions.innerHTML=`<a class="btn secondary" href="/my-schedule/events/${parent}">返回详情</a>`;section.prepend(actions);
+      let heading=section.querySelector('.personal-edit-heading');
+      if(!heading){heading=document.createElement('div');heading.className='personal-toolbar personal-edit-heading';const title=section.querySelector('h1');title.before(heading);heading.append(title)}
+      const back=document.createElement('a');back.className='btn secondary';back.dataset.localEditReturn='';back.href='/my-schedule/events/'+parent;back.textContent='返回详情';heading.append(back);
       const deletion=document.createElement('form');deletion.className='personal-delete-form';deletion.method='post';deletion.action='/my-schedule/events/'+parent+'/delete';deletion.innerHTML='<button class="btn secondary" type="submit">删除日程</button>';section.append(deletion);
       return section.outerHTML;
     }
