@@ -35,6 +35,16 @@ class SharedScope:
 shared_connection: ContextVar[SharedScope | None] = ContextVar("shared_connection", default=None)
 
 
+def release_shared_connection() -> None:
+    """Return the request's connection before a long non-database phase (render, storage, export).
+
+    The scope stays in place, so a later query in the same request simply borrows again.
+    """
+    shared = shared_connection.get()
+    if shared is not None:
+        shared.close()
+
+
 def get_pool(conninfo: str, **kwargs) -> ConnectionPool:
     # Physical connection establishment and pool acquisition both fail within 3s.
     conninfo = make_conninfo(conninfo, connect_timeout=3)

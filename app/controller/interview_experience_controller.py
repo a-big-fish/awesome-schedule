@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.controller.page_controller import templates
 from app.core.dependencies import get_interview_experience_service
+from app.core.postgres_pool import release_shared_connection
 from app.model.auth import AuthUser
 from app.model.interview_experience import CATEGORY_LABELS
 from app.service.interview_experience_export import (
@@ -418,7 +419,9 @@ def markdown_export(experience_id: str, style: str = "lines", title: str = "",
                     service: InterviewExperienceService = Depends(get_interview_experience_service)):
     experience = _export_experience(_required(service, experience_id), title, hide_company,
                                     hide_position, hide_interviewed_at)
-    content = export_markdown(experience, service.numbered_questions(experience_id),
+    rows = service.numbered_questions(experience_id)
+    release_shared_connection()  # rendering the export no longer needs the database
+    content = export_markdown(experience, rows,
                               _export_style(style), hide_on_site_answer=hide_on_site_answer,
                               hide_review_answer=hide_review_answer,
                               hide_interviewer_answer=hide_interviewer_answer)
@@ -435,7 +438,9 @@ def pdf_export(experience_id: str, style: str = "lines", inline: bool = False, t
                service: InterviewExperienceService = Depends(get_interview_experience_service)):
     experience = _export_experience(_required(service, experience_id), title, hide_company,
                                     hide_position, hide_interviewed_at)
-    content = export_pdf(experience, service.numbered_questions(experience_id),
+    rows = service.numbered_questions(experience_id)
+    release_shared_connection()  # rendering the PDF no longer needs the database
+    content = export_pdf(experience, rows,
                          _export_style(style), hide_on_site_answer=hide_on_site_answer,
                          hide_review_answer=hide_review_answer,
                          hide_interviewer_answer=hide_interviewer_answer)

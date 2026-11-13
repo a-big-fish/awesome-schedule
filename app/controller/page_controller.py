@@ -18,9 +18,20 @@ from app.service.resume_parser_service import ResumeParserService
 from app.service.schedule_service import ScheduleService
 from app.service.enterprise_calendar_service import EnterpriseCalendarService
 from app.model.enterprise_calendar import EnterpriseCalendarSettings
+from app.core.postgres_pool import release_shared_connection
 
 router = APIRouter(tags=["pages"])
-templates = Jinja2Templates(directory="app/templates")
+
+
+class _RenderingTemplates(Jinja2Templates):
+    """Rendering is pure CPU, so the pooled connection goes back before the template runs."""
+
+    def TemplateResponse(self, *args, **kwargs):
+        release_shared_connection()
+        return super().TemplateResponse(*args, **kwargs)
+
+
+templates = _RenderingTemplates(directory="app/templates")
 
 _STATIC_ROOT = Path(__file__).resolve().parent.parent / "static"
 

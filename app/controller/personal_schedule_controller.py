@@ -15,6 +15,7 @@ from app.core.dependencies import (
     get_personal_schedule_service, get_resume_parser_service, get_personal_resume_state_service,
 )
 from app.core.exceptions import MeetingParseError, PersonalEventConflictWarning, ResumeParseError
+from app.core.postgres_pool import release_shared_connection
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.model.my_resume_profile import MyResumeProfile
 from app.model.personal_event import PersonalEvent, ReferenceLink
@@ -370,6 +371,7 @@ def personal_calendar_data(request: Request,
     context = _dashboard_context(service, datetime.now(DISPLAY_ZONE).date(), events=[],
                                  workday_start=work_start, workday_end=work_end)
     context.update(request=request, show_all=False, calendar_bootstrap=None)
+    release_shared_connection()  # the shell render is pure CPU; the payload is already built
     payload["shell"] = templates.get_template("personal_dashboard.html").render(context)
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 

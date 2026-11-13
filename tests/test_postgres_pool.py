@@ -93,6 +93,32 @@ def test_write_requests_keep_their_own_connection(fake_pool):
     assert fake_pool.borrows == 2 and again is not borrowed
 
 
+def test_releasing_before_a_slow_phase_makes_the_next_query_borrow_again(fake_pool):
+    token = shared_connection.set(SharedScope())
+    try:
+        with connection(DSN, row_factory=dict) as first:
+            first.execute("SELECT 1")
+        assert fake_pool.borrows == 1
+        postgres_pool.release_shared_connection()
+        assert fake_pool.scopes[0].__exit__.call_count == 1
+        with connection(DSN, row_factory=dict) as again:
+            again.execute("SELECT 1")
+        assert fake_pool.borrows == 2 and again is not first
+    finally:
+        shared_connection.reset(token)
+
+
+def test_page_rendering_releases_the_connection_before_the_template_runs(monkeypatch):
+    from starlette.requests import Request
+    import app.controller.page_controller as pages
+    released = []
+    monkeypatch.setattr(pages, "release_shared_connection", lambda: released.append(True))
+    request = Request({"type": "http", "method": "GET", "path": "/my-schedule", "headers": [],
+                       "query_string": b"", "scheme": "https", "server": ("testserver", 443), "app": None})
+    pages.templates.TemplateResponse(request, "_personal_idea_bubble.html", {})
+    assert released == [True]
+
+
 def test_schema_warm_up_builds_every_cached_mapper(monkeypatch):
     import app.main as main
     calls = []
