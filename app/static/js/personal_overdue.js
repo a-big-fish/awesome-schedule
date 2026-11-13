@@ -25,7 +25,7 @@
   });
   document.addEventListener('submit', async event => {
     const form = event.target;
-    if (!form.matches('[data-defer-form]')) return;
+    if (!form.matches('[data-defer-form]') || window.awesomeInterviewCalendarData?.handlesMutation(form)) return;
     event.preventDefault();
     const button = form.querySelector('[type="submit"]');
     const error = form.querySelector('[data-defer-error]');

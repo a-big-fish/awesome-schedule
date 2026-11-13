@@ -2,6 +2,7 @@
 {% block title %}日程表 - Awesome Interview{% endblock %}
 {% block body_class %}page-wide personal-app personal-scroll-page personal-dashboard-page{% endblock %}
 {% block content %}
+{% if calendar_bootstrap and not request.state.is_guest|default(false) %}<script type="application/json" data-calendar-initial>{{ calendar_bootstrap|tojson }}</script>{% endif %}
 {% if request.state.is_guest|default(false) %}<p class="guest-demo-notice">游客体验 · 以下均为示例日程，登录后查看和管理你的安排。</p>{% endif %}
 <div class="personal-toolbar">
   <div><h1 class="section-title">我的日程</h1><p class="section-description">北京时间 · 面试、笔试、课程与其他安排集中查看</p></div>

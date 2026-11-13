@@ -69,7 +69,7 @@
     busy = true; message('正在保存…'); content.setAttribute('aria-busy', 'true');
     try {
       const response = await fetch(form.action, {method: 'POST', credentials: 'same-origin', cache: 'no-store',
-        headers: {Accept: 'text/html', 'X-Event-Dialog': '1'}, body: new FormData(form)});
+        headers: {Accept: 'text/html', 'X-Event-Dialog': '1', ...(window.awesomeInterviewCalendarData ? {'X-Calendar-Cache': '1'} : {})}, body: new FormData(form)});
       const resolved = new URL(response.url, location.href);
       if (response.status === 401 || response.status === 403 || resolved.pathname.startsWith('/auth/')) {
         message('登录状态已过期，请重新登录后再保存。', true); return;
@@ -79,6 +79,10 @@
         message(response.status === 409 ? '存在重叠安排，请确认是否仍要保存。' : '请检查并修改表单中的错误。', true); return;
       }
       if (!response.ok) throw new Error('保存失败，已保留输入内容，请稍后重试。');
+      if (response.headers.get('content-type')?.includes('json')) {
+        const result = await response.json();
+        if (window.awesomeInterviewCalendarData) await window.awesomeInterviewCalendarData.applyMutation(result);
+      }
       dirty = false; busy = false; close();
       if (window.awesomeInterviewCalendarChanged) await window.awesomeInterviewCalendarChanged();
       else location.reload();

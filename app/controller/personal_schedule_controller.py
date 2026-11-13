@@ -45,6 +45,33 @@ def _reference_form(form) -> list[dict[str, str]]:
             if str(title).strip() or str(url).strip()]
 
 
+def _calendar_event_data(event: PersonalEvent) -> dict[str, Any]:
+    """Only calendar metadata belongs in the browser snapshot; never resume/raw files."""
+    return event.model_dump(mode="json", exclude={"raw_invitation", "resume_id", "attachment_refs", "owner_id"})
+
+
+def _calendar_payload(owner_id: str, events: list[PersonalEvent], workday_start: str = "08:00",
+                      workday_end: str = "18:00") -> dict[str, Any]:
+    return {"schema_version": 1, "user_id": owner_id,
+            "server_time": datetime.now(DISPLAY_ZONE).isoformat(),
+            "workday_start": workday_start, "workday_end": workday_end,
+            "events": [_calendar_event_data(event) for event in events]}
+
+
+def _calendar_mutation(request: Request, service: PersonalScheduleService,
+                       event: PersonalEvent | None = None, deleted_id: str | None = None):
+    if request.headers.get("x-calendar-cache") != "1":
+        return None
+    # A repeated occurrence is patched through its parent rule, not stored as a new task.
+    if event is not None and "~" in event.id:
+        event = service.get_event(event.id.split("~", 1)[0])
+    return JSONResponse({"schema_version": 1, "user_id": service.owner_id,
+                         "server_time": datetime.now(DISPLAY_ZONE).isoformat(),
+                         "event": _calendar_event_data(event) if event else None,
+                         "deleted_id": deleted_id.split("~", 1)[0] if deleted_id else None},
+                        headers={"Cache-Control": "no-store"})
+
+
 def _event_view(event: PersonalEvent, now: datetime) -> dict[str, Any]:
     start = event.start_at.astimezone(DISPLAY_ZONE)
     end = event.end_at.astimezone(DISPLAY_ZONE)
@@ -253,6 +280,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                 cross_day_summary.append({**item, "summary_first": min(indexes) + 1,
                                           "summary_last": max(indexes) + 2})
     return {
+        "calendar_bootstrap": _calendar_payload(service.owner_id, all_events, workday_start, workday_end),
         "board_row_count": len(board_rows),
         "cross_day_summary": cross_day_summary,
         "selected_date": selected_date,
@@ -329,6 +357,21 @@ def personal_dashboard(
     return templates.TemplateResponse(request, "personal_dashboard.html", context)
 
 
+@router.get("/calendar-data")
+def personal_calendar_data(request: Request,
+                           service: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    user = getattr(request.state, "user", None)
+    work_start, work_end = (user.workday_start, user.workday_end) if user else ("08:00", "18:00")
+    events = service.list_events()
+    payload = _calendar_payload(service.owner_id, events, work_start, work_end)
+    # The empty SSR workspace is a reusable shell, not a separate request per date.
+    context = _dashboard_context(service, datetime.now(DISPLAY_ZONE).date(), events=[],
+                                 workday_start=work_start, workday_end=work_end)
+    context.update(request=request, show_all=False, calendar_bootstrap=None)
+    payload["shell"] = templates.get_template("personal_dashboard.html").render(context)
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/events/{event_id}/completion")
 async def set_personal_event_completion(
     event_id: str, request: Request,
@@ -339,11 +382,13 @@ async def set_personal_event_completion(
     if completed not in {"true", "false"}:
         raise HTTPException(status_code=422, detail="完成状态无效")
     try:
-        service.set_event_completed(event_id, completed == "true")
+        event = service.set_event_completed(event_id, completed == "true")
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="日程不存在") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result := _calendar_mutation(request, service, event):
+        return result
     view = str(form.get("view", "day"))
     view = view if view in {"day", "week", "month"} else "day"
     try:
@@ -367,11 +412,13 @@ async def resolve_personal_overdue(
         end_at = datetime.fromisoformat(str(form["end_at"])) if form.get("end_at") else None
         if end_at is not None and end_at.tzinfo is None:
             end_at = end_at.replace(tzinfo=DISPLAY_ZONE)
-        await run_in_threadpool(service.resolve_overdue, event_id, str(form.get("action", "")), end_at)
+        event = await run_in_threadpool(service.resolve_overdue, event_id, str(form.get("action", "")), end_at)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="日程不存在") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result := _calendar_mutation(request, service, event):
+        return result
     return RedirectResponse("/my-schedule", status_code=303)
 
 
@@ -541,6 +588,8 @@ async def create_personal_event(
         return _new_page(request, error=str(exc), values=values,
                          preview=preview, status_code=422)
     request.app.state.reference_titles.enrich_event(service, event)
+    if result := _calendar_mutation(request, service, event):
+        return result
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
     return RedirectResponse(url=f"/my-schedule?view=day&date_value={event_day}", status_code=303)
 
@@ -565,11 +614,13 @@ def personal_event_detail(
 
 
 @router.post("/events/{event_id}/close-repeat")
-def close_personal_repeat(event_id: str, service: PersonalScheduleService = Depends(get_personal_schedule_service)):
+def close_personal_repeat(event_id: str, request: Request, service: PersonalScheduleService = Depends(get_personal_schedule_service)):
     try:
-        service.close_repeat(event_id)
+        event = service.close_repeat(event_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if result := _calendar_mutation(request, service, event):
+        return result
     return RedirectResponse("/my-schedule", status_code=303)
 
 
@@ -660,6 +711,8 @@ async def edit_personal_event(
             "error": str(exc), "warnings": [], "values": values, "editing": True,
         }, status_code=422)
     request.app.state.reference_titles.enrich_event(service, event)
+    if result := _calendar_mutation(request, service, event):
+        return result
     if request.headers.get("x-event-dialog") == "1":
         return JSONResponse({"saved": True})
     event_day = event.start_at.astimezone(DISPLAY_ZONE).date().isoformat()
@@ -675,6 +728,8 @@ def delete_personal_event(
     deleted = service.delete_event(event_id)
     if not deleted and request.app.state.settings.app_mode == "public_personal":
         raise HTTPException(status_code=404, detail="日程不存在")
+    if result := _calendar_mutation(request, service, deleted_id=event_id):
+        return result
     return RedirectResponse(url="/my-schedule", status_code=303)
 
 

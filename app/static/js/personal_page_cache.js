@@ -46,6 +46,10 @@
   async function load(url, force = false) {
     url = pageKey(new URL(url, location.href));
     const calendar = isCalendar(new URL(url, location.href));
+    if (calendar && window.awesomeInterviewCalendarData) {
+      const local = await window.awesomeInterviewCalendarData.page(url);
+      if (local) return local;
+    }
     const cache = calendar ? calendarPages : pages;
     const stored = cache.get(url);
     if (!force && isFresh(stored, calendar)) return stored.html;
@@ -90,6 +94,7 @@
   let calendarPrefetching = false;
   let calendarPrefetchTarget = null;
   function scheduleCalendarNeighbors() {
+    if (window.awesomeInterviewCalendarData) return;
     const calendar = document.querySelector('.personal-calendar[data-selected-date]');
     if (!calendar || calendar.dataset.selectedView !== 'day') return;
     calendarPrefetchTarget = calendar.dataset.selectedDate;
@@ -177,6 +182,14 @@
     const id = ++navigationId;
     const key = pageKey(target);
     const calendar = isCalendar(target);
+    if (calendar && window.awesomeInterviewCalendarData) {
+      const local = await window.awesomeInterviewCalendarData.page(key);
+      if (id !== navigationId) return;
+      if (local) {
+        if (addHistory) history.pushState({personalPage: true}, '', key);
+        render(local, true); return;
+      }
+    }
     const stored = (calendar ? calendarPages : pages).get(key);
     const cached = stored?.html;
     if (cached) {
@@ -256,6 +269,8 @@
     if (id === navigationId && pageKey(new URL(location.href)) === pageKey(target)) render(html, false);
   };
 
+  document.addEventListener('personal:calendar-mutated', clearPages);
+
   const resumeDelay = 60000;
   let hiddenAt = document.hidden ? Date.now() : null;
   let lastResumeRefresh = -Infinity;
@@ -292,7 +307,7 @@
       load(pageKey(target)).catch(() => {});
   });
   document.addEventListener('click', (event) => {
-    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-quick-calendar a[href], .personal-view-switch a[href], .personal-form-page a[href], .personal-side-list a[href]');
+    const link = event.target.closest('.page-nav a[href], a.brand[href], .personal-calendar a[href], .personal-quick-calendar a[href], .personal-view-switch a[href], .personal-form-page a[href], .personal-side-list a[href], .personal-side-heading a[href]');
     if (!link || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
         link.target || document.querySelector('[data-experience-editor]')) return;
     const target = new URL(link.href, location.href);
