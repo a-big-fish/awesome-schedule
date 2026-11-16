@@ -1,8 +1,10 @@
 (() => {
   function init() {
     document.querySelectorAll('[data-repeat-enabled]').forEach(toggle => {
-      if (toggle.dataset.bound) return;
-      toggle.dataset.bound = '1';
+      // A cached shell serialises data-* markers from the live DOM but never its listeners,
+      // so remember initialisation on the node itself.
+      if (toggle.__repeatBound) return;
+      toggle.__repeatBound = true;
       const fieldset = toggle.closest('fieldset');
       const days = fieldset.querySelector('.personal-repeat-days');
       const weekend = toggle.closest('form').querySelector('.personal-weekend-option');

@@ -1,11 +1,14 @@
 (() => {
 function initTimePicker() {
+  upgrade(document);
   const eventType = document.querySelector('[data-event-type]');
   const positionField = document.querySelector('[data-position-field]');
   const invitationForm = document.querySelector('[data-invitation-form]');
   const invitationDivider = document.querySelector('[data-invitation-divider]');
-  if (eventType && !eventType.dataset.timePickerReady) {
-    eventType.dataset.timePickerReady = '1';
+  // JS properties, not data attributes: a cached shell serialises data-* from the live DOM,
+  // and an inherited "already initialised" marker would leave the injected form dead.
+  if (eventType && !eventType.__timePickerReady) {
+    eventType.__timePickerReady = true;
     const updateEventFields = () => {
       const isInterview = eventType.value === 'interview';
       if (positionField) {
@@ -21,54 +24,70 @@ function initTimePicker() {
   }
 
   const dialog = document.querySelector('[data-time-dialog]');
-  document.querySelectorAll('input[type="datetime-local"]').forEach(input => {
-    const field = document.createElement('div');
-    field.className = 'personal-time-field';
-    const label = document.createElement('span');
-    label.hidden = true;
-    label.textContent = input.closest('label')?.childNodes[0]?.textContent.trim() || '日期和时间';
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'input personal-time-trigger';
-    trigger.dataset.timeTrigger = '';
-    trigger.setAttribute('aria-label', `选择${label.textContent}`);
-    trigger.setAttribute('aria-haspopup', 'dialog');
-    input.before(field);
-    input.dataset.timeValue = '';
-    input.dataset.timeRequired = input.required ? '1' : '';
-    input.type = 'hidden';
-    field.append(label, input, trigger);
+  // Cached shells are injected after load (dialog edit / local navigation) and arrive with the
+  // picker markup already applied but unbound, so upgrade and label every field lazily.
+  function upgrade(root) {
+    root.querySelectorAll?.('input[type="datetime-local"]').forEach(input => {
+      // JS properties, not data attributes: cached shells serialise data-* from the live DOM,
+      // and a serialised "already bound" marker would leave the injected picker dead.
+      if (input.__timeUpgraded) return;
+      input.__timeUpgraded = true;
+      const field = document.createElement('div');
+      field.className = 'personal-time-field';
+      const label = document.createElement('span');
+      label.hidden = true;
+      label.textContent = input.closest('label')?.childNodes[0]?.textContent.trim() || '日期和时间';
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'input personal-time-trigger';
+      trigger.dataset.timeTrigger = '';
+      trigger.setAttribute('aria-label', `选择${label.textContent}`);
+      trigger.setAttribute('aria-haspopup', 'dialog');
+      input.before(field);
+      input.dataset.timeValue = '';
+      input.dataset.timeRequired = input.required ? '1' : '';
+      input.type = 'hidden';
+      field.append(label, input, trigger);
+    });
+    root.querySelectorAll?.('.personal-time-field').forEach(field => {
+      const input = field.querySelector('[data-time-value]');
+      const trigger = field.querySelector('[data-time-trigger]');
+      if (!input || !trigger) return;
+      const paint = () => { trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间'; };
+      paint();
+      if (field.__timeBound) return;
+      field.__timeBound = true;
+      input.addEventListener('change', paint);
+    });
+    root.querySelectorAll?.('[data-skip-weekends]').forEach(checkbox => {
+      if (checkbox.__bound) return;
+      checkbox.__bound = true;
+      const form = checkbox.closest('form');
+      const start = form.querySelector('[name="start_at"]');
+      const hint = form.querySelector('[data-weekend-hint]');
+      let wasWeekend = false;
+      const update = () => {
+        const day = new Date(`${start.value.slice(0, 10)}T00:00:00Z`).getUTCDay();
+        const weekend = day === 0 || day === 6;
+        checkbox.disabled = weekend;
+        if (weekend) checkbox.checked = false;
+        else if (wasWeekend) checkbox.checked = true;
+        hint.textContent = weekend ? '周末开始的任务不能跳过周末' : '';
+        wasWeekend = weekend;
+      };
+      start.addEventListener('change', update);
+      update();
+    });
+  }
+  upgrade(document);
+  // Delegated clicks keep working for pickers that appear later.
+  document.addEventListener('click', event => {
+    const trigger = event.target.closest?.('[data-time-trigger]');
+    if (!trigger || !dialog) return;
+    const field = trigger.closest('.personal-time-field');
+    if (field) dialog.dispatchEvent(new CustomEvent('time:open', {detail: field}));
   });
-  document.querySelectorAll('[data-skip-weekends]').forEach(checkbox => {
-    if (checkbox.dataset.bound) return;
-    checkbox.dataset.bound = '1';
-    const form = checkbox.closest('form');
-    const start = form.querySelector('[name="start_at"]');
-    const hint = form.querySelector('[data-weekend-hint]');
-    let wasWeekend = false;
-    const update = () => {
-      const day = new Date(`${start.value.slice(0, 10)}T00:00:00Z`).getUTCDay();
-      const weekend = day === 0 || day === 6;
-      checkbox.disabled = weekend;
-      if (weekend) checkbox.checked = false;
-      else if (wasWeekend) checkbox.checked = true;
-      hint.textContent = weekend ? '周末开始的任务不能跳过周末' : '';
-      wasWeekend = weekend;
-    };
-    start.addEventListener('change', update);
-    update();
-  });
-  const fields = [...document.querySelectorAll('.personal-time-field')];
-  fields.forEach(field => {
-    if (field.dataset.timeBound) return;
-    field.dataset.timeBound = '1';
-    const input = field.querySelector('[data-time-value]');
-    const trigger = field.querySelector('[data-time-trigger]');
-    trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间';
-    input.addEventListener('change', () => { trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间'; });
-    trigger.addEventListener('click', () => dialog.dispatchEvent(new CustomEvent('time:open', {detail: field})));
-  });
-  if (!dialog || !fields.length || dialog.dataset.timePickerReady) return;
+  if (!dialog || dialog.dataset.timePickerReady) return;
   dialog.dataset.timePickerReady = '1';
 
   const heading = dialog.querySelector('[data-time-heading]');
@@ -377,7 +396,8 @@ document.addEventListener('personal:navigated', initTimePicker);
 document.addEventListener('personal:event-dialog-rendered', initTimePicker);
 if (typeof MutationObserver === 'function') new MutationObserver(records => {
   if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 &&
-    (node.matches?.('input[type="datetime-local"]') || node.querySelector?.('input[type="datetime-local"]'))))) initTimePicker();
+    (node.matches?.('input[type="datetime-local"], .personal-time-field') ||
+     node.querySelector?.('input[type="datetime-local"], .personal-time-field'))))) initTimePicker();
 }).observe(document.documentElement, {childList: true, subtree: true});
 document.addEventListener('submit', event => {
   const missing = [...event.target.querySelectorAll('[data-time-required="1"]')].find(input => !input.value);
