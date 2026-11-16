@@ -9,6 +9,7 @@ function harness() {
   class FormDataStub {
     constructor(form) {this.form = form;}
     get(name) {return values.get(name) || null;}
+    getAll(name) {return values.get(name) ? [].concat(values.get(name)) : [];}
   }
   const document = {
     readyState: 'complete',
@@ -26,7 +27,10 @@ function harness() {
     document, FormData: FormDataStub, Date, URL, AbortController, console,
     location: {pathname: '/my-schedule/events/abc', href: 'https://test.local/my-schedule/events/abc'},
     navigator: {onLine: true},
-    window: {awesomeInterviewCalendarModel: {},
+    window: {awesomeInterviewCalendarModel: {
+        wallMs: (day, minutes) => Date.parse(
+          `${day}T${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}:00+08:00`),
+      },
       addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
       awesomeInterviewCalendarOutbox: {
         SyncEngine: class {constructor() {this.wake = () => {}; this.stop = () => {}; this.flush = async () => {};}},
@@ -92,6 +96,23 @@ test('restores, edits and grid forms leave the sidebar lists alone', () => {
   cancel.form.action = '/my-schedule/events/abc/overdue';
   submit(app, cancel.form, {action: 'cancel'});
   assert.equal(cancel.row.removed, true);
+});
+
+test('the submitted command uses the picked times, not the cached shell values', () => {
+  const app = harness();
+  const form = {};
+  const payload = {
+    title: '去重庆耍', event_type: 'personal', timezone: 'Asia/Shanghai',
+    start_at: '2026-11-16T08:00', end_at: '2026-11-16T15:18',
+    repeat_enabled: 'false', source: 'manual', raw_text: '',
+  };
+  app.values.clear();
+  for (const [key, value] of Object.entries(payload)) app.values.set(key, value);
+  const event = app.api.formValues(form);
+  assert.equal(event.start_at, '2026-11-16T00:00:00.000Z');
+  assert.equal(event.end_at, '2026-11-16T07:18:00.000Z');
+  assert.equal(event.title, '去重庆耍');
+  assert.equal(event.repeat_weekdays.length, 0);
 });
 
 test('handlesMutation still owns every local-first calendar write', () => {

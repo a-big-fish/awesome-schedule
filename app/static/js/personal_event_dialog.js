@@ -68,7 +68,14 @@
   dialog.addEventListener('change', () => { dirty = true; });
   dialog.addEventListener('submit', async event => {
     const form = event.target;
-    if (event.defaultPrevented || form.method.toUpperCase() !== 'POST') return;
+    if (event.defaultPrevented) {
+      // Another validator refused the submit; without this the click looked like nothing happened.
+      const reason = form.querySelector('[data-period-error], [data-time-error], [data-calendar-save-error], .parse-tip.error')
+        ?.textContent?.trim();
+      message(reason || '请先修正表单中标红的内容。', true);
+      return;
+    }
+    if (form.method.toUpperCase() !== 'POST') return;
     event.preventDefault(); event.stopPropagation();
     if (busy) return;
     busy = true; message('正在保存…'); content.setAttribute('aria-busy', 'true');

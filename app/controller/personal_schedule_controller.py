@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import logging
 from typing import Any
 from itertools import zip_longest
 from hashlib import sha256
@@ -29,6 +30,8 @@ from app.service.personal_idea_service import PersonalIdeaService
 from uuid import UUID
 from app.controller.schema.calendar_sync_dto import CalendarSyncInput
 from app.service.calendar_sync_service import CalendarSyncService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/my-schedule", tags=["personal-schedule"])
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
@@ -389,6 +392,11 @@ def sync_personal_calendar(operation_id: UUID, command: CalendarSyncInput, reque
         raise HTTPException(404, str(exc)) from exc
     except (ValueError, MeetingParseError) as exc:
         raise HTTPException(422, str(exc)) from exc
+    logger.info(
+        "calendar-sync op=%s action=%s event=%s start=%s end=%s completed=%s",
+        operation_id, command.action, command.event_id,
+        getattr(command.event, "start_at", None), getattr(command.event, "end_at", None), command.completed,
+    )
     if command.action in {"create", "edit"} and result["event"]:
         def enrich():
             event = service.get_event(result["event"]["id"])

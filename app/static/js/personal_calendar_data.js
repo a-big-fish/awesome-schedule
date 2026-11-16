@@ -423,7 +423,7 @@
       });
     }
   }
-  window.awesomeInterviewCalendarData={page,ensure,applyMutation,handlesMutation,forget,queueForm,showQueued,eventPage,rememberForm,reflectLocalRow};
+  window.awesomeInterviewCalendarData={page,ensure,applyMutation,handlesMutation,forget,queueForm,showQueued,eventPage,rememberForm,reflectLocalRow,formValues};
   document.addEventListener('personal:navigated',init);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
