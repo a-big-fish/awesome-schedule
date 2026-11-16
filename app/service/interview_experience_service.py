@@ -28,8 +28,12 @@ class InterviewExperienceService:
         return self.mapper.list_experiences(self.owner_id)
 
     @timed_phase("experience_summaries")
-    def list_summaries(self) -> list[dict]:
-        return self.mapper.list_owned_summaries(self.owner_id)
+    def list_summaries(self, query: str = "", visibility: str = "all", order: str = "newest",
+                       page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+        """One filtered, ordered page of the owner's own summaries plus the filtered total."""
+        start = (max(1, page) - 1) * page_size
+        return self.mapper.list_owned_summaries(self.owner_id, query=query, visibility=visibility,
+                                                order=order, offset=start, limit=page_size)
 
     def list_plaza(self, company: str = "", order: str = "newest",
                    page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:

@@ -1,7 +1,9 @@
 """Server-rendered interview notes, editing forms, and exports."""
 
 import json
+import math
 from datetime import datetime
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -94,15 +96,49 @@ def _export_experience(experience, title: str, hide_company: bool,
     })
 
 
+PAGE_SIZE = 20
+
+
+def _list_url(query: str, visibility: str, order: str, page: int) -> str:
+    """Rebuild the own-list URL from already validated parameters only."""
+    params = {}
+    if query:
+        params["q"] = query
+    if visibility != "all":
+        params["visibility"] = visibility
+    if order != "newest":
+        params["order"] = order
+    if page > 1:
+        params["page"] = str(page)
+    return "/my-schedule/experiences" + (f"?{urlencode(params)}" if params else "")
+
+
 @router.get("", response_class=HTMLResponse)
-def experience_list(request: Request,
+def experience_list(request: Request, q: str = "", visibility: str = "all", order: str = "newest",
+                    page: int = 1,
                     service: InterviewExperienceService = Depends(get_interview_experience_service)):
-    summaries = service.list_summaries()
-    items = [row["experience"] for row in summaries]
-    event_options = service.schedule_service.list_interview_options()
+    query = q.strip()[:100]
+    visibility = visibility if visibility in {"all", "public", "private"} else "all"
+    order = order if order in {"newest", "oldest"} else "newest"
+    requested = max(1, page)
+    summaries, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                             page=requested, page_size=PAGE_SIZE)
+    page_count = max(1, math.ceil(total / PAGE_SIZE))
+    current = min(requested, page_count)
+    if current != requested:
+        summaries, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                                  page=current, page_size=PAGE_SIZE)
     return templates.TemplateResponse(request, "interview_experience_list.html", {
-        "experiences": items, "event_options": event_options,
+        "experiences": [row["experience"] for row in summaries],
         "count_by_id": {row["experience"].id: row["question_count"] for row in summaries},
+        "event_options": service.schedule_service.list_interview_options(),
+        "total": total, "page": current, "page_count": page_count, "page_size": PAGE_SIZE,
+        "query": query, "visibility": visibility, "order": order,
+        "has_filters": bool(query or visibility != "all" or order != "newest"),
+        "prev_url": _list_url(query, visibility, order, current - 1) if current > 1 else None,
+        "next_url": _list_url(query, visibility, order, current + 1) if current < page_count else None,
+        "reset_url": "/my-schedule/experiences",
+        "list_url": _list_url(query, visibility, order, current),
     })
 
 
@@ -181,7 +217,16 @@ async def update_experience_visibility(experience_id: str, request: Request,
         service.set_visibility(experience_id, _form_value(form, "is_public") == "public")
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return RedirectResponse("/my-schedule/experiences", status_code=303)
+    # Return to the same filtered page the toggle came from.
+    visibility = _form_value(form, "filter_visibility")
+    order = _form_value(form, "filter_order")
+    page = _form_value(form, "filter_page")
+    return RedirectResponse(_list_url(
+        _form_value(form, "filter_q").strip()[:100],
+        visibility if visibility in {"all", "public", "private"} else "all",
+        order if order in {"newest", "oldest"} else "newest",
+        int(page) if page.isdigit() and int(page) > 0 else 1,
+    ), status_code=303)
 
 
 @router.get("/{experience_id}", response_class=HTMLResponse)

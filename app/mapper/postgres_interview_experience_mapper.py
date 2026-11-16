@@ -97,16 +97,31 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
             ).fetchall()
         return {row["day"]: (row["public_count"], row["private_count"]) for row in rows}
 
-    def list_owned_summaries(self, owner_id: str) -> list[dict]:
+    def list_owned_summaries(self, owner_id: str, *, query: str = "", visibility: str = "all",
+                             order: str = "newest", offset: int = 0,
+                             limit: int = 20) -> tuple[list[dict], int]:
+        needle = f"%{query.strip()}%" if query.strip() else None
+        public = None if visibility == "all" else visibility == "public"
+        where = (
+            "FROM personal_interview_experiences e WHERE e.owner_id=%s "
+            "AND (%s::text IS NULL OR COALESCE(e.payload->>'title', '') ILIKE %s::text "
+            "OR COALESCE(e.payload->>'company', '') ILIKE %s::text "
+            "OR COALESCE(e.payload->>'position', '') ILIKE %s::text) "
+            "AND (%s::boolean IS NULL OR COALESCE((e.payload->>'is_public')::boolean, TRUE)=%s::boolean)"
+        )
+        filters = (owner_id, needle, needle, needle, needle, public, public)
+        direction = "ASC" if order == "oldest" else "DESC"
         with self._connect() as connection:
+            total = connection.execute(f"SELECT COUNT(*) AS total {where}", filters).fetchone()["total"]
             rows = connection.execute(
                 "SELECT e.payload - 'raw_text_draft' - 'feeling' AS payload, "
                 "(SELECT COUNT(*) FROM personal_interview_questions q WHERE q.experience_id=e.id) "
-                "AS question_count FROM personal_interview_experiences e WHERE e.owner_id=%s "
-                "ORDER BY e.updated_at DESC, e.id DESC", (owner_id,),
+                f"AS question_count {where} "
+                f"ORDER BY e.updated_at {direction}, e.id {direction} LIMIT %s OFFSET %s",
+                filters + (max(1, limit), max(0, offset)),
             ).fetchall()
-        return [{"experience": InterviewExperience.model_validate(row["payload"]),
-                 "question_count": row["question_count"]} for row in rows]
+        return ([{"experience": InterviewExperience.model_validate(row["payload"]),
+                  "question_count": row["question_count"]} for row in rows], int(total))
 
     def list_event_experiences(self, owner_id: str, event_id: str) -> list[InterviewExperience]:
         with self._connect() as connection:

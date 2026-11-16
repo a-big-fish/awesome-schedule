@@ -104,11 +104,17 @@ def test_owned_list_batches_counts_without_returning_full_text(tmp_path):
     connection = MagicMock()
     connection.__enter__.return_value = connection
     connection.execute.return_value.fetchall.return_value = [{"payload": item.model_dump(mode="json"), "question_count": 1}]
+    connection.execute.return_value.fetchone.return_value = {"total": 1}
     postgres = object.__new__(PostgresInterviewExperienceMapper)
     postgres._connection_factory = lambda: connection
-    assert postgres.list_owned_summaries(user.id)[0]["question_count"] == 1
-    assert connection.execute.call_count == 1
-    assert "- 'raw_text_draft' - 'feeling'" in connection.execute.call_args.args[0]
+    rows, total = postgres.list_owned_summaries(user.id, limit=20)
+    assert rows[0]["question_count"] == 1 and total == 1
+    assert connection.execute.call_count == 2  # one filtered count plus one bounded page
+    count_sql = connection.execute.call_args_list[0].args[0]
+    page_sql = connection.execute.call_args_list[1].args[0]
+    assert count_sql.startswith("SELECT COUNT(*)")
+    assert "- 'raw_text_draft' - 'feeling'" in page_sql
+    assert "ORDER BY e.updated_at DESC" in page_sql and "LIMIT %s OFFSET %s" in page_sql
 
 
 def test_postgres_event_notes_filter_owner_and_event_before_reading_payloads():
