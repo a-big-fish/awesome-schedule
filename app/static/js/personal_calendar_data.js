@@ -228,7 +228,7 @@
     copy.querySelectorAll('script,dialog,.parse-tip').forEach(node=>node.remove());
     copy.querySelectorAll('[name=csrf_token]').forEach(node=>node.remove());
     copy.querySelectorAll('input:not([type=checkbox]):not([type=radio]),textarea').forEach(node=>{node.value='';node.setAttribute('value','');if(node.tagName==='TEXTAREA')node.textContent=''});
-    copy.querySelectorAll('[data-bound]').forEach(node=>node.removeAttribute('data-bound'));
+    copy.querySelectorAll('[data-bound], [data-time-mode]').forEach(node=>{node.removeAttribute('data-bound');node.removeAttribute('data-time-mode')});
     return copy.outerHTML;
   }
   async function queueForm(form) {

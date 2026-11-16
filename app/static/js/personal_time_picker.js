@@ -53,7 +53,12 @@ function initTimePicker() {
       const input = field.querySelector('[data-time-value]');
       const trigger = field.querySelector('[data-time-trigger]');
       if (!input || !trigger) return;
-      const paint = () => { trigger.textContent = input.value ? input.value.replace('T', ' ') : '请选择日期和时间'; };
+      const paint = () => {
+        const current = input.value;
+        trigger.textContent = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(current)
+          ? `${current.slice(0, 4)}/${current.slice(5, 7)}/${current.slice(8, 10)} ${current.slice(11)}`
+          : current || '请选择日期和时间';
+      };
       paint();
       if (field.__timeBound) return;
       field.__timeBound = true;
@@ -128,7 +133,7 @@ function initTimePicker() {
       activeField = event.detail;
       const value = activeField.querySelector('[data-time-value]');
       step = 0;
-      onlyDate = activeField.dataset.timeMode === 'date';
+      onlyDate = activeField.__timeMode === 'date';
       selectedDate = validValue(value.value) ? value.value.slice(0, 10) : '';
       selectedHour = validValue(value.value) ? value.value.slice(11, 13) : '';
       selectedMinute = validValue(value.value) ? value.value.slice(14, 16) : '';
@@ -171,15 +176,21 @@ function initTimePicker() {
       return;
     }
     value.value = next;
-    activeField.dataset.timeMode = dateOnly ? 'date' : 'time';
+    activeField.__timeMode = dateOnly ? 'date' : 'time';
     activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
     if (['start_at', 'reviewed_start'].includes(value.name)) {
-      const end = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]');
-      if (dateOnly && end && end.value.slice(0, 10) <= selectedDate) {
-        end.value = `${selectedDate}T${workTime(true)}`;
-        end.closest('.personal-time-field').dataset.timeMode = 'date';
-        end.dispatchEvent(new Event('change', {bubbles: true}));
-      } else if (!dateOnly) updateEndFromStart(next);
+      const endField = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]')?.closest('.personal-time-field');
+      const endValue = endField?.querySelector('[data-time-value]');
+      if (!endValue) {
+        /* the form has no end field */
+      } else if (dateOnly) {
+        // A date-only start moves the whole event: pull the end onto the same day when it
+        // would otherwise stay behind (previously this compared a wrapper element and threw).
+        if (!validValue(endValue.value) || endValue.value <= next) updateEndFromStart(next);
+        else endField.__timeMode = 'date';
+      } else {
+        updateEndFromStart(next);
+      }
     }
     value.dispatchEvent(new Event('input', {bubbles: true}));
     value.dispatchEvent(new Event('change', {bubbles: true}));

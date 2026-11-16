@@ -2,9 +2,69 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const source = fs.readFileSync('app/static/js/personal_time_picker.js', 'utf8');
+
+function stubElement(label = '') {
+  const node = {
+    dataset: {}, style: {}, hidden: false, textContent: label, children: [], listeners: {},
+    setAttribute(name, value) {(this.attributes ||= {})[name] = value;},
+    removeAttribute() {}, remove() {}, focus() {this.focused = true;}, after() {}, before() {},
+    append(...items) {node.children.push(...items);}, replaceChildren(...items) {node.children = items;},
+    cloneNode() {return node;}, closest() {return null;}, scrollIntoView() {},
+    addEventListener(name, callback) {node.listeners[name] = callback;},
+    click() {node.listeners.click?.({});},
+    classList: {add() {}, remove() {}, toggle() {}},
+    querySelector: () => null, querySelectorAll: () => [],
+  };
+  return node;
+}
+
+function dialogHarness() {
+  const parts = {};
+  for (const selector of ['[data-time-heading]', '[data-time-progress]', '[data-time-options]',
+    '[data-time-back]', '[data-time-now]', '[data-time-close]', '[data-time-cancel]']) {
+    parts[selector] = stubElement();
+  }
+  const dialog = {
+    dataset: {}, classList: {add() {}, remove() {}, toggle() {}}, listeners: {},
+    querySelector: selector => parts[selector] || parts['[data-time-options]'],
+    querySelectorAll: () => [], showModal() {}, close() {dialog.closed = true;},
+    addEventListener(name, callback) {dialog.listeners[name] = callback;},
+    dispatchEvent(event) {dialog.opened = event; dialog.listeners[event.type]?.(event);},
+  };
+  return {dialog, parts};
+}
+
+function fieldHarness({name, value}) {
+  const input = {name, value, dataset: {}, min: '', max: '',
+    addEventListener(name, callback) {input.listeners = {...input.listeners, [name]: callback};},
+    dispatchEvent(event) {input.lastEvent = event;}};
+  const trigger = stubElement();
+  const span = stubElement(`${name === 'start_at' ? '开始' : '结束'}`);
+  const field = {dataset: {}, querySelector: selector => selector === '[data-time-value]' ? input
+    : selector === '[data-time-trigger]' ? trigger : span};
+  trigger.closest = () => field;
+  return {field, input, trigger, span};
+}
+
+function boot({fields, dialog, documentOverrides = {}}) {
+  const listeners = {};
+  const document = {
+    querySelector: selector => selector === '[data-time-dialog]' ? dialog : null,
+    querySelectorAll: selector => selector === '.personal-time-field' ? fields : [],
+    addEventListener(name, callback) {listeners[name] = callback;},
+    createElement: () => stubElement(),
+    documentElement: {},
+    ...documentOverrides,
+  };
+  vm.runInNewContext(source, {document, Event: class {constructor(type) {this.type = type;}},
+    CustomEvent: class {
+    constructor(type, init) {this.type = type; this.detail = init?.detail;}
+  }});
+  return listeners;
+}
 
 test('cached add schedule page initializes its type switch once after navigation', () => {
-  const source = fs.readFileSync('app/static/js/personal_time_picker.js', 'utf8');
   const listeners = {};
   const input = {disabled: false};
   const position = {hidden: false, querySelector: () => input};
@@ -18,8 +78,9 @@ test('cached add schedule page initializes its type switch once after navigation
     querySelector: selector => nodes[selector] || null,
     querySelectorAll: () => [],
     addEventListener(name, callback) {listeners[name] = callback;},
+    createElement: () => stubElement(),
   };
-  vm.runInNewContext(source, {document});
+  vm.runInNewContext(source, {document, CustomEvent: class {constructor(type, init) {this.type = type; this.detail = init?.detail;}}});
   listeners['personal:navigated']();
   assert.equal(position.hidden, true);
   assert.equal(input.disabled, true);
@@ -37,70 +98,60 @@ test('cached add schedule page initializes its type switch once after navigation
   assert.equal(eventType.changes.length, 1);
 });
 
-
-function stubElement() {
-  const node = {
-    dataset: {}, style: {}, hidden: false, textContent: '', children: [],
-    setAttribute() {}, removeAttribute() {}, remove() {}, focus() {}, after() {}, before() {},
-    append(...items) {node.children.push(...items);}, replaceChildren() {}, cloneNode() {return node;},
-    addEventListener() {}, classList: {add() {}, remove() {}, toggle() {}},
-    querySelector: () => node, querySelectorAll: () => [],
-  };
-  return node;
-}
-
 test('a picker injected after load gets its label and opens through delegated clicks', () => {
-  const source = fs.readFileSync('app/static/js/personal_time_picker.js', 'utf8');
-  const listeners = {};
-  const input = {value: '2026-11-20T09:00', dataset: {}, addEventListener(name, callback) {this.change = callback;}};
-  const trigger = {dataset: {}, textContent: '', setAttribute() {}, addEventListener() {},
-    closest: () => field};
-  const field = {dataset: {}, querySelector: selector => selector === '[data-time-value]' ? input : trigger};
-  const generic = stubElement();
-  const dialog = {dataset: {}, classList: {add() {}, remove() {}, toggle() {}},
-    addEventListener(name, callback) {this[name] = callback;},
-    querySelector: () => generic, querySelectorAll: () => [], showModal() {}, close() {},
-    dispatchEvent(event) {this.opened = event; this['time:open']?.(event);}};
-  const document = {
-    querySelector: selector => selector === '[data-time-dialog]' ? dialog : null,
-    querySelectorAll: selector => selector === '.personal-time-field' ? [field] : [],
-    addEventListener(name, callback) {listeners[name] = callback;},
-    createElement: () => stubElement(),
-  };
-  vm.runInNewContext(source, {document, CustomEvent: class {
-    constructor(type, init) {this.type = type; this.detail = init?.detail;}
-  }});
-  // The whole picker (wiring included) is initialised on load/navigation, so emulate the hook.
+  const {dialog} = dialogHarness();
+  const {field, input, trigger} = fieldHarness({name: 'start_at', value: '2026-11-20T09:00'});
+  const listeners = boot({fields: [field], dialog});
   listeners['personal:navigated']();
-  assert.equal(trigger.textContent, '2026-11-20 09:00');
+  assert.equal(trigger.textContent, '2026/11/20 09:00');
   input.value = '2026-11-21T10:30';
-  input.change();
-  assert.equal(trigger.textContent, '2026-11-21 10:30');
+  input.listeners.change();
+  assert.equal(trigger.textContent, '2026/11/21 10:30');
   listeners.click({target: {closest: () => trigger}});
   assert.equal(dialog.opened.type, 'time:open');
   assert.equal(dialog.opened.detail, field);
-  // A cached shell re-inserts the same markup; a second init must repaint, not duplicate.
   listeners['personal:navigated']();
-  assert.equal(trigger.textContent, '2026-11-21 10:30');
+  assert.equal(trigger.textContent, '2026/11/21 10:30');
+});
+
+test('a date-only start commit pulls the end onto the same day instead of throwing', () => {
+  const {dialog, parts} = dialogHarness();
+  const start = fieldHarness({name: 'start_at', value: '2026-11-18T19:00'});
+  const end = fieldHarness({name: 'end_at', value: '2026-11-15T21:00'});
+  const form = {querySelector: () => ({closest: () => end.field})};
+  start.field.closest = selector => selector === 'form' ? form : null;
+  start.field.__timeMode = 'date';
+  const listeners = boot({fields: [start.field, end.field], dialog});
+  listeners['personal:navigated']();
+  // Open the picker for the start field and confirm the pre-selected date.
+  dialog.listeners['time:open']({detail: start.field});
+  const confirmDate = parts['[data-time-options]'].children.find(node => node.textContent === '确认日期');
+  assert.ok(confirmDate, 'the date-only flow must offer a date confirmation');
+  confirmDate.click();
+  assert.equal(start.input.value, '2026-11-18T08:00');
+  assert.equal(end.input.value, '2026-11-18T09:00');
+  assert.equal(end.trigger.textContent, '2026/11/18 09:00');
+  assert.equal(dialog.closed, true);
 });
 
 test('weekend start disables and clears skip checkbox, weekday return defaults checked', () => {
   const listeners = {};
-  const start = {value: '2026-11-06T08:00', addEventListener(name, fn) {listeners.change = fn;}};
+  const startField = {value: '2026-11-06T08:00', addEventListener(name, fn) {listeners.change = fn;}};
   const hint = {textContent: ''};
   const checkbox = {dataset: {}, checked: true, disabled: false,
-    closest() {return {querySelector: selector => selector.includes('start_at') ? start : hint};}};
+    closest() {return {querySelector: selector => selector.includes('start_at') ? startField : hint};}};
   const document = {querySelector: () => null, addEventListener(name, fn) {listeners[name] = fn;},
+    createElement: () => stubElement(),
     querySelectorAll: selector => selector === '[data-skip-weekends]' ? [checkbox] : []};
-  vm.runInNewContext(fs.readFileSync('app/static/js/personal_time_picker.js', 'utf8'), {document});
+  vm.runInNewContext(source, {document, CustomEvent: class {constructor(type, init) {this.type = type; this.detail = init?.detail;}}});
   listeners['personal:navigated']();
   assert.equal(checkbox.disabled, false);
   assert.equal(checkbox.checked, true);
-  start.value = '2026-11-07T08:00'; listeners.change();
+  startField.value = '2026-11-07T08:00'; listeners.change();
   assert.equal(checkbox.disabled, true);
   assert.equal(checkbox.checked, false);
   assert.ok(hint.textContent);
-  start.value = '2026-11-09T08:00'; listeners.change();
+  startField.value = '2026-11-09T08:00'; listeners.change();
   assert.equal(checkbox.disabled, false);
   assert.equal(checkbox.checked, true);
 });
