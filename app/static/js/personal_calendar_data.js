@@ -161,6 +161,26 @@
     const data=snapshot||await ensure();return data&&!stopped?render(data,target):null;
   }
   const handlesMutation=form=>form.method?.toUpperCase()==='POST'&&/^\/my-schedule\/events(?:\/[^/]+\/(?:edit|completion|delete|overdue|close-repeat))?$/.test(new URL(form.action,location.href).pathname);
+  // The sidebar lists are server-rendered, so a queued completion/defer/cancel must also leave the DOM
+  // immediately; otherwise the local-first write looks like it did nothing until the next refresh.
+  function reflectLocalRow(form) {
+    const match=new URL(form.action,location.href).pathname.match(/\/events\/[^/]+\/(completion|delete|overdue|close-repeat)$/);
+    if(!match)return;
+    const payload=new FormData(form);
+    const action=match[1]==='overdue'?(payload.get('action')||'defer'):match[1];
+    if(action==='completion'&&payload.get('completed')!=='true')return;  // 恢复完成：留在“今日已完成”
+    if(!['completion','delete','defer','cancel'].includes(action))return;
+    const row=form.closest('.personal-side-row, .personal-overdue-row');
+    if(!row)return;
+    const section=row.closest('.personal-overdue-section');
+    const counter=section?.querySelector('.personal-side-heading .muted-text');
+    row.remove();
+    if(counter&&/^\d+$/.test(counter.textContent.trim())){
+      const left=Math.max(0,Number(counter.textContent)-1);
+      counter.textContent=String(left);
+      if(!left)section.querySelector('.personal-side-list')?.replaceChildren();
+    }
+  }
   async function confirmOverlap(titles) {
     if(!titles.length)return true;
     return new Promise(resolve=>{
@@ -276,7 +296,9 @@
       const set=(name,value)=>form.querySelectorAll(`[name="${name}"]`).forEach(node=>{
         if(node.type==='checkbox'){node.checked=Array.isArray(value)?value.map(String).includes(node.value):!!value;if(node.checked)node.setAttribute('checked','');else node.removeAttribute('checked')}
         else if(node.tagName==='SELECT'){[...node.options].forEach(option=>{if(option.value===String(value??''))option.setAttribute('selected','');else option.removeAttribute('selected')})}
-        else{node.value=value??'';node.setAttribute('value',value??'');if(node.tagName==='TEXTAREA')node.textContent=value??''}
+        else{node.value=value??'';node.setAttribute('value',value??'');if(node.tagName==='TEXTAREA')node.textContent=value??'';
+          // Cached shells arrive with the picker markup already applied: repaint its trigger label.
+          if(['start_at','end_at'].includes(name))node.dispatchEvent(new Event('change'))}
       });
       if(!form.querySelector('[name=event_type]')){
         const label=document.createElement('label');label.textContent='类型';const select=document.createElement('select');select.className='input';select.name='event_type';select.dataset.eventType='';
@@ -323,6 +345,7 @@
     if(!error){error=document.createElement('p');error.dataset.calendarSaveError='';error.setAttribute('role','alert');form.append(error)}error.textContent='';
     try{
       const result=await queueForm(form);if(!result)return;
+      reflectLocalRow(form);
       form.closest('dialog')?.close();
       await showQueued(result);
     }catch(reason){localError=reason.name==='QuotaExceededError'?'浏览器存储空间不足，本次修改未保存，请释放空间后重试。':reason.message||'本地保存失败，已保留输入内容。';error.textContent=localError;statusUI()}
@@ -400,7 +423,7 @@
       });
     }
   }
-  window.awesomeInterviewCalendarData={page,ensure,applyMutation,handlesMutation,forget,queueForm,showQueued,eventPage,rememberForm};
+  window.awesomeInterviewCalendarData={page,ensure,applyMutation,handlesMutation,forget,queueForm,showQueued,eventPage,rememberForm,reflectLocalRow};
   document.addEventListener('personal:navigated',init);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
