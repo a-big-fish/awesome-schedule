@@ -218,6 +218,7 @@
         }
         endUpload();
         file.value = '';
+        status.textContent = '上传未完成，可重试。';
         if (request.status === 422) {
           // The server answers with a whole page; keep the user here and show only its message,
           // because GET on this POST-only URL would render 405.
@@ -235,6 +236,7 @@
         reportUpload(Date.now() - started, 0);
         endUpload();
         file.value = '';
+        status.textContent = '上传未完成，可重试。';
         paintProgress('error', 100, '网络异常，上传未完成，请重试。');
       };
       request.addEventListener('error', failed);
