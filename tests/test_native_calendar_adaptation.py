@@ -71,7 +71,10 @@ def test_native_overdue_repeat_and_explicit_todos(tmp_path):
         cancelled = client.post("/api/mobile/v1/events", json={**event, "title": "可废除", "confirm_overlap": True}, headers=headers).json()
         cancelled = client.post(f'/api/mobile/v1/events/{cancelled["id"]}/overdue', json={"action": "cancel"}, headers=headers).json()
         assert cancelled["cancelled_at"] and cancelled["reminder_offsets_minutes"] == []
-        repeat = client.post("/api/mobile/v1/events", json={**event, "start_at": "2026-11-16T09:00:00+08:00", "end_at": "2026-11-16T10:00:00+08:00", "repeat_weekdays": [0, 2]}, headers=headers).json()
+        # A separate future day keeps the repeat fixture from colliding with the overdue one
+        # (a hardcoded date silently started overlapping once that calendar day arrived).
+        repeat_day = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        repeat = client.post("/api/mobile/v1/events", json={**event, "start_at": f"{repeat_day}T09:00:00+08:00", "end_at": f"{repeat_day}T10:00:00+08:00", "repeat_weekdays": [0, 2]}, headers=headers).json()
         close = f'/api/mobile/v1/events/{repeat["id"]}/close-repeat'
         assert other.post(close, json={}, headers=other_headers).status_code == 404
         assert client.post(close, json={}, headers=headers).json()["repeat_closed_on"]
