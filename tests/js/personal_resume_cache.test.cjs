@@ -5,12 +5,32 @@ const vm = require('node:vm');
 const source = fs.readFileSync('app/static/js/personal_resume_cache.js', 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+class FakeRequest {
+  constructor() {
+    this.uploadListeners = {}; this.listeners = {}; this.status = 0; this.responseURL = ''; this.responseText = '';
+    this.upload = {addEventListener: (name, callback) => {this.uploadListeners[name] = callback;}};
+    FakeRequest.last = this;
+  }
+  open(method, url) {this.method = method; this.url = url;}
+  addEventListener(name, callback) {this.listeners[name] = callback;}
+  send(body) {this.body = body;}
+  progress(loaded, total) {this.uploadListeners.progress?.({lengthComputable: true, loaded, total});}
+  finish({status = 303, responseURL = '', responseText = ''} = {}) {
+    Object.assign(this, {status, responseURL, responseText});
+    this.listeners.load?.({});
+  }
+  fail(name = 'error') {this.listeners[name]?.({});}
+}
+
 function browser({scope = 'session-a', records = new Map(), storage = true, inlinePdf = true} = {}) {
   const elements = new Map(), events = new Map(), calls = [], revoked = [], timers = new Map();
   let nextUrl = 0, nextTimer = 0, offline = false, blocked = false, unauthorized = false;
   let current = {id: 'r1', version: 'r1:v1', file_name: 'synthetic.pdf'}, pdfContent = '%PDF- synthetic', serverScope = scope;
   function element(selector) {
     if (!elements.has(selector)) elements.set(selector, {hidden: false, dataset: {}, textContent: '',
+      style: {}, attributes: {},
+      classList: {add() {}, remove() {}},
+      setAttribute(name, value) {this.attributes[name] = value;},
       addEventListener(name, callback) {this[name] = callback;},
       removeAttribute(name) {delete this[name];},
       click() {}, requestSubmit() {this.submit?.({preventDefault() {}});}});
@@ -47,7 +67,13 @@ function browser({scope = 'session-a', records = new Map(), storage = true, inli
     URL: BrowserURL, Blob, AbortController, Date, navigator: {pdfViewerEnabled: inlinePdf},
     document: {querySelector: () => panel, addEventListener: (name, callback) => events.set(name, callback)},
     addEventListener: (name, callback) => events.set(name, callback),
-    location: {assign(url) {this.redirect = url;}},
+    location: {assign(url) {this.redirect = url;}, replace(url) {this.replaced = url;}},
+    FormData: class {constructor(form) {this.form = form;}},
+    XMLHttpRequest: FakeRequest,
+    DOMParser: class {parseFromString(text) {
+      const match = /<div class="resume-panel-error">([^<]*)<\/div>/.exec(text);
+      return {querySelector: () => (match ? {textContent: match[1]} : null)};
+    }},
     setTimeout(callback, delay) {const id = ++nextTimer; timers.set(id, {callback, delay}); return id;},
     clearTimeout(id) {timers.delete(id);},
     fetch(url, options) {
@@ -160,6 +186,58 @@ test('an invalid new PDF cannot replace the existing cached preview', async () =
   assert.equal(app.node('frame').src, previous);
   assert.equal(app.records.get('current').id, 'r1');
   assert.match(app.node('status').textContent, /同步失败/);
+  app.stop();
+});
+
+test('upload reports live progress and lands on the parsed result page', async () => {
+  const app = browser(); await app.ready();
+  const file = app.elements.get('[data-resume-file]');
+  file.files = [{name: 'cv.pdf', size: 4096}];
+  file.change();
+  const request = FakeRequest.last;
+  assert.equal(request.method, 'POST');
+  assert.equal(app.node('progress').hidden, false);
+  assert.match(app.node('progress-text').textContent, /正在上传/);
+  request.progress(2048, 4096);
+  assert.equal(app.node('progress-bar').style.width, '50%');
+  assert.equal(app.node('progress').dataset.state, 'uploading');
+  assert.match(app.node('progress-text').textContent, /50%/);
+  request.progress(4096, 4096);
+  assert.equal(app.node('progress').dataset.state, 'parsing');
+  assert.match(app.node('progress-text').textContent, /正在解析/);
+  file.change();  // a second submit while the first is in flight must not start another upload
+  assert.equal(FakeRequest.last, request);
+  request.finish({status: 303, responseURL: 'https://test.local/my-schedule/interviews'});
+  assert.equal(app.context.location.replaced, 'https://test.local/my-schedule/interviews');
+  app.stop();
+});
+
+test('a rejected upload keeps the user on the page with the server message', async () => {
+  const app = browser(); await app.ready();
+  const file = app.elements.get('[data-resume-file]');
+  file.files = [{name: 'cv.pdf', size: 4096}];
+  file.change();
+  const request = FakeRequest.last;
+  request.finish({status: 422, responseText: '<div class="resume-panel-error">仅支持 PDF 简历文件</div>'});
+  assert.equal(app.node('progress').dataset.state, 'error');
+  assert.equal(app.node('progress-text').textContent, '仅支持 PDF 简历文件');
+  assert.equal(app.elements.get('[data-resume-choose]').disabled, false);
+  assert.equal(app.context.location.replaced, undefined);
+  file.files = [{name: 'cv2.pdf', size: 2048}];
+  file.change();
+  assert.notEqual(FakeRequest.last, request);
+  app.stop();
+});
+
+test('an interrupted upload reports a retryable network failure', async () => {
+  const app = browser(); await app.ready();
+  const file = app.elements.get('[data-resume-file]');
+  file.files = [{name: 'cv.pdf', size: 4096}];
+  file.change();
+  FakeRequest.last.fail('error');
+  assert.equal(app.node('progress').dataset.state, 'error');
+  assert.match(app.node('progress-text').textContent, /网络异常/);
+  assert.equal(app.elements.get('[data-resume-choose]').textContent, '上传／更换简历');
   app.stop();
 });
 

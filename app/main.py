@@ -117,6 +117,11 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
         """Expose crawler rules without requiring an authenticated session."""
         return FileResponse(BASE_DIR / "static" / "robots.txt", media_type="text/plain")
 
+    @application.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        """Answer the browser's implicit favicon request instead of logging a 404."""
+        return FileResponse(BASE_DIR / "static" / "img" / "logo2.png", media_type="image/png")
+
     @application.middleware("http")
     async def measure_personal_requests(request: Request, call_next):
         node = node_for_path(request.url.path, request.method)

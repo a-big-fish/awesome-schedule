@@ -7,7 +7,8 @@
   const nodes = new Set(['calendar', 'schedule_new', 'event', 'event_write', 'event_parse', 'plaza',
     'plaza_detail', 'experiences', 'ideas', 'home', 'account',
     'editor', 'draft', 'experience_write', 'parse', 'pdf', 'markdown', 'export', 'interviews',
-    'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file', 'reference_titles']);
+    'interview_detail', 'profile', 'login', 'register', 'logout', 'mobile', 'resume_state', 'resume_file',
+    'resume_upload', 'reference_titles']);
   const nodeFor = (value, method = 'GET') => {
     try {
       const url = new URL(value, location.href);
@@ -33,7 +34,8 @@
       if (tail.startsWith('/calendar-sync/')) return 'event_write';
       if (tail === '/calendar-data') return 'calendar';
       if (tail.startsWith('/events')) return tail.endsWith('/reference-titles') ? 'reference_titles' : method === 'GET' ? 'event' : 'event_write';
-      if (tail === '/interviews' || tail === '/resume') return 'interviews';
+      if (tail === '/interviews') return 'interviews';
+      if (tail === '/resume') return 'resume_upload';
       if (tail.startsWith('/interviews/')) return 'interview_detail';
       if (tail.startsWith('/profile')) return 'profile';
       if (tail === '/experiences/plaza') return 'plaza';
@@ -132,6 +134,8 @@
   };
   window.awesomeInterviewPerformance = {
     recordRender: (duration) => add(nodeFor(location.href), 'cache_render', duration),
+    // Plain form uploads use XMLHttpRequest, so the page reports them itself.
+    record: (node, metric, duration, status = 200) => add(node, metric, duration, status),
   };
   const navigation = () => setTimeout(() => {
     const entry = performance.getEntriesByType('navigation')[0];

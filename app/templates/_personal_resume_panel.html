@@ -9,6 +9,10 @@
     <button class="btn secondary small" type="button" data-resume-choose>上传／更换简历</button>
     <a class="btn secondary small" data-resume-open target="_blank" rel="noopener" hidden>打开 PDF</a>
   </form>
+  <div class="resume-upload-progress" data-resume-progress data-state="uploading" hidden>
+    <div class="resume-upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-resume-progress-track><span class="resume-upload-progress-bar" data-resume-progress-bar></span></div>
+    <p class="resume-upload-progress-text" data-resume-progress-text role="status" aria-live="polite">正在上传，请勿关闭页面…</p>
+  </div>
   <div class="own-resume-a4" data-resume-viewer hidden><iframe class="own-resume-frame" title="我的简历 PDF 原件" data-resume-frame></iframe></div>
   <p class="resume-cache-status" data-resume-fallback hidden>此浏览器不支持内嵌 PDF，请点击“打开 PDF”查看原件。</p>
   <div class="own-resume-upload" data-resume-empty><p>可选择或拖入本地 PDF 简历，最大 20 MB。</p></div>

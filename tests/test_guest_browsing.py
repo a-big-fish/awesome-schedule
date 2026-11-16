@@ -9,6 +9,15 @@ from app.service.auth_service import hash_password
 from tests.test_public_multiuser import _public_fixture, _login, _csrf
 
 
+def test_browser_assets_are_served_without_a_session(tmp_path):
+    app, _, _, _, _, _ = _public_fixture(tmp_path)
+    with TestClient(app, base_url='https://testserver') as client:
+        favicon = client.get('/favicon.ico')
+        assert favicon.status_code == 200 and favicon.headers['content-type'] == 'image/png'
+        assert favicon.content.startswith(b'\x89PNG')
+        assert client.get('/robots.txt').status_code == 200
+
+
 def test_guest_whitelist_blocks_bodies_in_html_batches_and_all_detail_paths(tmp_path):
     app, users, _, events, _, _ = _public_fixture(tmp_path)
     user = AuthUser(email="guest-owner@example.com", display_name="PRIVATE_AUTHOR_MARKER",

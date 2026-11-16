@@ -169,6 +169,79 @@
     }
     button.addEventListener('click', () => sync(true));
     choose.addEventListener('click', () => file.click());
+    const progress = panel.querySelector('[data-resume-progress]');
+    const progressTrack = panel.querySelector('[data-resume-progress-track]');
+    const progressBar = panel.querySelector('[data-resume-progress-bar]');
+    const progressText = panel.querySelector('[data-resume-progress-text]');
+    let uploading = false;
+    function paintProgress(state, percent, text) {
+      progress.hidden = false;
+      progress.dataset.state = state;
+      progressBar.style.width = percent === null ? '100%' : `${Math.min(100, Math.max(0, percent))}%`;
+      progressTrack.setAttribute('aria-valuenow', String(percent === null ? 100 : Math.round(percent)));
+      progressText.textContent = text;
+    }
+    function endUpload() {
+      uploading = false;
+      form.dataset.uploading = '';
+      form.classList.remove('is-uploading');
+      choose.disabled = false;
+      choose.textContent = '上传／更换简历';
+    }
+    function reportUpload(duration, status) {
+      window.awesomeInterviewPerformance?.record?.('resume_upload', 'request', duration, status);
+    }
+    function uploadWithProgress() {
+      uploading = true;
+      const started = Date.now();
+      const request = new XMLHttpRequest();
+      request.open('POST', form.action, true);
+      request.timeout = 180000;
+      request.upload?.addEventListener('progress', event => {
+        if (!event.lengthComputable) { paintProgress('uploading', null, '正在上传，请勿关闭页面…'); return; }
+        const percent = event.loaded / event.total * 100;
+        if (percent >= 100) paintProgress('parsing', 100, '上传完成，正在解析简历，请勿关闭页面…');
+        else paintProgress('uploading', percent, `正在上传 ${Math.round(percent)}%，请勿关闭页面…`);
+      });
+      request.upload?.addEventListener('load', () => {
+        if (uploading) paintProgress('parsing', 100, '上传完成，正在解析简历，请勿关闭页面…');
+      });
+      request.addEventListener('load', () => {
+        reportUpload(Date.now() - started, request.status);
+        if (request.status >= 200 && request.status < 400) {
+          location.replace(request.responseURL || '/my-schedule/interviews');
+          return;
+        }
+        if (request.status === 401 || request.status === 403 || /\/auth\//.test(request.responseURL || '')) {
+          location.assign('/auth/login');
+          return;
+        }
+        endUpload();
+        file.value = '';
+        if (request.status === 422) {
+          // The server answers with a whole page; keep the user here and show only its message,
+          // because GET on this POST-only URL would render 405.
+          let message = '';
+          try {
+            const parsed = new DOMParser().parseFromString(request.responseText || '', 'text/html');
+            message = parsed.querySelector('.resume-panel-error, [role="alert"]')?.textContent?.trim() || '';
+          } catch { /* Keep the generic message. */ }
+          paintProgress('error', 100, message || '简历解析失败，请更换文件后重试。');
+        } else {
+          paintProgress('error', 100, '上传失败，请检查网络后重试。');
+        }
+      });
+      const failed = () => {
+        reportUpload(Date.now() - started, 0);
+        endUpload();
+        file.value = '';
+        paintProgress('error', 100, '网络异常，上传未完成，请重试。');
+      };
+      request.addEventListener('error', failed);
+      request.addEventListener('timeout', failed);
+      paintProgress('uploading', 0, '正在上传，请勿关闭页面…');
+      request.send(new FormData(form));
+    }
     function upload() {
       const selected = file.files?.[0];
       if (!selected) return;
@@ -181,12 +254,15 @@
     }
     file.addEventListener('change', upload);
     form.addEventListener('submit', event => {
-      if (form.dataset.uploading) { event.preventDefault(); return; }
+      event.preventDefault();
+      if (uploading || form.dataset.uploading) return;
+      if (!file.files?.[0]) return;
       form.dataset.uploading = 'true';
+      form.classList.add('is-uploading');
       choose.disabled = true;
       choose.textContent = '正在上传解析…';
-      stop();
-      void forget();
+      status.textContent = '正在上传…';
+      uploadWithProgress();
     });
     panel.addEventListener('dragover', event => { event.preventDefault(); panel.classList.add('is-resume-dragging'); });
     panel.addEventListener('dragleave', () => panel.classList.remove('is-resume-dragging'));

@@ -20,6 +20,7 @@ NODE_LABELS = {
     "profile": "个人设置",
     "login": "登录", "register": "注册", "logout": "退出登录", "mobile": "客户端同步/API",
     "resume_state": "当前简历状态", "resume_file": "简历文件",
+    "resume_upload": "简历上传/解析",
     "reference_titles": "参考资料标题状态",
     "ideas": "待安排事项",
     "home": "首页",
@@ -32,6 +33,13 @@ METRIC_LABELS = {
     "lcp": "最大内容绘制 LCP", "longtask": "主线程长任务", "cache_render": "缓存页面呈现",
     "parse_text": "文本规则解析", "parse_markdown": "Markdown 结构解析",
     "resume_storage": "简历文件存储读取",
+    "resume_storage_write": "简历文件存储写入",
+    "upload_receive": "上传文件接收",
+    "pdf_open": "PDF 打开",
+    "pdf_text": "PDF 文本提取",
+    "pdf_images": "PDF 图片提取",
+    "photo_select": "简历照筛选",
+    "metadata_save": "简历元数据保存",
     "experience_summaries": "面经列表摘要查询",
     "interview_options": "关联面试选项查询",
     "pdf_extract": "PDF 文本提取", "pdf_render": "PDF 排版生成", "markdown_render": "Markdown 导出生成",
@@ -112,7 +120,9 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         return "event" if method == "GET" else "event_write"
     if tail == "/reference-title":
         return "reference_titles"
-    if tail == "/interviews" or tail == "/resume":
+    if tail == "/resume":
+        return "resume_upload"
+    if tail == "/interviews":
         return "interviews"
     if tail.startswith("/interviews/"):
         return "interview_detail"

@@ -110,6 +110,8 @@ def test_empty_performance_dashboard_has_an_explicit_healthy_empty_state(tmp_pat
     ("/my-schedule/experiences", "GET", "experiences"),
     ("/my-schedule/interviews", "GET", "interviews"),
     ("/my-schedule/interviews/private-id", "GET", "interview_detail"),
+    ("/my-schedule/resume", "POST", "resume_upload"),
+    ("/my-schedule/resume/current", "GET", "resume_state"),
     ("/my-schedule/profile", "GET", "profile"),
     ("/auth/logout", "POST", "logout"),
     ("/auth/forgot-password", "GET", "account"),

@@ -111,7 +111,7 @@ class ResumeParserService:
         overall_started = perf_counter()
         if upload.filename and not upload.filename.lower().endswith(".pdf"):
             raise ResumeParseError("仅支持 PDF 简历文件")
-        with timer.step("read_upload"):
+        with timer.step("read_upload"), measure_phase("upload_receive"):
             content = await upload.read(MAX_RESUME_BYTES + 1)
         if not content:
             raise ResumeParseError("简历文件为空")
@@ -143,10 +143,10 @@ class ResumeParserService:
             overall_started if overall_started is not None else perf_counter()
         )
         resume_id = str(uuid4())
-        with timer.step("save_pdf"):
+        with timer.step("save_pdf"), measure_phase("resume_storage_write"):
             pdf_key = self.file_storage.save_pdf(content, file_name, resume_id)
         try:
-            with timer.step("open_pdf"):
+            with timer.step("open_pdf"), measure_phase("pdf_open"):
                 doc = fitz.open(stream=content, filetype="pdf")
         except Exception as exc:  # noqa: BLE001
             logger.debug("无法读取 PDF：%s", type(exc).__name__)
@@ -158,14 +158,14 @@ class ResumeParserService:
         seen_xrefs: set[int] = set()
         try:
             for page_number, page in enumerate(doc, start=1):
-                with timer.step("extract_text"):
+                with timer.step("extract_text"), measure_phase("pdf_text"):
                     text_parts.append(page.get_text())
                 for image_index, image_info in enumerate(page.get_images(full=True), start=1):
                     xref = image_info[0]
                     if xref in seen_xrefs:
                         continue
                     seen_xrefs.add(xref)
-                    with timer.step("extract_images"):
+                    with timer.step("extract_images"), measure_phase("pdf_images"):
                         image, bgr = self._extract_image(
                             doc, xref, resume_id, page_number, image_index
                         )
@@ -186,13 +186,13 @@ class ResumeParserService:
             doc.close()
 
         raw_text = "\n".join(part.strip() for part in text_parts if part and part.strip())
-        with timer.step("save_text"):
+        with timer.step("save_text"), measure_phase("resume_storage_write"):
             text_key = self.file_storage.save_text(raw_text, resume_id)
-        with timer.step("select_photo"):
+        with timer.step("select_photo"), measure_phase("photo_select"):
             selection = self.photo_selector.select_one(photo_candidates)
         candidate_photo_id = selection.selected.image_id if selection.selected else None
 
-        with timer.step("save_metadata"):
+        with timer.step("save_metadata"), measure_phase("metadata_save"):
             resume = Resume(
                 id=resume_id,
                 owner_id=owner_id,
