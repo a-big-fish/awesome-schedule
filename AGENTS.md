@@ -73,6 +73,7 @@ mockups/                           # 原型 HTML/CSS/JS 与截图
 ## 测试要求
 
 - 修改代码后运行 `uv run pytest -q`。
+- 自动化测试产生的简历文件写入 `data/test-runtime/`（已被 `.gitignore` 覆盖），不要写进配置的对象存储（`rustfs`/`minio`）或 `data/resumes`；性能样本同样写入独立的 `.performance-tests.sqlite3`。两处隔离都由 `tests/conftest.py` 统一提供。
 - 会议邀请解析必须覆盖腾讯会议等平台、时间格式、时区、缺失会议号或链接的错误分支。
 - 简历解析测试使用临时目录或 fixture 生成的小型 PDF，不要提交真实候选人简历。
 - API 测试使用 FastAPI `TestClient`，需要时用依赖注入替换 Service、Mapper 或文件存储，避免污染全局状态。

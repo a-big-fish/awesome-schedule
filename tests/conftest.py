@@ -13,14 +13,15 @@ os.environ.setdefault("PERFORMANCE_DB_PATH",
 # The resume pipeline is the other shared backend. Without this, a test that exercises an
 # upload route without injecting its own service writes a synthetic ~800 byte PDF into the
 # deployment's RustFS bucket and a matching row into its PostgreSQL metadata under owner
-# "local" (504 such rows had accumulated before this guard).
+# "local" (527 such rows had accumulated before this guard). Test files land under
+# data/test-runtime/ instead, which is covered by .gitignore.
 _TEST_RUNTIME = Path(__file__).resolve().parents[1] / "data" / "test-runtime"
 
 import app.core.dependencies as dependencies  # noqa: E402
 from app.mapper.local_resume_file_storage import LocalResumeFileStorage  # noqa: E402
 from app.mapper.memory_resume_mapper import MemoryResumeMapper  # noqa: E402
 
-_TEST_RESUME_STORAGE = LocalResumeFileStorage(_TEST_RUNTIME / "resumes")
+_TEST_RESUME_STORAGE = LocalResumeFileStorage(_TEST_RUNTIME)
 _TEST_RESUME_MAPPER = MemoryResumeMapper()
 # Patch the internal builders, not the cached factories: FastAPI matches dependency
 # overrides by function identity, and replacing `get_resume_mapper` itself would stop the
