@@ -14,6 +14,7 @@ class FakeRequest {
   open(method, url) {this.method = method; this.url = url;}
   addEventListener(name, callback) {this.listeners[name] = callback;}
   send(body) {this.body = body;}
+  abort() {this.aborted = true; this.listeners.abort?.({});}
   progress(loaded, total) {this.uploadListeners.progress?.({lengthComputable: true, loaded, total});}
   finish({status = 303, responseURL = '', responseText = ''} = {}) {
     Object.assign(this, {status, responseURL, responseText});
@@ -209,6 +210,41 @@ test('upload reports live progress and lands on the parsed result page', async (
   assert.equal(FakeRequest.last, request);
   request.finish({status: 303, responseURL: 'https://test.local/my-schedule/interviews'});
   assert.equal(app.context.location.replaced, 'https://test.local/my-schedule/interviews');
+  app.stop();
+});
+
+test('disposed uploads cannot redirect or modify a new page after late callbacks', async () => {
+  for (const result of [{status: 200, responseURL: 'https://test.local/my-schedule/interviews'},
+    {status: 200, responseURL: 'https://test.local/auth/login'}, {status: 401}, {status: 422}]) {
+    const app = browser(); await app.ready();
+    app.node('file').files = [{name: 'cv.pdf', size: 4096}];
+    app.node('file').change();
+    const request = FakeRequest.last;
+    await app.navigate();
+    assert.equal(request.aborted, true);
+    const status = app.node('status').textContent;
+    const progress = app.node('progress-text').textContent;
+    request.finish(result);
+    request.fail();
+    request.progress(4096, 4096);
+    assert.equal(app.context.location.replaced, undefined);
+    assert.equal(app.context.location.redirect, undefined);
+    assert.equal(app.node('status').textContent, status);
+    assert.equal(app.node('progress-text').textContent, progress);
+    app.node('file').files = [{name: 'retry.pdf', size: 4096}];
+    app.node('file').change();
+    assert.notEqual(FakeRequest.last, request);
+    app.stop();
+  }
+});
+
+test('upload redirected to login is not mistaken for a successful parse', async () => {
+  const app = browser(); await app.ready();
+  app.node('file').files = [{name: 'cv.pdf', size: 4096}];
+  app.node('file').change();
+  FakeRequest.last.finish({status: 200, responseURL: 'https://test.local/auth/login'});
+  assert.equal(app.context.location.redirect, '/auth/login');
+  assert.equal(app.context.location.replaced, undefined);
   app.stop();
 });
 

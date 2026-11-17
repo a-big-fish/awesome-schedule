@@ -74,9 +74,20 @@ try {
         var before=paths.Count;var saved=await repo.SaveEventAsync(new{title="fixture"});
         Check(writes==1&&paths.Count==before+1&&repo.Current!.Events.Single().Title=="saved","successful write patches immediately with exactly one HTTP call");
         await repo.RefreshCalendarAsync();
+        Check(repo.Current!.ServerTime==initialState.ServerTime,"calendar refresh does not renew freshness of untouched experiences");
         Check(repo.Current!.Experiences.Single().Id=="note"&&repo.Current.Events.Single().WorkdayOnly,"calendar-only refresh preserves note resources and updates display rules");
         await repo.FlushCacheAsync();
         Check((await repoCache.ReadSnapshotAsync("https://example.test/","a"))!.Events.Single().WorkdayOnly,"ordered encrypted persistence retains latest resource state");
+        Check((await repoCache.ReadSnapshotAsync("https://example.test/","a"))!.ServerTime==initialState.ServerTime,"partial refresh persists the original full snapshot timestamp");
+        var restoredPaths=new List<string>();
+        using(var restored=new WorkspaceRepository(repoCache,address=>new NativeApi(address,new Routing(request=>{
+            restoredPaths.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(request.RequestUri.AbsolutePath.EndsWith("/session")?Json(new SessionInfo("a","fixture")):Json(initialState with{ServerTime=DateTimeOffset.UtcNow}));
+        })))){
+            await restored.RestoreAsync();
+            Check(restoredPaths.Contains("/api/mobile/v1/snapshot"),"expired full snapshot reloads notes after calendar-only refresh and restart");
+            await restored.FlushCacheAsync();
+        }
         await repo.LogoutAsync();Check(await repoCache.ReadConnectionAsync()==null,"logout waits for persistence then clears identity");
     }
     await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));

@@ -92,7 +92,9 @@ public sealed class WorkspaceRepository : IDisposable
             if(full || Current == null) Current=await Api.SnapshotAsync();
             else {
                 var state=await Api.GetAsync<CalendarState>("api/mobile/v1/calendar");
-                var next=Current with { SchemaVersion=state.SchemaVersion, UserId=state.UserId, ServerTime=state.ServerTime,
+                // ServerTime tracks the full snapshot's freshness, including experiences.
+                // A calendar-only refresh must not extend the lifetime of untouched notes.
+                var next=Current with { SchemaVersion=state.SchemaVersion, UserId=state.UserId,
                     Events=state.Events, Todos=state.Todos, Ideas=state.Ideas, Profile=state.Profile };
                 next.Validate(Api.Session!.UserId); Current=next;
             }

@@ -70,7 +70,7 @@
     const form = panel.querySelector('[data-cached-resume-upload]');
     const file = panel.querySelector('[data-resume-file]');
     const choose = panel.querySelector('[data-resume-choose]');
-    let active = true, busy = false, controller, entry, objectUrl;
+    let active = true, busy = false, controller, entry, objectUrl, uploadRequest;
     const hide = () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = null;
@@ -81,7 +81,14 @@
       name.textContent = '';
       entry = null;
     };
-    stop = () => { active = false; controller?.abort(); hide(); };
+    // Aborting cannot undo a server-side save. The next visit checks resume metadata
+    // as usual, while callbacks from this disposed panel must never redirect it.
+    stop = () => {
+      active = false;
+      controller?.abort();
+      if (uploadRequest) { uploadRequest.abort(); endUpload(); file.value = ''; }
+      hide();
+    };
     function show(value) {
       if (!active) return;
       if (entry?.blob !== value.blob) {
@@ -195,25 +202,28 @@
       uploading = true;
       const started = Date.now();
       const request = new XMLHttpRequest();
+      uploadRequest = request;
       request.open('POST', form.action, true);
       request.timeout = 180000;
       request.upload?.addEventListener('progress', event => {
+        if (!active) return;
         if (!event.lengthComputable) { paintProgress('uploading', null, '正在上传，请勿关闭页面…'); return; }
         const percent = event.loaded / event.total * 100;
         if (percent >= 100) paintProgress('parsing', 100, '上传完成，正在解析简历，请勿关闭页面…');
         else paintProgress('uploading', percent, `正在上传 ${Math.round(percent)}%，请勿关闭页面…`);
       });
       request.upload?.addEventListener('load', () => {
-        if (uploading) paintProgress('parsing', 100, '上传完成，正在解析简历，请勿关闭页面…');
+        if (active && uploading) paintProgress('parsing', 100, '上传完成，正在解析简历，请勿关闭页面…');
       });
       request.addEventListener('load', () => {
         reportUpload(Date.now() - started, request.status);
-        if (request.status >= 200 && request.status < 400) {
-          location.replace(request.responseURL || '/my-schedule/interviews');
-          return;
-        }
+        if (!active) return;
         if (request.status === 401 || request.status === 403 || /\/auth\//.test(request.responseURL || '')) {
           location.assign('/auth/login');
+          return;
+        }
+        if (request.status >= 200 && request.status < 400) {
+          location.replace(request.responseURL || '/my-schedule/interviews');
           return;
         }
         endUpload();
@@ -234,6 +244,7 @@
       });
       const failed = () => {
         reportUpload(Date.now() - started, 0);
+        if (!active) return;
         endUpload();
         file.value = '';
         status.textContent = '上传未完成，可重试。';

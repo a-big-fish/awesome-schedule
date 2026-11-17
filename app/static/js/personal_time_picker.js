@@ -1,4 +1,12 @@
 (() => {
+// Bind once; resolve the current dialog after navigation or cached-shell replacement.
+document.addEventListener('click', event => {
+  const trigger = event.target.closest?.('[data-time-trigger]');
+  const dialog = document.querySelector('[data-time-dialog]');
+  if (!trigger || !dialog) return;
+  const field = trigger.closest('.personal-time-field');
+  if (field) dialog.dispatchEvent(new CustomEvent('time:open', {detail: field}));
+});
 function initTimePicker() {
   upgrade(document);
   const eventType = document.querySelector('[data-event-type]');
@@ -85,13 +93,6 @@ function initTimePicker() {
     });
   }
   upgrade(document);
-  // Delegated clicks keep working for pickers that appear later.
-  document.addEventListener('click', event => {
-    const trigger = event.target.closest?.('[data-time-trigger]');
-    if (!trigger || !dialog) return;
-    const field = trigger.closest('.personal-time-field');
-    if (field) dialog.dispatchEvent(new CustomEvent('time:open', {detail: field}));
-  });
   if (!dialog || dialog.dataset.timePickerReady) return;
   dialog.dataset.timePickerReady = '1';
 

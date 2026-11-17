@@ -64,6 +64,31 @@ function boot({fields, dialog, documentOverrides = {}}) {
   return listeners;
 }
 
+test('reinitialization binds one delegated click and resolves the replacement dialog', () => {
+  const handlers = {};
+  let current = dialogHarness().dialog;
+  const {field, trigger} = fieldHarness({name: 'start_at', value: '2026-11-20T09:00'});
+  boot({fields: [field], dialog: current, documentOverrides: {
+    querySelector: selector => selector === '[data-time-dialog]' ? current : null,
+    addEventListener(name, callback) {(handlers[name] ||= []).push(callback);},
+  }});
+  for (let index = 0; index < 5; index++) {
+    handlers['personal:navigated'][0]();
+    handlers['personal:event-dialog-rendered'][0]();
+  }
+  const previous = current;
+  current = dialogHarness().dialog;
+  handlers['personal:navigated'][0]();
+  let opens = 0;
+  const dispatch = current.dispatchEvent;
+  current.dispatchEvent = event => {opens++; dispatch(event);};
+  handlers.click.forEach(callback => callback({target: {closest: () => trigger}}));
+  assert.equal(handlers.click.length, 1);
+  assert.equal(opens, 1);
+  assert.equal(current.opened.detail, field);
+  assert.equal(previous.opened, undefined);
+});
+
 test('cached add schedule page initializes its type switch once after navigation', () => {
   const listeners = {};
   const input = {disabled: false};
