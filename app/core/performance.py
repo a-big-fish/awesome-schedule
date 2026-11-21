@@ -78,12 +78,26 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
         return "account"
     if path.startswith("/api/mobile/v1/"):
         tail = path[len("/api/mobile/v1"):]
+        if tail == "/workspace/interviews":
+            return "interviews"
+        if tail == "/workspace/resume":
+            return "resume_state" if method == "GET" else "resume_upload"
+        if tail == "/workspace/resume/document":
+            return "resume_file"
+        if tail.startswith("/workspace/experiences/"):
+            return "pdf" if tail.endswith("/document") else "draft" if tail.endswith("/draft") else "experience_write"
         if tail == "/profile":
             return "profile"
         if tail == "/calendar" or tail.startswith("/todos"):
             return "calendar"
         if tail.startswith("/ideas"):
             return "ideas"
+        if tail == "/experiences":
+            return "experiences"
+        if tail == "/resume":
+            return "resume_upload"
+        if tail.startswith("/resumes"):
+            return "resume_file"
         if tail == "/plaza":
             return "plaza"
         if tail.startswith("/plaza/"):
@@ -98,7 +112,7 @@ def node_for_path(path: str, method: str = "GET") -> str | None:
     if not path.startswith("/my-schedule"):
         return None
     tail = path[len("/my-schedule"):]
-    if tail == "/ideas" or tail.startswith("/ideas/"):
+    if tail in {"/ideas", "/ideas-data"} or tail.startswith(("/ideas/", "/idea-sync/")):
         return "ideas"
     if tail == "/resume/current":
         return "resume_state"

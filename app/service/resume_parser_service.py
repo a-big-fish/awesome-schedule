@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import sys
@@ -117,7 +118,10 @@ class ResumeParserService:
             raise ResumeParseError("简历文件为空")
         if len(content) > MAX_RESUME_BYTES:
             raise ResumeParseError("简历文件不得超过 20 MB")
-        resume = self.parse_pdf(
+        # PDF parsing, photo selection and file storage can take seconds. Keep the
+        # HTTP event loop available for calendar reads and other users' requests.
+        resume = await asyncio.to_thread(
+            self.parse_pdf,
             content,
             upload.filename or "resume.pdf",
             timer=timer,

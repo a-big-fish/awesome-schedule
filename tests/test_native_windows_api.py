@@ -94,3 +94,61 @@ def test_native_company_search_matches_substrings_only_in_public_companies(tmp_p
         result = client.get("/api/mobile/v1/plaza", params={"company": "音"}).json()
         assert result["total"] == 2
         assert {item["company"] for item in result["items"]} == {"抖音", "音符科技"}
+
+
+def test_native_owned_experience_page_filters_clamps_and_is_owner_scoped(tmp_path):
+    """The native list reuses the Web summary rules without exposing drafts or other owners."""
+    app, mapper, *_ = _public_fixture(tmp_path)
+    user = AuthUser(email="native-list@example.com", password_hash=hash_password("native-password"), email_verified=True)
+    other = AuthUser(email="native-list-other@example.com", password_hash=hash_password("native-password"), email_verified=True)
+    mapper.create_user(user)
+    mapper.create_user(other)
+    notes = app.dependency_overrides[get_interview_experience_mapper]()
+    created = []
+    for index in range(22):
+        item = notes.save_experience(InterviewExperience(
+            owner_id=user.id, title=f"面经{index:02d}",
+            company="顺丰" if index == 0 else "示例公司", position="Java开发",
+            is_public=index % 2 == 0))
+        created.append(item)
+    notes.save_question(InterviewQuestion(experience_id=created[-1].id, category="project", asked_order=1,
+                                          question_text="只应计数，不返回正文"), user.id)
+    notes.save_experience(InterviewExperience(owner_id=other.id, title="别人的面经", company="别家公司"))
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.get("/api/mobile/v1/experiences", follow_redirects=False).status_code in {303, 401}
+        csrf = _login(client, user.email, "native-password")
+        first = client.get("/api/mobile/v1/experiences")
+        assert first.headers["cache-control"] == "no-store"
+        body = first.json()
+        assert body["total"] == 22 and body["page"] == 1 and body["page_size"] == 20 and body["has_more"] is True
+        assert len(body["items"]) == 20
+        assert set(body["items"][0]) == {"id", "title", "company", "position", "interview_round",
+                                         "is_public", "updated_at", "question_count"}
+        assert all("raw_text_draft" not in item and "questions" not in item for item in body["items"])
+        counted = next(item for item in body["items"] if item["id"] == created[-1].id)
+        assert counted["question_count"] == 1
+        second = client.get("/api/mobile/v1/experiences?page=2").json()
+        assert len(second["items"]) == 2 and second["has_more"] is False
+        clamped = client.get("/api/mobile/v1/experiences?page=99").json()
+        assert clamped["page"] == 2 and len(clamped["items"]) == 2
+        assert client.get("/api/mobile/v1/experiences?page=0").json()["page"] == 1
+        searched = client.get("/api/mobile/v1/experiences", params={"q": "顺丰"}).json()
+        assert searched["total"] == 1 and searched["items"][0]["id"] == created[0].id
+        assert client.get("/api/mobile/v1/experiences", params={"q": "Java开发"}).json()["total"] == 22
+        assert client.get("/api/mobile/v1/experiences", params={"q": "不存在"}).json()["items"] == []
+        public_only = client.get("/api/mobile/v1/experiences", params={"visibility": "public"}).json()
+        private_only = client.get("/api/mobile/v1/experiences", params={"visibility": "private"}).json()
+        assert public_only["total"] == 11 and private_only["total"] == 11
+        assert all(item["is_public"] for item in public_only["items"])
+        assert not any(item["is_public"] for item in private_only["items"])
+        oldest = client.get("/api/mobile/v1/experiences", params={"order": "oldest"}).json()
+        newest = client.get("/api/mobile/v1/experiences", params={"order": "newest"}).json()
+        assert oldest["items"][0]["id"] != newest["items"][0]["id"]
+        combined = client.get("/api/mobile/v1/experiences",
+                              params={"q": "示例公司", "visibility": "private", "order": "oldest", "page": 2}).json()
+        assert combined["total"] == 11 and combined["page"] == 1 and len(combined["items"]) == 11
+        # A second account only sees its own page even though the first one owns 22 notes.
+        client.post("/auth/logout", data={"csrf_token": csrf})
+        _login(client, other.email, "native-password")
+        other_page = client.get("/api/mobile/v1/experiences").json()
+        assert other_page["total"] == 1 and other_page["items"][0]["title"] == "别人的面经"

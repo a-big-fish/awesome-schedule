@@ -1,5 +1,6 @@
 """Authenticated Android snapshot and dated tasks."""
 
+import math
 from datetime import date, datetime, timezone
 from uuid import UUID
 
@@ -251,6 +252,72 @@ def plaza_detail(experience_id: str, request: Request, response: Response,
             "author": _author(item.owner_id, users)}
 
 
+@router.get("/experiences")
+def experiences(request: Request, response: Response, q: str = "", visibility: str = "all",
+                order: str = "newest", page: int = 1,
+                service: InterviewExperienceService = Depends(get_interview_experience_service)) -> dict:
+    """Owner-scoped summary page for the native experience list; never returns drafts or bodies."""
+    query = q.strip()[:100]
+    visibility = visibility if visibility in {"all", "public", "private"} else "all"
+    order = order if order in {"newest", "oldest"} else "newest"
+    requested = max(1, page)
+    rows, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                        page=requested, page_size=20)
+    page_count = max(1, math.ceil(total / 20))
+    current = min(requested, page_count)
+    if current != requested:
+        rows, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                            page=current, page_size=20)
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "items": [{"id": row["experience"].id, "title": row["experience"].title,
+                   "company": row["experience"].company, "position": row["experience"].position,
+                   "interview_round": row["experience"].interview_round,
+                   "is_public": row["experience"].is_public,
+                   "updated_at": row["experience"].updated_at.isoformat(),
+                   "question_count": row["question_count"]} for row in rows],
+        "total": total, "page": current, "page_size": 20, "has_more": current < page_count,
+        "page_count": page_count, "next_page": current + 1 if current < page_count else None,
+    }
+
+
+class NativeExperienceInput(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    position: str | None = Field(default=None, max_length=200)
+    interview_round: str | None = Field(default=None, max_length=50)
+    linked_event_id: str | None = None
+    interviewed_at: datetime | None = None
+    is_public: bool = False
+
+
+@router.get("/experiences/{experience_id}")
+def experience_detail(experience_id: str, response: Response,
+                      service: InterviewExperienceService = Depends(get_interview_experience_service)) -> dict:
+    item = service.get_experience(experience_id)
+    if item is None:
+        raise HTTPException(404, "面经不存在")
+    response.headers["Cache-Control"] = "no-store"
+    return {"experience": item.model_dump(mode="json"),
+            "questions": [question.model_dump(mode="json") for question in service.list_questions(experience_id)]}
+
+
+@router.post("/experiences", status_code=201)
+@router.put("/experiences/{experience_id}")
+def save_experience(payload: NativeExperienceInput, response: Response, experience_id: str | None = None,
+                    service: InterviewExperienceService = Depends(get_interview_experience_service)) -> dict:
+    fields = payload.model_dump()
+    try:
+        item = (service.update_experience(experience_id, **fields) if experience_id
+                else service.create_experience(**fields))
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise _event_error(error) from error
+    response.headers["Cache-Control"] = "no-store"
+    return {"experience": item.model_dump(mode="json")}
+
+
 @router.get("/snapshot")
 def snapshot(
     request: Request,
@@ -370,3 +437,8 @@ def toggle_todo(todo_id: str, todos: PersonalTodoService = Depends(get_personal_
 def delete_todo(todo_id: str, todos: PersonalTodoService = Depends(get_personal_todo_service)) -> None:
     if not todos.delete(todo_id):
         raise HTTPException(404, "待办不存在")
+
+
+# Inherit the authenticated mobile router dependencies for every native workspace route.
+from app.controller.native_workspace_controller import router as workspace_router
+router.include_router(workspace_router)
