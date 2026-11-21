@@ -7,6 +7,24 @@ using System.Text.Json;
 
 int passed = 0;
 void Check(bool condition, string name) { if (!condition) throw new Exception(name); Console.WriteLine("PASS " + name); passed++; }
+using (var projectionFixture = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "calendar_projection_v1.json"))))
+{
+    var fixture = projectionFixture.RootElement;
+    var events = Wire.Read<List<EventData>>(fixture.GetProperty("events").GetRawText());
+    var workStart = TimeSpan.Parse(fixture.GetProperty("workday_start").GetString()!);
+    var workEnd = TimeSpan.Parse(fixture.GetProperty("workday_end").GetString()!);
+    foreach (var sample in fixture.GetProperty("days").EnumerateObject())
+    {
+        var day = DateTime.ParseExact(sample.Name, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var actual = CalendarProjection.EventsForDay(events, day, workStart, workEnd).Select(item =>
+        {
+            var segment = CalendarProjection.Segment(item, day, workStart, workEnd)!.Value;
+            return (item.Id, (int)(segment.Start - day).TotalMinutes, (int)(segment.End - day).TotalMinutes, item.CompletedAt != null);
+        });
+        var expected = sample.Value.EnumerateArray().Select(row => (row[0].GetString()!, row[1].GetInt32(), row[2].GetInt32(), row[3].GetBoolean()));
+        Check(actual.SequenceEqual(expected), "shared calendar projection " + sample.Name);
+    }
+}
 Check(Wire.Read<SessionInfo>("""{"user_id":"a","csrf_token":"test","is_admin":true}""").IsAdmin && !Wire.Read<SessionInfo>("""{"user_id":"a","csrf_token":"test"}""").IsAdmin,"admin capability parsed; legacy session defaults unprivileged");
 var profileContract=Wire.Read<ProfileData>("""{"user_id":"a","display_name":"自定义昵称","email":"ab@example.test","workday_start":"08:00","workday_end":"18:00"}""");
 Check(profileContract.EffectiveName=="自定义昵称", "server display_name received without fallback override");
@@ -64,15 +82,24 @@ var transport=new Routing(async request=>{
     if(path.EndsWith("/session"))return Json(new SessionInfo("a","fixture"));
     if(path.EndsWith("/snapshot"))return Json(initialState);
     if(path.EndsWith("/calendar"))return Json(new CalendarState(1,"a",DateTimeOffset.UtcNow,new(){workEvent},new(),new(),profileContract));
-    if(path.EndsWith("/events")&&request.Method==HttpMethod.Post){writes++;return Json(workEvent with{Title="saved"});}
-    if(path.Contains("/completion"))return Json(workEvent with{CompletedAt=DateTimeOffset.UtcNow});
+    if(path.Contains("/calendar-sync/")){
+        writes++;
+        string operation=path[(path.LastIndexOf('/')+1)..];
+        string body=request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+        string entity=JsonDocument.Parse(body).RootElement.GetProperty("event_id").GetString()!;
+        return Json(new{schema_version=1,user_id="a",operation_id=operation,server_time="2026-11-19T10:00:00+08:00",@event=workEvent with{Id=entity,Title="saved"}});
+    }
     await Task.Yield();return new(HttpStatusCode.NoContent);
 });
 try {
     using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,transport))){
         await repo.RestoreAsync();Check(repo.Online&&repo.Current!.Profile!.EffectiveName=="自定义昵称","restored snapshot carries account preferences");
-        var before=paths.Count;var saved=await repo.SaveEventAsync(new{title="fixture"});
-        Check(writes==1&&paths.Count==before+1&&repo.Current!.Events.Single().Title=="saved","successful write patches immediately with exactly one HTTP call");
+        var before=paths.Count;
+        var payload=new CalendarEventPayload{Title="fixture",Type="personal",
+            StartAt=DateTimeOffset.Parse("2026-11-05T09:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-05T10:00:00+08:00")};
+        var entity=await repo.SaveEventQueuedAsync(payload,null);
+        await repo.FlushSyncAsync();
+        Check(writes==1&&paths.Count==before+1&&repo.Current!.Events.Single(e=>e.Id==entity).Title=="saved","queued calendar write patches locally with exactly one HTTP call");
         await repo.RefreshCalendarAsync();
         Check(repo.Current!.ServerTime==initialState.ServerTime,"calendar refresh does not renew freshness of untouched experiences");
         Check(repo.Current!.Experiences.Single().Id=="note"&&repo.Current.Events.Single().WorkdayOnly,"calendar-only refresh preserves note resources and updates display rules");
@@ -92,7 +119,7 @@ try {
     }
     await repoCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
     await repoCache.SaveSnapshotAsync("https://example.test/",snapshot);
-    var badFile=Directory.GetFiles(repoDir).Single(f=>!f.EndsWith("connection.bin"));await File.WriteAllTextAsync(badFile,"corrupt");
+    var badFile=Directory.GetFiles(repoDir).Single(f=>!f.EndsWith("connection.bin")&&!f.EndsWith(".outbox.bin"));await File.WriteAllTextAsync(badFile,"corrupt");
     using(var repo=new WorkspaceRepository(repoCache,address=>new NativeApi(address,new Reply("{}","application/json",HttpStatusCode.ServiceUnavailable)))){
         await repo.RestoreAsync();Check(!repo.Online&&repo.Current==null,"corrupt snapshot and unreachable backend handled without crash");
         await repo.LogoutAsync();Check(await repoCache.ReadConnectionAsync()==null&&!File.Exists(badFile),"corrupt snapshot does not prevent clearing saved identity");
@@ -115,12 +142,228 @@ try {
 static HttpResponseMessage Json<T>(T value)=>new(HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(value,Wire.Json),Encoding.UTF8,"application/json")};
 
 
+// Durable idea queue: deterministic ids, replay-safe retries, rejection, isolation and cleanup.
+Check(DeterministicIds.CalendarCreate("u1","00000000-0000-0000-0000-000000000001")=="d1a6ad48-2b50-5dcb-a416-21941b278590","uuid5 calendar create id matches the server vector");
+Check(DeterministicIds.IdeaCreate("u1","00000000-0000-0000-0000-000000000001")=="f1b70b49-e507-5149-8adc-bde7c1689fee","uuid5 idea create id matches the server vector");
+Check(DeterministicIds.IdeaEvent("u1","idea-1")=="7684c203-569c-5570-8002-be6ee4241962","uuid5 arranged event id matches the server vector");
+
+static HttpResponseMessage Status(int code,string body)=>new((HttpStatusCode)code){Content=new StringContent(body,Encoding.UTF8,"application/json")};
+var queueDir=Path.Combine(Path.GetTempPath(),"awesome-idea-queue-"+Guid.NewGuid());
+var queueCache=new AccountCache(queueDir);
+try {
+    var baseSnapshot=snapshot with{ServerTime=DateTimeOffset.UtcNow,Experiences=new(),Ideas=new(),Profile=profileContract};
+    await queueCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+    await queueCache.SaveSnapshotAsync("https://example.test/",baseSnapshot);
+    var calls=new List<(string Id,string Body)>();var behaviour="ack";
+    string IdeaMode(HttpRequestMessage request)
+    {
+        var path=request.RequestUri!.AbsolutePath;var operation=path[(path.LastIndexOf('/')+1)..];
+        var body=request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();calls.Add((operation,body));
+        if(behaviour=="reject")return "reject";
+        if(behaviour=="uncertain")return "uncertain";
+        if(behaviour=="unavailable")return "unavailable";
+        return "ack";
+    }
+    HttpResponseMessage AckIdea(HttpRequestMessage request,string operation,string body)
+    {
+        var command=JsonSerializer.Deserialize<IdeaSyncCommand>(body,Wire.Json)!;
+        var stamp="2026-11-19T10:00:00+08:00";
+        return Status(200,JsonSerializer.Serialize(new{schema_version=1,user_id="a",operation_id=operation,server_time=stamp,
+            idea=new{id=command.IdeaId,title=command.Title,note=command.Note,reference_links=command.ReferenceLinks,status="pending",created_at=stamp,updated_at=stamp}},Wire.Json));
+    }
+    var ideaTransport=new Routing(async request=>{
+        var path=request.RequestUri!.AbsolutePath;
+        if(path.EndsWith("/session"))return Json(new SessionInfo("a","fixture"));
+        if(path.EndsWith("/snapshot"))return Json(baseSnapshot);
+        if(path.EndsWith("/calendar"))return Json(new CalendarState(1,"a",DateTimeOffset.UtcNow,new(),new(),new(),profileContract));
+        if(path.Contains("/idea-sync/")){
+            var mode=IdeaMode(request);var operation=calls[^1].Id;var body=calls[^1].Body;
+            return mode switch{
+                "reject"=>Status(422,"{\"detail\":\"标题不符合要求\"}"),
+                "uncertain"=>Status(200,"{\"schema_version\":1,\"user_id\":\"a\",\"operation_id\":\"00000000-0000-0000-0000-000000000000\",\"server_time\":\"2026-11-19T10:00:00+08:00\"}"),
+                "unavailable"=>Status(503,"{\"detail\":\"数据库暂时不可用\"}"),
+                _=>AckIdea(request,operation,body)};
+        }
+        await Task.Yield();return new HttpResponseMessage(HttpStatusCode.NoContent);
+    });
+    using(var repo=new WorkspaceRepository(queueCache,address=>new NativeApi(address,ideaTransport))){
+        await repo.RestoreAsync();
+        var entity=await repo.SaveIdeaQueuedAsync("合成想法","备注",new());
+        Check(repo.Current!.Ideas.Any(i=>i.Id==entity&&i.Title=="合成想法"),"queued idea is visible locally before the server confirms");
+        await repo.FlushSyncAsync();
+        Check(repo.PendingSyncCount==0&&repo.Current.Ideas.Single().Id==entity&&repo.Current.Ideas.Single().Status=="pending","acknowledged idea replaces the local draft with the server entity");
+        Check(calls.Count==1&&DeterministicIds.IdeaCreate("a",calls[0].Id)==entity,"create uses the operation id the server validated");
+
+        behaviour="uncertain";
+        var interrupted=await repo.SaveIdeaQueuedAsync("被打断的想法","",new());
+        await repo.FlushSyncAsync();
+        Check(repo.PendingSyncCount==1&&repo.IdeaSyncState(interrupted)==SyncStates.Pending,"a mismatched receipt keeps the command queued with its own id");
+        var pendingItem=repo.SyncItems.Single();
+        behaviour="ack";
+        await repo.RetrySyncAsync(pendingItem);
+        Check(repo.PendingSyncCount==0&&calls.Count(c=>c.Id==pendingItem.Id)==2&&calls.Where(c=>c.Id==pendingItem.Id).Select(c=>c.Body).Distinct().Count()==1,
+            "retry reuses the same operation id and byte-identical command");
+
+        behaviour="reject";
+        var rejected=await repo.SaveIdeaQueuedAsync("待修正的想法","",new());
+        await repo.FlushSyncAsync();
+        var failed=repo.SyncItems.Single(item=>item.State==SyncStates.Failed);
+        Check(repo.FailedSyncCount==1&&repo.IdeaSyncState(rejected)==SyncStates.Failed&&repo.Current!.Ideas.All(i=>i.Id!=rejected),
+            "a rejected command keeps its draft out of the confirmed list");
+        var outboxFile=Directory.GetFiles(queueDir).Single(file=>file.EndsWith(".outbox.bin"));
+        Check(!Encoding.UTF8.GetString(await File.ReadAllBytesAsync(outboxFile)).Contains("待修正的想法"),"the queued draft is encrypted at rest");
+        Check(await queueCache.ReadOutboxAsync("https://example.test/","b")==null,"another account cannot read this queue");
+        behaviour="ack";
+        await repo.SaveIdeaQueuedAsync("修正后的想法","",new(),rejected);
+        await repo.FlushSyncAsync();
+        var reused=calls.Where(c=>c.Id==failed.Id).ToList();
+        var firstDraft=JsonSerializer.Deserialize<IdeaSyncCommand>(reused[0].Body,Wire.Json)!;
+        var correctedDraft=JsonSerializer.Deserialize<IdeaSyncCommand>(reused[^1].Body,Wire.Json)!;
+        Check(reused.Count==2&&firstDraft.Action=="create"&&correctedDraft.Action=="create"&&correctedDraft.Title=="修正后的想法",
+            "editing a failed draft replays the same operation id as the original create");
+        Check(repo.FailedSyncCount==0&&repo.Current!.Ideas.Single(i=>i.Id==rejected).Title=="修正后的想法","the corrected draft is confirmed once");
+
+        behaviour="uncertain";
+        var restart=await repo.SaveIdeaQueuedAsync("重启后同步","",new());
+        await repo.FlushSyncAsync();
+        var restartItem=repo.SyncItems.Single(item=>item.EntityId==restart);
+        Check(restartItem.NextAttempt>DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            "a failed transport schedules a durable backoff instead of hammering the server");
+        var restartOperation=restartItem.Id;
+        await repo.FlushCacheAsync();
+        Check(File.Exists(outboxFile),"the pending queue survives on disk for the next start");
+        behaviour="ack";
+        await Task.Delay(1100);
+        using(var restored=new WorkspaceRepository(queueCache,address=>new NativeApi(address,ideaTransport))){
+            await restored.RestoreAsync();
+            Check(restored.PendingSyncCount==0,$"restart replays the persisted command once (pending={restored.PendingSyncCount})");
+            Check(restored.Current!=null&&restored.Current.Ideas.Any(i=>i.Id==restart),"the restarted run confirms the replayed idea locally");
+            Check(calls.Count(c=>c.Id==restartOperation)==2,"the restart reused the persisted operation id instead of creating a duplicate");
+            await restored.LogoutAsync();
+            Check(await queueCache.ReadOutboxAsync("https://example.test/","a")==null&&!File.Exists(outboxFile),
+                "logout clears the persisted queue with the cached identity");
+        }
+    }
+    // Capacity guard: a backend that keeps refusing leaves the queue full and blocks new saves.
+    var fullDir=Path.Combine(Path.GetTempPath(),"awesome-idea-full-"+Guid.NewGuid());
+    var fullCache=new AccountCache(fullDir);
+    try {
+        await fullCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+        await fullCache.SaveSnapshotAsync("https://example.test/",baseSnapshot);
+        var refusing=new Routing(request=>{
+            var path=request.RequestUri!.AbsolutePath;
+            if(path.EndsWith("/session"))return Task.FromResult(Json(new SessionInfo("a","fixture")));
+            if(path.EndsWith("/snapshot"))return Task.FromResult(Json(baseSnapshot));
+            return Task.FromResult(Status(503,"{\"detail\":\"数据库暂时不可用\"}"));
+        });
+        using var full=new WorkspaceRepository(fullCache,address=>new NativeApi(address,refusing));
+        await full.RestoreAsync();
+        for(int index=0;index<SyncQueueRules.Capacity;index++)await full.SaveIdeaQueuedAsync($"积压 {index}","",new());
+        await full.FlushSyncAsync();
+        Check(full.PendingSyncCount==SyncQueueRules.Capacity,"the queue stops growing at its documented capacity");
+        try { await full.SaveIdeaQueuedAsync("超出容量","",new());throw new Exception("capacity accepted one more item"); }
+        catch(ApiFailure failure){ Check(failure.Status==429,"a full queue refuses new saves with a clear reason"); }
+        await full.LogoutAsync();
+    } finally { foreach(var file in Directory.GetFiles(fullDir)) File.Delete(file); Directory.Delete(fullDir); }
+} finally { foreach(var file in Directory.GetFiles(queueDir)) File.Delete(file); Directory.Delete(queueDir); }
+
+// Calendar commands ride the same queue: occurrence days, conflict replay and arrangement ids.
+var eventDir=Path.Combine(Path.GetTempPath(),"awesome-event-queue-"+Guid.NewGuid());
+var eventCache=new AccountCache(eventDir);
+try {
+    var repeatEvent=new EventData{Id="repeat",OwnerId="a",Type="personal",Title="每周复盘",
+        StartAt=DateTimeOffset.Parse("2026-11-04T09:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-04T10:00:00+08:00"),
+        Timezone="Asia/Shanghai",RepeatWeekdays=new(){2},RepeatCompletions=new()};
+    var repeatDay=Enumerable.Range(0,14).Select(offset=>new DateTime(2026,11,4).AddDays(offset))
+        .First(day=>((int)day.DayOfWeek+6)%7==2).ToString("yyyy-MM-dd");
+    var eventSnapshot=snapshot with{ServerTime=DateTimeOffset.UtcNow,Experiences=new(),Ideas=new(),
+        Profile=profileContract,Events=new(){repeatEvent}};
+    await eventCache.SaveConnectionAsync(new("https://example.test/","a","fixture-session"));
+    await eventCache.SaveSnapshotAsync("https://example.test/",eventSnapshot);
+    var eventCalls=new List<(string Id,string Body)>();var eventBehaviour="ack";
+    var eventTransport=new Routing(async request=>{
+        var path=request.RequestUri!.AbsolutePath;
+        if(path.EndsWith("/session"))return Json(new SessionInfo("a","fixture"));
+        if(path.EndsWith("/snapshot"))return Json(eventSnapshot);
+        if(path.EndsWith("/calendar"))return Json(new CalendarState(1,"a",DateTimeOffset.UtcNow,new(){repeatEvent},new(),new(),profileContract));
+        if(path.Contains("/calendar-sync/")){
+            var operation=path[(path.LastIndexOf('/')+1)..];
+            var body=request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            eventCalls.Add((operation,body));
+            if(eventBehaviour=="conflict")return Status(409,"{\"detail\":{\"conflicts\":[\"已有重叠日程\"]}}");
+            var command=JsonSerializer.Deserialize<CalendarSyncCommand>(body,Wire.Json)!;
+            var stamp="2026-11-19T10:00:00+08:00";
+            if(command.Action=="delete")
+                return Status(200,JsonSerializer.Serialize(new{schema_version=1,user_id="a",operation_id=operation,
+                    server_time=stamp,@event=(object?)null,deleted_id=command.EventId},Wire.Json));
+            var completions=new Dictionary<string,string>();
+            if(command.Action=="completion"&&command.Completed==true)completions[command.OccurrenceDay??repeatDay]=stamp;
+            var payload=command.Event;
+            object replyEvent=payload==null
+                ?new{id=command.EventId,type="personal",title="每周复盘",start_at="2026-11-04T09:00:00+08:00",
+                    end_at="2026-11-04T10:00:00+08:00",timezone="Asia/Shanghai",repeat_weekdays=new[]{2},
+                    repeat_completions=completions,reminder_offsets_minutes=Array.Empty<int>()}
+                :new{id=command.EventId,type=payload.Type,title=payload.Title,start_at=payload.StartAt,end_at=payload.EndAt,
+                    timezone=payload.Timezone,repeat_weekdays=payload.RepeatWeekdays,repeat_completions=completions,
+                    reminder_offsets_minutes=payload.ReminderOffsetsMinutes};
+            return Status(200,JsonSerializer.Serialize(new{schema_version=1,user_id="a",operation_id=operation,server_time=stamp,@event=replyEvent},Wire.Json));
+        }
+        await Task.Yield();return new HttpResponseMessage(HttpStatusCode.NoContent);
+    });
+    using(var repo=new WorkspaceRepository(eventCache,address=>new NativeApi(address,eventTransport))){
+        await repo.RestoreAsync();
+        eventBehaviour="conflict";
+        var payload=new CalendarEventPayload{Title="冲突日程",Type="personal",
+            StartAt=DateTimeOffset.Parse("2026-11-11T09:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-11T10:00:00+08:00")};
+        var conflictEntity=await repo.SaveEventQueuedAsync(payload,null);
+        await repo.FlushSyncAsync();
+        var conflict=repo.FailedSyncItem(conflictEntity);
+        Check(conflict?.Status==409&&conflict.ConflictTitles.Single()=="已有重叠日程","an overlap is queued as a failed command carrying the server conflict titles");
+        eventBehaviour="ack";
+        await repo.ConfirmOverlapAsync(conflict!);
+        var attempts=eventCalls.Where(call=>call.Id==conflict!.Id).ToList();
+        var firstAttempt=JsonSerializer.Deserialize<CalendarSyncCommand>(attempts[0].Body,Wire.Json)!;
+        var secondAttempt=JsonSerializer.Deserialize<CalendarSyncCommand>(attempts[^1].Body,Wire.Json)!;
+        Check(attempts.Count==2&&!firstAttempt.ConfirmOverlap&&secondAttempt.ConfirmOverlap,"confirming the overlap replays the same operation id with confirm_overlap");
+        Check(repo.FailedSyncCount==0&&repo.Current!.Events.Count(item=>item.Id==conflictEntity)==1,"the confirmed event exists exactly once");
+        var occurrence=repo.Current!.Events.Single(item=>item.Id=="repeat").OnDay(DateTime.Parse(repeatDay))!;
+        await repo.CompleteEventQueuedAsync(occurrence);
+        await repo.FlushSyncAsync();
+        var completion=JsonSerializer.Deserialize<CalendarSyncCommand>(eventCalls[^1].Body,Wire.Json)!;
+        Check(completion.EventId=="repeat"&&completion.OccurrenceDay==repeatDay&&completion.Completed==true,
+            "a repeat occurrence completion carries the parent id and the occurrence day");
+        Check(repo.Current!.Events.Single(item=>item.Id=="repeat").RepeatCompletions.ContainsKey(repeatDay),
+            "the occurrence completion is projected onto that day only");
+        var ideaPayload=new CalendarEventPayload{Title="安排想法",Type="personal",SourceIdeaId="idea-1",
+            StartAt=DateTimeOffset.Parse("2026-11-12T09:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-12T10:00:00+08:00")};
+        var arranged=await repo.SaveEventQueuedAsync(ideaPayload,null);
+        await repo.FlushSyncAsync();
+        Check(arranged==DeterministicIds.IdeaEvent("a","idea-1"),"arranging an idea uses the deterministic idea event id");
+        await repo.DeleteEventQueuedAsync(repo.Current!.Events.Single(item=>item.Id==arranged));
+        Check(repo.Current!.Events.All(item=>item.Id!=arranged),"a queued delete removes the event before the server confirms");
+        await repo.FlushSyncAsync();
+        Check(repo.Current!.Events.All(item=>item.Id!=arranged)&&repo.PendingSyncCount==0,"the delete receipt keeps the event removed");
+        await repo.LogoutAsync();
+    }
+} finally { foreach(var file in Directory.GetFiles(eventDir)) File.Delete(file); Directory.Delete(eventDir); }
+
+await WorkspaceContentChecks.Run(Check);
+await DesktopReliabilityChecks.Run(Check);
+await OfflineDependencyChecks.Run(Check);
+
 // Optional real-server read-only acceptance. No credentials or response bodies are printed or saved.
 var server = Environment.GetEnvironmentVariable("AWESOME_TEST_SERVER"); var cookie = Environment.GetEnvironmentVariable("AWESOME_TEST_COOKIE");
+if(Environment.GetEnvironmentVariable("AWESOME_TEST_SAVED_CONNECTION")=="1"){
+    var saved=await new AccountCache().ReadConnectionAsync();server=saved?.Server;cookie=saved?.Cookie;
+}
 if (server != null && cookie != null) {
     using var api = new NativeApi(server); api.RestoreCookie(cookie); await api.ConnectAsync(); var real = await api.SnapshotAsync();
     Check(real.UserId==api.Session!.UserId,"real authenticated server snapshot");
     Console.WriteLine($"REAL: {real.Events.Count} events, {real.Experiences.Count} experiences, {real.Todos.Count} todos; payloads not logged.");
+    foreach(var path in new[]{"api/mobile/v1/workspace/interviews","api/mobile/v1/workspace/resume"}){
+        try{await api.GetAsync<JsonElement>(path);Check(true,"real authenticated workspace capability "+path.Split('/')[^1]);}
+        catch(ApiFailure e){Console.WriteLine($"REAL capability {path.Split('/')[^1]} unverified: HTTP {e.Status}; server update may be required.");}
+    }
 } else Console.WriteLine("Real-account acceptance pending login; no simulated result claimed as real.");
 Console.WriteLine($"{passed} checks passed.");
 

@@ -23,15 +23,28 @@ public partial class MainWindow
     string profileScope="";
     void ShowExperience()
     {
-        page="experiences";bSelect("我的面经");Begin("我的面经","保留问题、追问和回答的原有层级");if(NeedAccount())return;
-        var items=repository.Current!.Experiences.OrderByDescending(e=>e.UpdatedAt).ToList();
-        if(items.Count==0){Paragraph("尚未保存面经。");return;}
-        foreach(var item in items)
+        page="experiences";bSelect("我的面经");Begin("我的面经","逐题整理、全文解析、导入文件，保留问题和追问的原有层级");if(NeedAccount())return;
+        var toolbar=new WrapPanel();var create=Button("＋ 新建面经",()=>EditExperienceMetadata(null));create.IsEnabled=repository.Online;toolbar.Children.Add(create);toolbar.Children.Add(Button("同步面经",()=>Run(repository.SynchronizeAsync)));content.Children.Add(toolbar);
+        var filter=new Grid();filter.ColumnDefinitions.Add(new());filter.ColumnDefinitions.Add(new(){Width=GridLength.Auto});filter.ColumnDefinitions.Add(new(){Width=GridLength.Auto});filter.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        var search=new TextBox{Text=notesQuery,Height=44,MinWidth=140,ToolTip="标题、公司或岗位包含关键词"};filter.Children.Add(search);
+        var visibility=new ComboBox{ItemsSource=new[]{"全部可见性","仅私密","仅公开"},SelectedIndex=notesVisibility,Width=130};Grid.SetColumn(visibility,1);filter.Children.Add(visibility);
+        var sort=new ComboBox{ItemsSource=new[]{"最近更新","面试时间最新","面试时间最早"},SelectedIndex=notesOrder,Width=150};Grid.SetColumn(sort,2);filter.Children.Add(sort);
+        void Apply(){notesQuery=search.Text.Trim();notesVisibility=visibility.SelectedIndex;notesOrder=sort.SelectedIndex;notesPage=1;ShowExperience();}
+        var apply=Button("筛选",Apply);Grid.SetColumn(apply,3);filter.Children.Add(apply);search.KeyDown+=(_,e)=>{if(e.Key==System.Windows.Input.Key.Enter)Apply();};
+        content.Children.Add(new Expander{Header="搜索与筛选",Content=Surface(filter),Margin=new(0,8,0,14),IsExpanded=!string.IsNullOrEmpty(notesQuery)||notesVisibility>0});
+        var filtered=repository.Current!.Experiences.Where(e=>(notesVisibility==0||(notesVisibility==2)==e.IsPublic)&&(string.IsNullOrEmpty(notesQuery)||$"{e.Title} {e.Company} {e.Position}".Contains(notesQuery,StringComparison.OrdinalIgnoreCase)));
+        var items=(notesOrder switch{1=>filtered.OrderByDescending(e=>e.InterviewedAt),2=>filtered.OrderBy(e=>e.InterviewedAt),_=>filtered.OrderByDescending(e=>e.UpdatedAt)}).ThenBy(e=>e.Id).ToList();
+        int pages=Math.Max(1,(items.Count+19)/20);notesPage=Math.Clamp(notesPage,1,pages);Paragraph($"{items.Count} 篇面经 · 第 {notesPage}/{pages} 页"+(repository.Online?"":" · 离线缓存"));
+        if(items.Count==0)Paragraph("没有符合条件的面经，可以新建草稿或调整筛选条件。");
+        var cards=new System.Windows.Controls.Primitives.UniformGrid();void Columns()=>cards.Columns=Math.Max(1,Math.Min(3,(int)(content.ActualWidth/320)));cards.SizeChanged+=(_,_)=>Columns();
+        foreach(var item in items.Skip((notesPage-1)*20).Take(20))
         {
             var body=new StackPanel();var title=Text(item.Title,19);title.FontWeight=FontWeights.SemiBold;body.Children.Add(title);
             body.Children.Add(Text($"{item.Company??"未填写公司"}    {item.Position}    {item.Questions.Count} 道问题    {(item.IsPublic?"公开":"私密")}",13,"#64748B",new(0,10,0,12)));
-            body.Children.Add(Button("阅读与导出",()=>ShowExperienceDetail(item)));content.Children.Add(Surface(body));
+            body.Children.Add(Text(item.InterviewedAt?.ToString("yyyy-MM-dd")??"面试时间未填写",12,"#64748B",new(0,0,0,14)));
+            var actions=new WrapPanel();actions.Children.Add(Button("阅读与导出",()=>Run(()=>OpenNoteAsync(item.Id,false))));actions.Children.Add(Button("继续录入",()=>Run(()=>OpenNoteAsync(item.Id,true))));body.Children.Add(actions);var card=Surface(body);card.Margin=new(0,0,14,16);cards.Children.Add(card);
         }
+        content.Children.Add(cards);Columns();var paging=new WrapPanel();if(notesPage>1)paging.Children.Add(Button("上一页",()=>{notesPage--;ShowExperience();}));if(notesPage<pages)paging.Children.Add(Button("下一页",()=>{notesPage++;ShowExperience();}));content.Children.Add(paging);
     }
     static string CategoryLabel(string value)=>value switch{"project"=>"项目问题","fundamentals"=>"八股问题","algorithm"=>"算法题","reverse"=>"反问","other"=>"其他",_=>value};
     void ShowExperienceDetail(ExperienceData item,string? author=null)
@@ -39,7 +52,7 @@ public partial class MainWindow
         page="experience-detail";Begin(item.Title,author==null?"我的面经":"作者："+author);
         var toolbar=new WrapPanel();toolbar.Children.Add(Button("返回列表",author==null?ShowExperience:ShowPlaza));
         var hideAnswers=new CheckBox{Content="隐藏所有回答",Margin=new(12,10,18,10)};toolbar.Children.Add(hideAnswers);
-        if(author==null){toolbar.Children.Add(Button("下载 PDF",()=>Run(()=>ExportAsync(item,"pdf",hideAnswers.IsChecked==true))));toolbar.Children.Add(Button("下载 Markdown",()=>Run(()=>ExportAsync(item,"md",hideAnswers.IsChecked==true))));}
+        if(author==null){toolbar.Children.Add(Button("编辑内容",()=>Run(()=>OpenNoteAsync(item.Id,true))));var info=Button("修改资料",()=>EditExperienceMetadata(item));info.IsEnabled=repository.Online;toolbar.Children.Add(info);toolbar.Children.Add(Button("导出与分页预览",()=>ShowExportWorkspace(item)));var delete=Button("删除面经",()=>Run(async()=>{if(!Confirm("删除面经","将删除这篇面经及其问题，是否继续？","删除面经","保留"))return;await repository.Api!.DeleteAsync("api/mobile/v1/workspace/experiences/"+Uri.EscapeDataString(item.Id));await repository.RemoveExperienceAsync(item.Id);formDirty=false;ShowExperience();}));delete.IsEnabled=repository.Online;toolbar.Children.Add(delete);}
         content.Children.Add(toolbar);
         var paper=new StackPanel{MaxWidth=860,HorizontalAlignment=HorizontalAlignment.Stretch};paper.Children.Add(Text($"{item.Company}    {item.Position}    {item.InterviewRound}",13,"#64748B",new(0,0,0,14)));
         if(item.TotalMinutes is int total)paper.Children.Add(Text($"总用时（{total} min）",13,"#64748B",new(0,0,0,12)));

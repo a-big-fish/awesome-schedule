@@ -1,0 +1,26 @@
+{
+  "now": "2026-11-13T12:00:00+08:00",
+  "workday_start": "09:30",
+  "workday_end": "17:30",
+  "events": [
+    {"id":"cross","owner_id":"fixture","type":"personal","title":"跨周工作安排","start_at":"2026-11-09T08:00:00+08:00","end_at":"2026-11-16T07:00:00+08:00","workday_only":true,"skip_weekends":true},
+    {"id":"midnight","owner_id":"fixture","type":"personal","title":"零点结束","start_at":"2026-11-13T23:00:00+08:00","end_at":"2026-11-14T00:00:00+08:00"},
+    {"id":"repeat","owner_id":"fixture","type":"personal","title":"工作日重复","start_at":"2026-11-09T09:00:00+08:00","end_at":"2026-11-09T10:00:00+08:00","repeat_weekdays":[0,1,2,3,4],"repeat_closed_on":"2026-11-14","repeat_completions":{"2026-11-13":"2026-11-13T10:00:00+08:00"}},
+    {"id":"ny","owner_id":"fixture","type":"personal","title":"跨时区重复","start_at":"2026-11-12T18:00:00-05:00","end_at":"2026-11-12T19:00:00-05:00","timezone":"America/New_York","repeat_weekdays":[3],"repeat_closed_on":"2026-11-19"},
+    {"id":"due-b","owner_id":"fixture","type":"personal","title":"同起止时间乙","start_at":"2026-11-13T11:00:00+08:00","end_at":"2026-11-13T12:00:00+08:00"},
+    {"id":"due-a","owner_id":"fixture","type":"personal","title":"同起止时间甲","start_at":"2026-11-13T11:00:00+08:00","end_at":"2026-11-13T12:00:00+08:00"}
+  ],
+  "days": {
+    "2026-11-13": [
+      ["cross",570,1050,false],
+      ["ny~2026-11-12",420,480,false],
+      ["repeat~2026-11-13",540,600,true],
+      ["due-a",660,720,false],
+      ["due-b",660,720,false],
+      ["midnight",1380,1440,false]
+    ],
+    "2026-11-14": [],
+    "2026-11-16": []
+  },
+  "overdue": ["due-a","due-b"]
+}

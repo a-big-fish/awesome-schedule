@@ -17,13 +17,21 @@ public sealed class ApiFailure : Exception
     public ApiFailure(int status, string message) : base(message) => Status = status;
 }
 
-public sealed class NativeApi : IDisposable
+public sealed partial class NativeApi : IDisposable
 {
     readonly CookieContainer cookies = new();
     readonly System.Collections.Concurrent.ConcurrentQueue<object> timings=new();
     readonly Timer flushTimer;
     int flushing;
-    static string Node(string path) => path.Contains("/plaza/")?"plaza_detail":path.Contains("/plaza")?"plaza":path.Contains("/ideas")?"ideas":path.Contains("/calendar")||path.Contains("/todos")?"calendar":path.Contains("/profile")?"profile":path.Contains("/parse")?"event_parse":path.Contains("/events")?"event_write":path.Contains("/snapshot")?"mobile":"mobile";
+    internal static string Node(string path,string method="GET")
+    {
+        path=path.Split('?')[0].TrimEnd('/');
+        if(path.Contains("/workspace/resume"))return path.EndsWith("/document")?"resume_file":method=="GET"?"resume_state":"resume_upload";
+        if(path.Contains("/workspace/interviews"))return "interviews";
+        if(path.Contains("/plaza/"))return "plaza_detail";if(path.EndsWith("/plaza"))return "plaza";
+        if(path.Contains("/experiences/")){if(path.EndsWith("/draft"))return "draft";if(path.EndsWith("/parse")||path.EndsWith("/parse-file"))return "parse";if(path.EndsWith("/document")||path.EndsWith("/export.pdf"))return "pdf";if(path.EndsWith("/export.md"))return "markdown";return "editor";}
+        return path.Contains("idea-sync")?"ideas":path.Contains("calendar-sync")?"event_write":path.Contains("/experiences")?"experiences":path.Contains("/plaza/")?"plaza_detail":path.Contains("/plaza")?"plaza":path.Contains("/ideas")?"ideas":path.Contains("/calendar")||path.Contains("/todos")?"calendar":path.Contains("/profile")?"profile":path.Contains("/parse")?"event_parse":path.Contains("/events")?"event_write":"mobile";
+    }
     public void RecordPage(string node,double duration){if(Session!=null&&timings.Count<100)timings.Enqueue(new{node,metric="cache_render",duration=Math.Clamp(duration,0,120000),status=200});}
     async Task FlushAsync(){if(Session==null||Interlocked.Exchange(ref flushing,1)!=0)return;try{var batch=new List<object>();while(batch.Count<20&&timings.TryDequeue(out var sample))batch.Add(sample);if(batch.Count==0)return;using var req=new HttpRequestMessage(HttpMethod.Post,"my-schedule/telemetry"){Content=new FormUrlEncodedContent(new Dictionary<string,string>{{"payload",JsonSerializer.Serialize(new{samples=batch},Wire.Json)}})};req.Headers.Add("X-CSRF-Token",Session.CsrfToken);using var response=await http.SendAsync(req);}catch(Exception e)when(e is HttpRequestException or OperationCanceledException or ObjectDisposedException){}finally{Interlocked.Exchange(ref flushing,0);}}
 
@@ -36,7 +44,7 @@ public sealed class NativeApi : IDisposable
         if (uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback)) throw new ArgumentException("服务地址必须使用 HTTPS；本机调试可用 HTTP。");
         if (!string.IsNullOrEmpty(uri.UserInfo) || uri.AbsolutePath != "/" || uri.Query != "" || uri.Fragment != "") throw new ArgumentException("请填写网站根地址，不包含路径、参数或账号。");
         Server = uri;
-        http = new HttpClient(transport ?? new HttpClientHandler { CookieContainer = cookies, AllowAutoRedirect = false }) { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(15) };
+        http = new HttpClient(transport ?? new HttpClientHandler { CookieContainer = cookies, AllowAutoRedirect = false }) { BaseAddress = uri, Timeout = TimeSpan.FromSeconds(180) };
         http.DefaultRequestHeaders.Add("X-Awesome-Client","windows");
         flushTimer=new Timer(_=>{_ = FlushAsync();},null,TimeSpan.FromMinutes(1),TimeSpan.FromMinutes(1));
     }
@@ -77,13 +85,14 @@ public sealed class NativeApi : IDisposable
         request.Headers.Add("X-CSRF-Token", Session?.CsrfToken ?? throw new ApiFailure(401, "请先登录。"));
         return await SendAsync<T>(request, cancellation);
     }
-    async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken cancellation)
+    async Task<T> SendAsync<T>(HttpRequestMessage request, CancellationToken cancellation, int timeoutSeconds = 15)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);timeout.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));cancellation=timeout.Token;
         var started=System.Diagnostics.Stopwatch.StartNew();
         HttpResponseMessage received;
-        try{received=await http.SendAsync(request,cancellation);}catch{if(timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??""),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=0});throw;}
+        try{received=await http.SendAsync(request,cancellation);}catch{if(timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??"",request.Method.Method),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=0});throw;}
         using var response=received;
-        if(!(request.RequestUri?.ToString()??"").Contains("/admin")&&timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??""),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=(int)response.StatusCode});
+        if(!(request.RequestUri?.ToString()??"").Contains("/admin")&&timings.Count<100)timings.Enqueue(new{node=Node(request.RequestUri?.ToString()??"",request.Method.Method),metric="request",duration=Math.Min(120000,started.Elapsed.TotalMilliseconds),status=(int)response.StatusCode});
         if (!response.IsSuccessStatusCode)
         {
             if (response.StatusCode==HttpStatusCode.Conflict && response.Content.Headers.ContentType?.MediaType=="application/json")
@@ -96,11 +105,14 @@ public sealed class NativeApi : IDisposable
                     }
                 } catch(JsonException) { }
             }
+            if(response.Content.Headers.ContentType?.MediaType=="application/json" && response.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.Conflict){
+                try{using var data=JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));if(data.RootElement.TryGetProperty("detail",out var detail)&&detail.ValueKind==JsonValueKind.String)throw new ApiFailure((int)response.StatusCode,(detail.GetString()??"请求被拒绝")[..Math.Min(500,detail.GetString()?.Length??0)]);}catch(JsonException){}
+            }
             throw Failure((int)response.StatusCode);
         }
         if (response.Content.Headers.ContentType?.MediaType != "application/json") throw new ApiFailure(401, "会话失效或服务未返回 JSON，请重新登录。");
         var text = await response.Content.ReadAsStringAsync(cancellation);
-        return Wire.Read<T>(text);
+        return await Task.Run(()=>Wire.Read<T>(text),cancellation);
     }
     public async Task LogoutAsync()
     {

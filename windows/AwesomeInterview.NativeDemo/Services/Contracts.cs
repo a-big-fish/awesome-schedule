@@ -69,11 +69,20 @@ public record EventData
             if (day < start.Date || !RepeatWeekdays.Contains(((int)day.DayOfWeek + 6) % 7) ||
                 (RepeatClosedOn != null && string.CompareOrdinal(day.ToString("yyyy-MM-dd"), RepeatClosedOn) >= 0)) return null;
             string key = day.ToString("yyyy-MM-dd");
-            return this with { Id = Id + "~" + key, StartAt = At(day + start.TimeOfDay), EndAt = At(day + end.TimeOfDay),
+            return this with { Id = Id + "~" + key, StartAt = OccurrenceTime(day + start.TimeOfDay), EndAt = OccurrenceTime(day + end.TimeOfDay),
                 CompletedAt = RepeatCompletions.TryGetValue(key, out var completed) ? completed : null };
         }
         if (start >= day.AddDays(1) || end <= day || (SkipWeekends && day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)) return null;
         return this;
+    }
+    DateTimeOffset OccurrenceTime(DateTime local)
+    {
+        local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+        var zone = Zone;
+        var before = local;
+        while (zone.IsInvalidTime(before)) before = before.AddMinutes(-1);
+        var offset = zone.IsAmbiguousTime(before) ? zone.GetAmbiguousTimeOffsets(before).Max() : zone.GetUtcOffset(before);
+        return new DateTimeOffset(local, offset).ToUniversalTime();
     }
     public DateTimeOffset At(DateTime local) => new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), Zone), TimeSpan.Zero);
 }
@@ -103,6 +112,9 @@ public record ExperienceData
     public string? Company { get; init; }
     public string? Position { get; init; }
     public DateTimeOffset? InterviewedAt { get; init; }
+    public string RawTextDraft { get; init; } = "";
+    // Snapshots intentionally omit the private parsing source; only full details may replace it.
+    public bool HasCompleteDraft { get; init; }
     public string? Feeling { get; init; }
     public bool IsPublic { get; init; }
     public string? InterviewRound { get; init; }
@@ -145,12 +157,42 @@ public record Snapshot
 
 public static class CalendarProjection
 {
-    public static DateTime Now => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;
+    static readonly TimeZoneInfo DisplayZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
+    public static DateTime Now => DisplayTime(DateTimeOffset.UtcNow);
+    public static DateTime DisplayTime(DateTimeOffset time) => TimeZoneInfo.ConvertTime(time, DisplayZone).DateTime;
+
+    /// <summary>Expand in the event's zone, then filter on the Shanghai calendar day.</summary>
+    public static IEnumerable<EventData> EventsForDay(IEnumerable<EventData> events, DateTime day,
+                                                      TimeSpan workStart, TimeSpan workEnd)
+    {
+        return events.SelectMany(item => CandidatesForDay(item, day.Date))
+            .Where(item => Segment(item, day, workStart, workEnd) != null)
+            .OrderBy(item => item.StartAt).ThenBy(item => item.Id, StringComparer.Ordinal);
+    }
+
+    static IEnumerable<EventData> CandidatesForDay(EventData item, DateTime day)
+    {
+        if (item.RepeatWeekdays.Count == 0)
+        {
+            yield return item;
+            yield break;
+        }
+        var start = new DateTimeOffset(day, DisplayZone.GetUtcOffset(day));
+        var end = start.AddDays(1);
+        var first = item.Local(start).Date;
+        var last = item.Local(end.AddTicks(-1)).Date;
+        for (var date = first; date <= last; date = date.AddDays(1))
+            if (item.OnDay(date) is { } occurrence) yield return occurrence;
+    }
+
     public static (DateTime Start, DateTime End)? Segment(EventData item, DateTime day, TimeSpan workStart, TimeSpan workEnd)
     {
         day = day.Date;
-        var from = item.Local(item.StartAt) > day ? item.Local(item.StartAt) : day;
-        var until = item.Local(item.EndAt) < day.AddDays(1) ? item.Local(item.EndAt) : day.AddDays(1);
+        if (item.SkipWeekends && day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return null;
+        var start = DisplayTime(item.StartAt);
+        var end = DisplayTime(item.EndAt);
+        var from = start > day ? start : day;
+        var until = end < day.AddDays(1) ? end : day.AddDays(1);
         if(item.WorkdayOnly) { from = from > day.Add(workStart) ? from : day.Add(workStart); until = until < day.Add(workEnd) ? until : day.Add(workEnd); }
         return until > from ? (from, until) : null;
     }
