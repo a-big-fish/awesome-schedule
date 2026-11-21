@@ -18,7 +18,10 @@ class CalendarSyncService:
     @staticmethod
     def apply(service: PersonalScheduleService, ideas: PersonalIdeaService, operation_id: str,
               command: CalendarSyncInput) -> SyncResult:
-        digest = sha256(command.model_dump_json().encode()).hexdigest()
+        # Old clients never sent room_number. Keep their persisted request fingerprints valid.
+        room_supplied = command.event is not None and "room_number" in command.event.model_fields_set
+        exclude = None if room_supplied else {"event": {"room_number"}}
+        digest = sha256(command.model_dump_json(exclude=exclude).encode()).hexdigest()
 
         def execute(mapper: BasePersonalEventMapper) -> SyncResult:
             schedule = PersonalScheduleService(mapper, service.profile_mapper, service.parser, service.owner_id)
@@ -29,6 +32,8 @@ class CalendarSyncService:
                 if command.event is None:
                     raise ValueError("缺少日程内容")
                 values = command.event.model_dump(mode="python", exclude={"source", "raw_text", "source_idea_id"})
+                if not room_supplied:
+                    values.pop("room_number", None)
                 values["reference_links"] = [link.model_dump(mode="json") for link in command.event.reference_links]
                 if command.action == "create":
                     idea_id = command.event.source_idea_id
@@ -46,12 +51,14 @@ class CalendarSyncService:
                         event = schedule.save_event(event, command.confirm_overlap)
                     else:
                         values.pop("platform", None)
-                        values.pop("meeting_url", None)
+                        if not room_supplied:
+                            values.pop("meeting_url", None)
                         event = schedule.create_manual(**values, source_idea_id=str(idea_id) if idea_id else None,
                             event_id=event_id, confirm_overlap=command.confirm_overlap)
                 else:
                     values.pop("platform", None)
-                    values.pop("meeting_url", None)
+                    if not room_supplied:
+                        values.pop("meeting_url", None)
                     event = schedule.update_event(event_id, confirm_overlap=command.confirm_overlap, **values)
             elif command.action == "delete":
                 schedule.delete_event(event_id)  # Repeating a successful delete remains successful.

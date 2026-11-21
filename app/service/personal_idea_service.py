@@ -2,9 +2,38 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.model.personal_idea import PersonalIdea
 from uuid import uuid5, NAMESPACE_URL
+from hashlib import sha256
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.controller.schema.idea_sync_dto import IdeaSyncInput
 
 
 class PersonalIdeaService:
+    def apply_sync(self, operation_id: str, command: "IdeaSyncInput") -> dict:
+        """Return the authoritative write result without a follow-up list read."""
+        digest = sha256(command.model_dump_json().encode()).hexdigest()
+
+        def apply(mapper) -> dict:
+            service = PersonalIdeaService(mapper, self.owner_id)
+            idea_id = str(command.idea_id)
+            if command.action == "create":
+                expected = str(uuid5(NAMESPACE_URL, f"idea-create:{self.owner_id}:{operation_id}"))
+                if idea_id != expected:
+                    raise ValueError("新建事项标识无效")
+                idea = PersonalIdea(id=idea_id, owner_id=self.owner_id, title=command.title,
+                                    note=command.note, reference_links=command.reference_links)
+                idea = mapper.save(idea)
+            elif command.action == "edit":
+                idea = service.save(command.title, command.note, command.reference_links, idea_id)
+            else:
+                idea = service.abandon(idea_id)
+            return {"schema_version": 1, "user_id": self.owner_id, "operation_id": operation_id,
+                    "idea": idea.model_dump(mode="json", exclude={"owner_id"}),
+                    "server_time": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()}
+
+        return self.mapper.execute_sync_once(self.owner_id, operation_id, digest, apply)
+
     def __init__(self, mapper, owner_id):
         self.mapper, self.owner_id = mapper, owner_id
 

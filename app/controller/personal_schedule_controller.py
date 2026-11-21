@@ -29,6 +29,7 @@ from app.core.dependencies import get_personal_idea_service
 from app.service.personal_idea_service import PersonalIdeaService
 from uuid import UUID
 from app.controller.schema.calendar_sync_dto import CalendarSyncInput
+from app.controller.schema.idea_sync_dto import IdeaSyncInput
 from app.service.calendar_sync_service import CalendarSyncService
 
 logger = logging.getLogger(__name__)
@@ -473,6 +474,41 @@ def arrange_personal_idea(idea_id: str, request: Request,
     return _new_page(request, values={"title": idea.title, "note": idea.note,
         "reference_links": [link.model_dump(mode="json") for link in idea.reference_links],
         "source_idea_id": idea.id})
+
+
+@router.get("/ideas-data")
+def personal_ideas_data(request: Request,
+                        format: str = "legacy",
+                        ideas: PersonalIdeaService = Depends(get_personal_idea_service),
+                        schedule: PersonalScheduleService = Depends(get_personal_schedule_service)):
+    """Bootstrap private local idea state and a reusable, empty page shell."""
+    items = ideas.mapper.list_all(ideas.owner_id)
+    scheduled = ideas.arranged_event_ids(schedule, [item for item in items if item.status == "pending"])
+    payload = {"schema_version": 1, "user_id": ideas.owner_id,
+               "ideas": [item.model_dump(mode="json", exclude={"owner_id"}) for item in items],
+               "scheduled": scheduled}
+    if format == "json":
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    context = {"request": request, "ideas": [], "abandoned": False, "selected": None,
+               "values": None, "error": None, "scheduled": {}}
+    release_shared_connection()
+    return JSONResponse({**payload,
+                         "shell": templates.get_template("personal_ideas.html").render(context),
+                         "arrange_shell": _new_page(request).body.decode("utf-8")},
+                        headers={"Cache-Control": "no-store"})
+
+
+@router.post("/idea-sync/{operation_id}")
+def sync_personal_idea(operation_id: UUID, command: IdeaSyncInput,
+                       ideas: PersonalIdeaService = Depends(get_personal_idea_service)):
+    """Apply one durable browser command, safely replayable after a timeout."""
+    try:
+        return JSONResponse(ideas.apply_sync(str(operation_id), command),
+                            headers={"Cache-Control": "no-store"})
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/ideas/summary", response_class=JSONResponse)

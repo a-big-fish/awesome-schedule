@@ -26,6 +26,7 @@ class CalendarEventInput(BaseModel):
     source: Literal["manual", "invitation"] = "manual"
     raw_text: str = Field(default="", max_length=100000)
     platform: str | None = None
+    room_number: str | None = Field(default=None, max_length=100)
     meeting_url: str | None = None
     source_idea_id: UUID | None = None
 

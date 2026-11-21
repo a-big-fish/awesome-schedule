@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.postgres import ensure_postgres_database
 from app.mapper.base_personal_idea_mapper import BasePersonalIdeaMapper
 from app.model.personal_idea import PersonalIdea
+from app.mapper.postgres_personal_event_mapper import _SyncConnection
 
 
 class PostgresPersonalIdeaMapper(BasePersonalIdeaMapper):
@@ -28,7 +29,35 @@ class PostgresPersonalIdeaMapper(BasePersonalIdeaMapper):
                 "CREATE INDEX IF NOT EXISTS idx_personal_ideas_owner_created "
                 "ON personal_ideas (owner_id, created_at)"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS personal_idea_sync_receipts ("
+                "owner_id TEXT NOT NULL, operation_id TEXT NOT NULL, request_hash TEXT NOT NULL, "
+                "payload JSONB NOT NULL, PRIMARY KEY (owner_id, operation_id))"
+            )
             connection.commit()
+
+    def execute_sync_once(self, owner_id: str, operation_id: str, request_hash: str,
+                          apply: Callable[[BasePersonalIdeaMapper], dict]) -> dict:
+        """Keep the write and receipt in one transaction, including across workers."""
+        with self._connect() as connection:
+            connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (owner_id,))
+            receipt = connection.execute(
+                "SELECT request_hash, payload FROM personal_idea_sync_receipts "
+                "WHERE owner_id=%s AND operation_id=%s", (owner_id, operation_id),
+            ).fetchone()
+            if receipt:
+                if receipt["request_hash"] != request_hash:
+                    raise ValueError("同步操作标识已被用于其他内容")
+                return receipt["payload"]
+            bound = object.__new__(PostgresPersonalIdeaMapper)
+            bound._connection_factory = lambda: _SyncConnection(connection)
+            result = apply(bound)
+            connection.execute(
+                "INSERT INTO personal_idea_sync_receipts VALUES (%s,%s,%s,%s)",
+                (owner_id, operation_id, request_hash, Json(result)),
+            )
+            connection.commit()
+            return result
 
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:
@@ -43,7 +72,7 @@ class PostgresPersonalIdeaMapper(BasePersonalIdeaMapper):
             connection.execute(
                 "INSERT INTO personal_ideas (id, owner_id, created_at, payload) "
                 "VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET "
-                "owner_id = EXCLUDED.owner_id, created_at = EXCLUDED.created_at, payload = EXCLUDED.payload",
+                "payload = EXCLUDED.payload WHERE personal_ideas.owner_id = EXCLUDED.owner_id",
                 (idea.id, idea.owner_id, idea.created_at, Json(idea.model_dump(mode="json"))),
             )
             connection.commit()
