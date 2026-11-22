@@ -32,7 +32,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title="Awesome Interview · Windows 1.6.0-W Preview 2"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        Title="Awesome Interview · Windows 1.6.0-W Preview 3"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
         UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;
@@ -52,7 +52,7 @@ public partial class MainWindow : Window
         var foot=new DockPanel{Margin=new(0,14,0,0)}; var sync=Button("同步",()=>Run(repository.SynchronizeAsync));DockPanel.SetDock(sync,Dock.Right);foot.Children.Add(sync);foot.Children.Add(status);
         DockPanel.SetDock(foot,Dock.Bottom);main.Children.Add(foot);
         var scroller=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Hidden,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};viewport=scroller;
-        var screens=new StackPanel{Orientation=Orientation.Horizontal};screens.Children.Add(Button("上一屏",()=>scroller.ScrollToVerticalOffset(Math.Max(0,scroller.VerticalOffset-scroller.ViewportHeight))));screens.Children.Add(Button("下一屏",()=>scroller.ScrollToVerticalOffset(scroller.VerticalOffset+scroller.ViewportHeight)));DockPanel.SetDock(screens,Dock.Bottom);main.Children.Add(screens);scroller.ScrollChanged+=(_,_)=>screens.Visibility=page!="calendar"&&scroller.ScrollableHeight>1?Visibility.Visible:Visibility.Collapsed;
+        var screens=new StackPanel{Orientation=Orientation.Horizontal};screens.Children.Add(Button("上一屏",()=>scroller.ScrollToVerticalOffset(Math.Max(0,scroller.VerticalOffset-scroller.ViewportHeight))));screens.Children.Add(Button("下一屏",()=>scroller.ScrollToVerticalOffset(scroller.VerticalOffset+scroller.ViewportHeight)));DockPanel.SetDock(screens,Dock.Bottom);main.Children.Add(screens);scroller.ScrollChanged+=(_,eventArgs)=>{if(eventArgs.OriginalSource==scroller)screens.Visibility=page!="calendar"&&scroller.ScrollableHeight>1?Visibility.Visible:Visibility.Collapsed;};
         scroller.ScrollChanged+=(_,args)=>{if(page=="plaza"&&args.VerticalChange>0&&scroller.ScrollableHeight-scroller.VerticalOffset<160&&!plazaBusy&&nextPlazaPage!=null&&repository.Online)Run(LoadPlazaAsync);};main.Children.Add(scroller);
         InitializeDesktopFeatures(); Closed+=(_,_)=>repository.Dispose();
         repository.Changed+=OnRepositoryChanged;

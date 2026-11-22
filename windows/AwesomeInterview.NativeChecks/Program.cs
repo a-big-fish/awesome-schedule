@@ -352,6 +352,19 @@ await DesktopReliabilityChecks.Run(Check);
 await OfflineDependencyChecks.Run(Check);
 ScrollPresentationChecks.Run(Check);
 
+var monthBase = new EventData{Id="same",OwnerId="fixture",Type="personal",Title="跨天任务",
+    StartAt=DateTimeOffset.Parse("2026-11-16T08:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-20T17:00:00+08:00")};
+var recurrence1=monthBase with{Id="recurrence~2026-11-16",Title="重复任务"};
+var recurrence2=recurrence1 with{Id="recurrence~2026-11-18",CompletedAt=monthBase.EndAt};
+var independent=monthBase with{Id="independent"};
+var days=new List<List<EventData>>{new(){recurrence1,monthBase},new(){independent,monthBase},new(){monthBase,recurrence2}};
+var monthLanes=MonthLanes.Arrange(days);
+Check(monthLanes.Any(lane=>lane.All(e=>e?.Id==monthBase.Id)),"month spanning event stays on one row even when daily order changes");
+Check(monthLanes.Any(lane=>lane[0]?.Id==recurrence1.Id&&lane[2]?.CompletedAt!=null),"month recurrence keeps one row and preserves each occurrence status");
+Check(monthLanes.SelectMany(lane=>lane).Count(e=>e!=null)==days.Sum(list=>list.Count)
+    &&monthLanes.Any(lane=>lane[1]?.Id==independent.Id),"month layout does not merge unrelated tasks with identical titles");
+
+
 // Optional real-server read-only acceptance. No credentials or response bodies are printed or saved.
 var server = Environment.GetEnvironmentVariable("AWESOME_TEST_SERVER"); var cookie = Environment.GetEnvironmentVariable("AWESOME_TEST_COOKIE");
 if(Environment.GetEnvironmentVariable("AWESOME_TEST_SAVED_CONNECTION")=="1"){

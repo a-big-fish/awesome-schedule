@@ -49,33 +49,50 @@ public partial class MainWindow
     static string CategoryLabel(string value)=>value switch{"project"=>"项目问题","fundamentals"=>"八股问题","algorithm"=>"算法题","reverse"=>"反问","other"=>"其他",_=>value};
     void ShowExperienceDetail(ExperienceData item,string? author=null)
     {
-        page="experience-detail";Begin(item.Title,author==null?"我的面经":"作者："+author);
+        page="experience-detail";bSelect(author==null?"我的面经":"面经广场");Begin(item.Title,author==null?"我的面经":"作者："+author);
         var toolbar=new WrapPanel();toolbar.Children.Add(Button("返回列表",author==null?ShowExperience:ShowPlaza));
         var hideAnswers=new CheckBox{Content="隐藏所有回答",Margin=new(12,10,18,10)};toolbar.Children.Add(hideAnswers);
         if(author==null){toolbar.Children.Add(Button("编辑内容",()=>Run(()=>OpenNoteAsync(item.Id,true))));var info=Button("修改资料",()=>EditExperienceMetadata(item));info.IsEnabled=repository.Online;toolbar.Children.Add(info);toolbar.Children.Add(Button("导出与分页预览",()=>ShowExportWorkspace(item)));var delete=Button("删除面经",()=>Run(async()=>{if(!Confirm("删除面经","将删除这篇面经及其问题，是否继续？","删除面经","保留"))return;await repository.Api!.DeleteAsync("api/mobile/v1/workspace/experiences/"+Uri.EscapeDataString(item.Id));await repository.RemoveExperienceAsync(item.Id);formDirty=false;ShowExperience();}));delete.IsEnabled=repository.Online;toolbar.Children.Add(delete);}
         content.Children.Add(toolbar);
-        var paper=new StackPanel{MaxWidth=860,HorizontalAlignment=HorizontalAlignment.Stretch};paper.Children.Add(Text($"{item.Company}    {item.Position}    {item.InterviewRound}",13,"#64748B",new(0,0,0,14)));
-        if(item.TotalMinutes is int total)paper.Children.Add(Text($"总用时（{total} min）",13,"#64748B",new(0,0,0,12)));
-        if(!string.IsNullOrWhiteSpace(item.Feeling)){paper.Children.Add(Text("面试感受",18,margin:new(0,8,0,12)));paper.Children.Add(Text(item.Feeling,15,margin:new(0,0,0,24)));}
-        var questionsPanel=new StackPanel();paper.Children.Add(questionsPanel);
-        void Questions()
-        {
-            questionsPanel.Children.Clear();string? category=null;
-            foreach(var row in QuestionTree.Ordered(item.Questions))
-            {
-                var q=row.Item;
-                if(row.Depth==0&&q.Category!=category){category=q.Category;var minutes=item.CategoryMinutes.TryGetValue(category,out var m)?$"（{m} min）":"";questionsPanel.Children.Add(Text(CategoryLabel(category)+minutes,19,"#285DDD",new(0,22,0,14)));}
-                var body=new StackPanel{Margin=new(Math.Min(row.Depth,8)*20+14,0,0,0)};var title=Text($"Q{row.Number}   {q.QuestionText}",16);title.FontWeight=FontWeights.SemiBold;body.Children.Add(title);
-                if(hideAnswers.IsChecked!=true)
-                {
-                    void Answer(string label,string? value){if(!string.IsNullOrWhiteSpace(value)){body.Children.Add(Text(label,12,"#64748B",new(0,12,0,5)));body.Children.Add(Text(value,14));}}
-                    if(q.Category=="reverse")Answer("面试官回答",q.InterviewerAnswer);else{Answer("现场回答",q.OnSiteAnswer);Answer("复盘答案",q.ReviewAnswer);}
-                }
-                questionsPanel.Children.Add(new Border{BorderBrush=Brush("#D7E3F8"),BorderThickness=new(1,0,0,0),Padding=new(0,7,0,14),Margin=new(0,0,0,8),Child=body});
-            }
+        content.Children.Add(Text(string.Join(" · ",new[]{item.Company,item.Position,item.InterviewRound}.Where(value=>!string.IsNullOrWhiteSpace(value))),13,"#52647D",new(0,12,0,8)));
+        if(item.TotalMinutes is int total)content.Children.Add(Text($"总用时 {total} 分钟",13,"#52647D",new(0,0,0,12)));
+        if(!string.IsNullOrWhiteSpace(item.Feeling)){
+            var feedback=new StackPanel();feedback.Children.Add(Text("面试感受",16,margin:new(0,0,0,8)));feedback.Children.Add(Text(item.Feeling,14));
+            content.Children.Add(Surface(feedback,new(16)));
         }
-        hideAnswers.Click+=(_,_)=>Questions();Questions();content.Children.Add(Surface(paper,new(28)));
+        var questionsPanel=new System.Windows.Controls.Primitives.UniformGrid{Margin=new(0,8,0,0)};
+        content.Children.Add(questionsPanel);
+        var roots=QuestionTree.Ordered(item.Questions).ToList();
+        var grouped=roots.GroupBy(row=>row.Item.Category).ToList();
+        var answerPanels=new System.Collections.Generic.List<StackPanel>();
+        foreach(var group in grouped){
+            var section=new StackPanel();
+            string duration=item.CategoryMinutes.TryGetValue(group.Key,out int minutes)?$" · {minutes} 分钟":"";
+            var title=Text(CategoryLabel(group.Key)+duration,18,"#2357CE",new(0,0,0,14));title.FontWeight=FontWeights.SemiBold;
+            section.Children.Add(title);
+            foreach(var row in group){
+                var q=row.Item;
+                var question=new StackPanel{Margin=new(Math.Min(row.Depth,4)*10,0,0,0)};
+                var number=Text("Q"+row.Number,11,"#52647D",new(0,0,0,4));question.Children.Add(number);
+                var label=Text(q.QuestionText,15);label.FontWeight=FontWeights.SemiBold;question.Children.Add(label);
+                var answers=new StackPanel();question.Children.Add(answers);answerPanels.Add(answers);
+                void Answer(string caption,string? value){
+                    if(string.IsNullOrWhiteSpace(value))return;
+                    answers.Children.Add(Text(caption,12,"#52647D",new(0,11,0,4)));
+                    answers.Children.Add(Text(value,14));
+                }
+                if(q.Category=="reverse")Answer("面试官回答",q.InterviewerAnswer);
+                else{Answer("现场回答",q.OnSiteAnswer);Answer("复盘答案",q.ReviewAnswer);}
+                section.Children.Add(new Border{Padding=new(0,10,0,14),BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,1,0,0),Child=question});
+            }
+            var card=Surface(section,new(18));card.Margin=new(0,0,12,12);card.VerticalAlignment=VerticalAlignment.Top;questionsPanel.Children.Add(card);
+        }
+        if(grouped.Count==0)content.Children.Add(Surface(Text("暂无问题记录",14,"#52647D")));
+        hideAnswers.Click+=(_,_)=>{foreach(var answer in answerPanels)answer.Visibility=hideAnswers.IsChecked==true?Visibility.Collapsed:Visibility.Visible;};
+        void Resize()=>questionsPanel.Columns=Math.Clamp((int)(viewport.ActualWidth/290),1,Math.Max(1,grouped.Count));
+        Resize();SizeChangedEventHandler resized=(_,_)=>Resize();viewport.SizeChanged+=resized;questionsPanel.Unloaded+=(_,_)=>viewport.SizeChanged-=resized;
     }
+
     async Task ExportAsync(ExperienceData item,string extension,bool hide)
     {
         if(!repository.Online||repository.Api==null){status.Text="文件导出需要连接服务器。";return;}

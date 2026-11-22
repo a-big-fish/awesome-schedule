@@ -46,7 +46,7 @@ public partial class MainWindow
         int generation=++resumeGeneration;var api=repository.Api!;string owner=repository.Current!.UserId;
         var feedback=Text("正在读取缓存…",13,"#64748B",new(0,12,0,12));var host=new StackPanel();CachedDocument? cached=null;
         var tools=new WrapPanel();tools.Children.Add(Button("返回面试",ShowInterviews));tools.Children.Add(Button("同步最新简历",()=>Run(()=>LoadResumeAsync(true))));tools.Children.Add(Button("上传/替换 PDF",()=>Run(UploadResumeAsync)));tools.Children.Add(Button("取消上传",()=>resumeUpload?.Cancel()));content.Children.Add(tools);
-        content.Children.Add(feedback);content.Children.Add(host);
+        content.Children.Add(feedback);content.Children.Add(ResumeColumns(host));
         tools.Children.Add(Button("查看上一版本",()=>Run(async()=>{var previous=await repository.ReadDocumentAsync(true);if(page!="resume"||generation!=resumeGeneration||repository.Api!=api||repository.Current?.UserId!=owner)return;if(previous==null){feedback.Text="暂无上一版本，成功替换过简历后会自动保留。";return;}host.Children.Clear();host.Children.Add(DocumentViewer(previous.Document));feedback.Text="上一版本 · "+previous.Document.FileName;})));
         try{cached=await repository.ReadDocumentAsync();}catch(Exception e)when(WorkspaceRepository.Expected(e)){feedback.Text="缓存不可用，联网后可重新获取。";}
         if(page!="resume"||generation!=resumeGeneration||repository.Api!=api||repository.Current?.UserId!=owner)return;
@@ -86,8 +86,13 @@ public partial class MainWindow
         var root=new StackPanel();if(document.Pages.Count==0){root.Children.Add(Text("文件没有可预览页面。"));return root;}
         int index=0;double scale=1;var image=new Image{Stretch=Stretch.Uniform,HorizontalAlignment=HorizontalAlignment.Center};
         var label=Text("",14,margin:new(10,10,10,10));var controls=new WrapPanel();root.Children.Add(controls);
-        void Display(){using var input=new MemoryStream(document.Pages[index]);var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.StreamSource=input;bitmap.EndInit();bitmap.Freeze();image.Source=bitmap;image.Width=Math.Max(300,Math.Min(1000,viewport.ActualWidth-80))*scale;label.Text=$"{index+1} / {document.Pages.Count} 页 · {scale:P0}";}
+        void Display(){using var input=new MemoryStream(document.Pages[index]);var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.StreamSource=input;bitmap.EndInit();bitmap.Freeze();image.Source=bitmap;label.Text=$"{index+1} / {document.Pages.Count} 页 · {scale:P0}";}
         controls.Children.Add(Button("上一页",()=>{if(index>0){index--;Display();}}));controls.Children.Add(label);controls.Children.Add(Button("下一页",()=>{if(index+1<document.Pages.Count){index++;Display();}}));controls.Children.Add(Button("缩小",()=>{scale=Math.Max(.5,scale-.25);Display();}));controls.Children.Add(Button("放大",()=>{scale=Math.Min(2,scale+.25);Display();}));
-        var scroll=new ScrollViewer{Content=image,Height=Math.Max(320,viewport.ActualHeight-170),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,Background=Brush("#E8EDF5")};root.Children.Add(scroll);Display();return Surface(root,new(12));
+        var scroll=new QuietScrollViewer{Content=image,Height=Math.Max(340,viewport.ActualHeight-210),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,Background=Brush("#EEF2F7")};
+        void Fit(){if(scroll.ActualWidth>24)image.Width=(scroll.ActualWidth-24)*scale;label.Text=$"{index+1} / {document.Pages.Count} 页 · {scale:P0}";}
+        scroll.SizeChanged+=(_,_)=>Fit();image.Margin=new(12);
+        controls.Children.Add(Button("适应宽度",()=>{scale=1;Fit();}));
+        controls.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent,new RoutedEventHandler((_,_)=>Fit()));
+        root.Children.Add(scroll);Display();return Surface(root,new(12));
     }
 }

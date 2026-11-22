@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -36,7 +37,13 @@ public sealed class QuietScrollViewer : ScrollViewer
     public QuietScrollViewer()
     {
         Template=(ControlTemplate)XamlReader.Parse(Markup);
-        PreviewMouseWheel+=(_,_)=>lastInput=Environment.TickCount64;PreviewMouseDown+=(_,_)=>lastInput=Environment.TickCount64;PreviewKeyDown+=(_,_)=>lastInput=Environment.TickCount64;
+        PreviewMouseWheel+=(_,e)=>{
+            lastInput=Environment.TickCount64;
+            if((Keyboard.Modifiers&ModifierKeys.Shift)==0||ScrollableWidth<=0)return;
+            ScrollToHorizontalOffset(Math.Clamp(HorizontalOffset-e.Delta*.75,0,ScrollableWidth));
+            e.Handled=true;
+        };
+        PreviewMouseDown+=(_,_)=>lastInput=Environment.TickCount64;PreviewKeyDown+=(_,_)=>lastInput=Environment.TickCount64;
         ScrollChanged+=(_,e)=>{if(e.OriginalSource!=this||e.VerticalChange==0&&e.HorizontalChange==0)return;if(Environment.TickCount64-lastInput>250&&vertical?.IsMouseCaptureWithin!=true&&horizontal?.IsMouseCaptureWithin!=true)return;Reveal(vertical);Reveal(horizontal);idle.Stop();idle.Start();};
         idle.Tick+=(_,_)=>{if(vertical?.IsMouseCaptureWithin==true||horizontal?.IsMouseCaptureWithin==true)return;idle.Stop();Fade(vertical);Fade(horizontal);};
         Unloaded+=(_,_)=>idle.Stop();

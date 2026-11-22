@@ -58,23 +58,43 @@ public partial class MainWindow
             :"当前离线：可以先记录和排期，联网后按来源事项、日程的顺序同步。");
         var items=repository.Current!.Ideas.Where(i=>i.Status==(abandoned?"abandoned":"pending")).ToList();
         if(items.Count==0)content.Children.Add(Surface(Text(abandoned?"没有已放弃事项。":"还没有待安排事项，点击“添加想法”记录一件想做的事。",15,"#64748B")));
+        var cards=new System.Windows.Controls.Primitives.UniformGrid{Margin=new(0,12,0,0)};
+        void ResizeCards()=>cards.Columns=Math.Clamp((int)(viewport.ActualWidth/320),1,4);
+        ResizeCards();
+        SizeChangedEventHandler resize=(_,_)=>ResizeCards();viewport.SizeChanged+=resize;
+        cards.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
         foreach(var item in items)
         {
             var pending=repository.IdeaSyncState(item.Id)==SyncStates.Pending;
-            var body=new StackPanel();body.Children.Add(Text(item.Title+(pending?"   · 待同步":""),18,pending?"#52647D":"#192C46"));
+            var body=new StackPanel();
+            var title=Text(item.Title,17);title.FontWeight=FontWeights.SemiBold;body.Children.Add(title);
+            if(pending)body.Children.Add(Text("待同步",12,"#52647D",new(0,5,0,0)));
             if(!string.IsNullOrWhiteSpace(item.Note))body.Children.Add(Text(item.Note,14,"#64748B",new(0,10,0,10)));
-            foreach(var reference in item.ReferenceLinks)body.Children.Add(Button(string.IsNullOrWhiteSpace(reference.Title)?reference.Url:reference.Title,()=>OpenLink(reference.Url)));
+            if(item.ReferenceLinks.Count>0){
+                var references=new StackPanel();
+                foreach(var reference in item.ReferenceLinks){
+                    var link=Button("",()=>OpenLink(reference.Url));
+                    link.Content=new TextBlock{Text=string.IsNullOrWhiteSpace(reference.Title)?reference.Url:reference.Title,TextTrimming=TextTrimming.CharacterEllipsis};
+                    link.ToolTip=reference.Url;link.HorizontalContentAlignment=HorizontalAlignment.Left;
+                    link.MinHeight=32;link.Padding=new(9,4,9,4);link.Margin=new(0,4,0,0);references.Children.Add(link);
+                }
+                body.Children.Add(new Expander{Header=$"参考资料 · {item.ReferenceLinks.Count}",Content=references,Margin=new(0,10,0,0)});
+            }
             if(!abandoned)
             {
                 var actions=new WrapPanel{Margin=new(0,12,0,0)};
                 if(item.ArrangedEventId!=null){var scheduled=repository.Current.Events.FirstOrDefault(e=>e.Id==item.ArrangedEventId);actions.Children.Add(Button("已创建日程 · 查看",()=>{if(scheduled!=null)ShowEventDetail(scheduled);}));}
-                else {var arrange=Button("正式安排时间",()=>Navigate(()=>{selected=CalendarProjection.Now.Date;ShowEditor(null,item);}));actions.Children.Add(arrange);}
+                else {var arrange=Button("安排时间",()=>Navigate(()=>{selected=CalendarProjection.Now.Date;ShowEditor(null,item);}));actions.Children.Add(arrange);}
                 actions.Children.Add(Button("修改想法",()=>EditIdea(item)));
                 actions.Children.Add(Button("放弃",()=>{if(Confirm("放弃想法","移入已放弃列表，不会删除已创建的日程。","放弃","取消"))Run(async()=>{await repository.AbandonIdeaQueuedAsync(item);ShowIdeas();});}));
+                foreach(var action in actions.Children.OfType<Button>()){
+                    action.Padding=new(9,5,9,5);action.MinHeight=32;action.Margin=new(0,0,6,5);
+                }
                 body.Children.Add(actions);
             }
-            content.Children.Add(Surface(body));
+            var card=Surface(body,new(16));card.Margin=new(0,0,12,12);cards.Children.Add(card);
         }
+        if(items.Count>0)content.Children.Add(cards);
         AddSyncStatus();
     }
     // Failed commands never project into the list, so their draft is rebuilt from the queued body.
