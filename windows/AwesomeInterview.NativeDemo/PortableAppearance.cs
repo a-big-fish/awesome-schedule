@@ -14,6 +14,16 @@ public partial class MainWindow
     Border? portableSurface;
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
+    TextBlock? portableClock;
+    Window? portableUnlock;
+    void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-20;portableUnlock.Top=portable.Top+12;}}
+    void ShowPortableUnlock()
+    {
+        if(portable==null||portableUnlock!=null)return;
+        // An independent owned window remains clickable while the schedule surface passes input through.
+        portableUnlock=new Window{Owner=portable,Title="恢复随身日程交互",Width=116,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=portable.Topmost,FontFamily=FontFamily};
+        var unlock=Button("解锁交互",()=>SetPortableLocked(false));unlock.Margin=new(0);unlock.ToolTip="恢复随身日程的点击、滚动和拖动";portableUnlock.Content=unlock;PositionPortableUnlock();portableUnlock.Show();
+    }
     const int ExtendedStyle=-20;
     const long TransparentStyle=0x20,NoActivateStyle=0x08000000;
     [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW",SetLastError=true)]static extern nint GetWindowLongPtr(nint handle,int index);
@@ -27,6 +37,7 @@ public partial class MainWindow
         Marshal.SetLastPInvokeError(0);var result=SetWindowLongPtr(hwnd,ExtendedStyle,new nint(value));
         if(result==0&&Marshal.GetLastWin32Error()!=0){status.Text="无法切换鼠标穿透，请重开随身日程。";return;}
         portableLocked=locked;
+        if(locked)ShowPortableUnlock();else{portableUnlock?.Close();portableUnlock=null;}
         if(unlockPortable!=null)unlockPortable.Enabled=locked;
         if(!locked){portable.Activate();portable.Focus();}
     }
@@ -36,6 +47,7 @@ public partial class MainWindow
         var color=preferences.PortableColor switch{"blue"=>Color.FromRgb(228,237,252),"warm"=>Color.FromRgb(250,243,228),_=>Colors.White};
         color.A=(byte)(255*Math.Clamp(preferences.PortableOpacity,.15,1));
         portableSurface.Background=new SolidColorBrush(color);portable.Topmost=preferences.PortableTopmost;
+        if(portableUnlock!=null)portableUnlock.Topmost=portable.Topmost;
     }
     void AddPortablePreferences(StackPanel body)
     {
@@ -43,7 +55,7 @@ public partial class MainWindow
         body.Children.Add(Text("背景透明度（文字保持清晰）",13));var opacity=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,12,0,18)};body.Children.Add(opacity);
         var palette=new ComboBox{ItemsSource=new[]{"雾白","浅蓝","暖米"},SelectedIndex=preferences.PortableColor=="blue"?1:preferences.PortableColor=="warm"?2:0};body.Children.Add(palette);
         var topmost=new CheckBox{Content="随身日程置顶",IsChecked=preferences.PortableTopmost,Margin=new(0,14,0,14)};body.Children.Add(topmost);
-        var feedback=Text("锁定后鼠标可穿透；在托盘右键菜单中选择“恢复随身日程交互”解锁。",13,"#64748B");body.Children.Add(feedback);
+        var feedback=Text("穿透时，组件右上角保留“解锁交互”按钮；托盘右键也可恢复。",13,"#64748B");body.Children.Add(feedback);
         void Change(){preferences=preferences with{PortableOpacity=opacity.Value,PortableColor=palette.SelectedIndex==1?"blue":palette.SelectedIndex==2?"warm":"white",PortableTopmost=topmost.IsChecked==true};ApplyPortableAppearance();}
         opacity.ValueChanged+=(_,_)=>Change();palette.SelectionChanged+=(_,_)=>Change();topmost.Click+=(_,_)=>Change();
         body.Children.Add(Button("保存随身日程外观",()=>{Change();if(SavePreferences())feedback.Text="外观已保存，下次打开继续使用。";}));

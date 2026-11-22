@@ -57,7 +57,7 @@ public partial class MainWindow
             if (portableDay != AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date) { portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date; RefreshPortable(); if(page=="today"&&!formDirty)ShowTasks(false); }
             if(repository.Online&&!repository.Busy&&repository.Current!=null&&DateTimeOffset.UtcNow-repository.Current.ServerTime>TimeSpan.FromHours(18))Run(repository.SynchronizeAsync);
             if(!repository.Busy&&!repository.SyncBusy&&repository.HasPendingSync)Run(repository.SyncNowAsync);
-            if(portableNowLine!=null)Canvas.SetTop(portableNowLine,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40);
+            UpdatePortableClock();
             Run(CheckRemindersAsync);
         };
         dayTimer.Start();
@@ -93,62 +93,81 @@ public partial class MainWindow
     void TogglePortable()
     {
         if (portable != null) { portable.Close(); return; }
-        portableContent = new StackPanel { Margin = new Thickness(20) };
+        portableContent = new StackPanel { Margin = new Thickness(24,18,24,24) };
         portable = new Window { Title = "随身日程", Width = 720, Height = 620, MinWidth = 540, MinHeight = 400,
             WindowStyle=WindowStyle.None,AllowsTransparency=true,ResizeMode=ResizeMode.CanResizeWithGrip,ShowInTaskbar=false,Background=Brushes.Transparent,
             FontFamily = FontFamily, FontSize = 14, UseLayoutRounding = true, SnapsToDevicePixels = true };
         var dock=new DockPanel();var controls=new DockPanel{Margin=new(18,12,12,0)};
         var close=Button("关闭",()=>portable?.Close());DockPanel.SetDock(close,Dock.Right);controls.Children.Add(close);
         var settings=Button("外观",()=>{RestoreMain();settingsCategory="桌面行为";ShowSettings();});DockPanel.SetDock(settings,Dock.Right);controls.Children.Add(settings);
-        var locked=Button("鼠标穿透",()=>SetPortableLocked(true));locked.ToolTip="锁定后通过托盘右键恢复交互";DockPanel.SetDock(locked,Dock.Right);controls.Children.Add(locked);
-        var drag=Text("随身日程 · 拖动移动",15,"#52647D",new(0,12,0,0));drag.MouseLeftButtonDown+=(_,e)=>{if(e.ButtonState==System.Windows.Input.MouseButtonState.Pressed)portable?.DragMove();};controls.Children.Add(drag);DockPanel.SetDock(controls,Dock.Top);dock.Children.Add(controls);dock.Children.Add(new ScrollViewer{Content=portableContent,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
+        var locked=Button("鼠标穿透",()=>SetPortableLocked(true));locked.ToolTip="穿透后可点组件右上角的解锁按钮恢复";DockPanel.SetDock(locked,Dock.Right);controls.Children.Add(locked);
+        var drag=Text("随身日程 · 拖动移动",15,"#52647D",new(0,12,0,0));drag.MouseLeftButtonDown+=(_,e)=>{if(e.ButtonState==System.Windows.Input.MouseButtonState.Pressed)portable?.DragMove();};controls.Children.Add(drag);DockPanel.SetDock(controls,Dock.Top);dock.Children.Add(controls);dock.Children.Add(new QuietScrollViewer{Content=portableContent,VerticalScrollBarVisibility=ScrollBarVisibility.Auto});
         portableSurface=new Border{CornerRadius=new(14),BorderThickness=new(1),BorderBrush=Brush("#CCD6E7"),Child=dock};portable.Content=portableSurface;ApplyPortableAppearance();
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
-        portable.Closed += (_, _) => { portable = null; portableContent = null;portableSurface=null;portableNowLine=null;portableLocked=false;if(unlockPortable!=null)unlockPortable.Enabled=false; portableMenu!.Text = "开启随身日程"; };
+        portable.LocationChanged+=(_,_)=>PositionPortableUnlock();portable.SizeChanged+=(_,_)=>PositionPortableUnlock();
+        portable.Closed += (_, _) => { portableUnlock?.Close();portableUnlock=null; portable = null; portableContent = null;portableSurface=null;portableNowLine=null;portableLocked=false;if(unlockPortable!=null)unlockPortable.Enabled=false; portableMenu!.Text = "开启随身日程"; };
         portableMenu!.Text = "关闭随身日程";
         RefreshPortable(); portable.Show();
     }
 
+    bool portableShowCompleted;
+    double? portableTimeOffset;
+    DateTime portableRenderedDay;
+    void UpdatePortableClock()
+    {
+        var now=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now;
+        if(portableNowLine!=null)Canvas.SetTop(portableNowLine,now.TimeOfDay.TotalHours*40);
+        if(portableClock!=null){portableClock.Text=now.ToString("HH:mm");Canvas.SetTop(portableClock,Math.Max(0,now.TimeOfDay.TotalHours*40-18));}
+    }
     void RefreshPortable()
     {
-        if (portableContent == null) return;
-        ProjectTasks(AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date);
-        portableContent.Children.Clear();
-        portableContent.Children.Add(new TextBlock { Text = $"{AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date:MM月dd日 dddd}", FontSize = 24, FontWeight = FontWeights.SemiBold });
-        portableContent.Children.Add(new TextBlock { Text = repository.Online ? "与账号同步" : "离线 · 完成或恢复会先保存在本机，联网后同步", Foreground = Brushes.SlateGray, Margin = new Thickness(0,8,0,16) });
-        var dayTasks = tasks.Where(t => t.Day.Date == AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date).ToList();
-        var timeline = new Canvas { Height = 960, Background = Brushes.Transparent, Margin = new Thickness(0,8,0,16) };
-        for (int hour=0; hour<24; hour++) {
-            var label = new TextBlock { Text = $"{hour:00}:00", Foreground = Brushes.SlateGray, FontSize = 12 };
-            Canvas.SetTop(label, hour*40); Canvas.SetLeft(label, 6); timeline.Children.Add(label);
+        if(portableContent==null)return;
+        var today=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
+        if(portableRenderedDay!=today){portableRenderedDay=today;portableTimeOffset=null;}
+        ProjectTasks(today);portableContent.Children.Clear();
+        portableContent.Children.Add(Text(today.ToString("MM月dd日 dddd"),22,margin:new(0,0,0,8)));
+        portableContent.Children.Add(Text(repository.Online?"与账号同步":"离线 · 修改将保存在本机",12,"#64748B",new(0,0,0,20)));
+        var dayTasks=tasks.Where(t=>t.Day.Date==today&&t.Event?.CancelledAt==null).ToList();
+        var completedCount=dayTasks.Count(t=>t.Completed);
+        var toggle=new CheckBox{Content=$"显示已完成 · {completedCount}",IsChecked=portableShowCompleted,Margin=new(0,0,0,18)};
+        toggle.Click+=(_,_)=>{portableShowCompleted=toggle.IsChecked==true;RefreshPortable();};portableContent.Children.Add(toggle);
+        var timeline=new Canvas{Height=960,Background=Brushes.Transparent};
+        for(int hour=0;hour<24;hour++){var label=Text($"{hour:00}:00",11,"#8492A6");Canvas.SetTop(label,hour*40+4);Canvas.SetLeft(label,0);timeline.Children.Add(label);}
+        var timed=dayTasks.Where(t=>(portableShowCompleted||!t.Completed)&&t.StartTime.HasValue&&t.EndTime.HasValue).ToList();
+        var timeView=new QuietScrollViewer{Content=timeline,Height=260,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+        var cards=new System.Collections.Generic.List<(Button Button,StackPanel Label)>();
+        for(int index=0;index<timed.Count;index++){
+            var task=timed[index];var label=new StackPanel();label.Children.Add(new TextBlock{Text=task.Title,FontSize=15,FontWeight=FontWeights.SemiBold,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap,Foreground=Brush("#263650")});
+            label.Children.Add(new TextBlock{Text=$"{task.StartTime:hh\\:mm} — {task.EndTime:hh\\:mm}",FontSize=11,TextAlignment=TextAlignment.Center,Foreground=Brush("#64748B"),Margin=new(0,6,0,0)});
+            var item=Button("",()=>ShowTaskDetail(task));item.Content=label;item.ToolTip=task.Title;item.Height=Math.Max(40,(task.EndTime!.Value-task.StartTime!.Value).TotalHours*40);item.MinHeight=0;item.Padding=new(12,8,12,8);item.Margin=new(0);item.HorizontalContentAlignment=HorizontalAlignment.Stretch;item.VerticalContentAlignment=VerticalAlignment.Stretch;
+            item.Background=Brush(task.Completed?"#EEF0F3":"#EDF3FF");item.BorderBrush=Brush("#E2EAF6");Canvas.SetTop(item,task.StartTime.Value.TotalHours*40);timeline.Children.Add(item);cards.Add((item,label));
         }
-        var timed = dayTasks.Where(t => t.StartTime.HasValue && t.EndTime.HasValue).ToList();
-        for (int index=0; index<timed.Count; index++) {
-            var task = timed[index];
-            var item = Button(task.Title, () => ShowTaskDetail(task));
-            item.Width = 140; item.Height = Math.Max(34, (task.EndTime!.Value-task.StartTime!.Value).TotalHours*40);
-            item.Content=Text(task.Title,16);((TextBlock)item.Content).TextAlignment=TextAlignment.Center;item.Margin = new Thickness(0); item.VerticalContentAlignment = VerticalAlignment.Center;
-            item.Background = task.Completed ? Brush("#E5E7EB") : Brush("#EAF1FF");
-            Canvas.SetLeft(item, 58 + index*148); Canvas.SetTop(item, task.StartTime.Value.TotalHours*40);
-            timeline.Children.Add(item);
-        }
-        var timeView = new ScrollViewer { Content = timeline, Height = 210, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        timeline.Width = Math.Max(400, 58 + timed.Count*148);
-        portableNowLine=new Border{Height=2,Width=timeline.Width-58,Background=Brush("#EF4444"),IsHitTestVisible=false};Canvas.SetLeft(portableNowLine,58);Canvas.SetTop(portableNowLine,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40);timeline.Children.Add(portableNowLine);
-        timeView.Loaded += (_, _) => timeView.ScrollToVerticalOffset(Math.Max(0,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40-105));
-        portableContent.Children.Add(new Expander { Header = "日日程表（24小时）", Content = timeView, IsExpanded = true });
-        foreach (bool completed in new[]{false,true}) {
-            var list = new StackPanel();
-            var entries = dayTasks.Where(t => t.Completed == completed).ToList();
-            if (entries.Count==0) list.Children.Add(new TextBlock { Text = completed?"今日暂无已完成任务":"当日暂无待完成任务", Margin=new Thickness(0,12,0,12) });
-            foreach (var task in entries) {
-                var row = new DockPanel { Margin = new Thickness(0,5,0,5) };
-                var action = Button(completed?"恢复":"完成", () => ToggleTask(task));
-                action.IsEnabled=!repository.Busy&&task.Event?.CancelledAt==null;
-                DockPanel.SetDock(action,Dock.Right); row.Children.Add(action);
-                var detail = Button(task.Title, () => ShowTaskDetail(task)); detail.HorizontalContentAlignment=HorizontalAlignment.Left; row.Children.Add(detail); list.Children.Add(row);
+        portableNowLine=new Border{Height=1,Background=Brush("#E5484D"),IsHitTestVisible=false};Canvas.SetLeft(portableNowLine,54);timeline.Children.Add(portableNowLine);
+        var currentLine=portableNowLine;
+        portableClock=Text("",11,"#D43F48");portableClock.Background=Brushes.White;Canvas.SetLeft(portableClock,0);timeline.Children.Add(portableClock);UpdatePortableClock();
+        void Layout(){
+            double available=Math.Max(340,timeView.ActualWidth-8);double width=Math.Clamp((available-64)/Math.Max(1,cards.Count)-12,140,240);timeline.Width=Math.Max(available,54+cards.Count*(width+12));
+            currentLine.Width=Math.Max(0,timeline.Width-54);
+            for(int i=0;i<cards.Count;i++){
+                var (button,label)=cards[i];button.Width=width;Canvas.SetLeft(button,54+i*(width+12));
+                double start=Canvas.GetTop(button)+8,end=start+button.Height-16;
+                double visibleStart=Math.Clamp(timeView.VerticalOffset-start,0,Math.Max(0,end-start));double visibleEnd=Math.Clamp(timeView.VerticalOffset+timeView.ViewportHeight-start,visibleStart,Math.Max(0,end-start));
+                // Leave space between task captions and the live time rule.
+                double center=start+(visibleStart+visibleEnd)/2,now=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40;
+                double shift=Math.Abs(center-now)<40&&visibleEnd-visibleStart>110?-38:0;
+                label.Margin=new(0,Math.Max(0,visibleStart+shift),0,Math.Max(0,end-start-visibleEnd-shift));label.VerticalAlignment=VerticalAlignment.Center;
             }
-            portableContent.Children.Add(new Expander { Header=$"{(completed?"今日已完成":"当日任务")}  {entries.Count}", Content=list, IsExpanded=!completed || entries.Count>0, Margin=new Thickness(0,14,0,0) });
+        }
+        long lastScrollInput=-10000;timeView.PreviewMouseWheel+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewMouseDown+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewKeyDown+=(_,_)=>lastScrollInput=Environment.TickCount64;
+        timeView.Loaded+=(_,_)=>{double target=portableTimeOffset??Math.Max(0,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40-110);timeView.ScrollToVerticalOffset(target);portableTimeOffset=target;Layout();};
+        timeView.SizeChanged+=(_,_)=>Layout();timeView.ScrollChanged+=(_,e)=>{if(e.OriginalSource==timeView){if(timeView.IsVisible&&e.VerticalChange!=0&&Environment.TickCount64-lastScrollInput<2000)portableTimeOffset=timeView.VerticalOffset;Layout();}};
+        portableContent.Children.Add(new Expander{Header="今日时间表",Content=timeView,IsExpanded=true,Margin=new(0,0,0,22)});
+        foreach(bool completed in new[]{false,true}){
+            if(completed&&!portableShowCompleted)continue;
+            var entries=dayTasks.Where(t=>t.Completed==completed).ToList();var list=new StackPanel{Margin=new(0,10,0,0)};
+            if(entries.Count==0)list.Children.Add(Text(completed?"暂无已完成任务":"今天暂无待完成任务",13,"#8492A6",new(0,8,0,12)));
+            foreach(var task in entries){var row=new DockPanel{Margin=new(0,0,0,10)};var action=Button(completed?"恢复":"完成",()=>ToggleTask(task));action.IsEnabled=!repository.Busy;action.Padding=new(14,8,14,8);DockPanel.SetDock(action,Dock.Right);row.Children.Add(action);var detail=Button(task.Title,()=>ShowTaskDetail(task));detail.HorizontalContentAlignment=HorizontalAlignment.Left;detail.Margin=new(0,4,12,4);row.Children.Add(detail);list.Children.Add(row);}
+            portableContent.Children.Add(new Expander{Header=$"{(completed?"今日已完成":"当日任务")} · {entries.Count}",Content=list,IsExpanded=true,Margin=new(0,0,0,12)});
         }
     }
 
@@ -165,7 +184,7 @@ public partial class MainWindow
             var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
             AddPortablePreferences(body);
         }else if(settingsCategory=="日程偏好")ShowWorkdaySettings(body);
-        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.6.0-W Preview 1 · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
+        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.6.0-W Preview 2 · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
         content.Children.Add(Surface(layout,new(26)));
     }
 }

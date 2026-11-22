@@ -350,6 +350,7 @@ try {
 await WorkspaceContentChecks.Run(Check);
 await DesktopReliabilityChecks.Run(Check);
 await OfflineDependencyChecks.Run(Check);
+ScrollPresentationChecks.Run(Check);
 
 // Optional real-server read-only acceptance. No credentials or response bodies are printed or saved.
 var server = Environment.GetEnvironmentVariable("AWESOME_TEST_SERVER"); var cookie = Environment.GetEnvironmentVariable("AWESOME_TEST_COOKIE");

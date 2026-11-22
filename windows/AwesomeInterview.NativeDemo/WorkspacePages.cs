@@ -87,7 +87,7 @@ public partial class MainWindow
             }
             var cell=new Border{BorderBrush=Brush("#E4EAF2"),BorderThickness=new(0,0,1,1),MinHeight=92,Child=body};Grid.SetColumn(cell,i%7);Grid.SetRow(cell,i/7+1);grid.Children.Add(cell);
         }
-        var monthScroll=new ScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        var monthScroll=new QuietScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
         SizeChangedEventHandler monthResize=(_,_)=>monthScroll.Height=Math.Max(260,viewport.ActualHeight-220);viewport.SizeChanged+=monthResize;monthScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=monthResize;content.Children.Add(Surface(monthScroll,new(6)));
     }
     void RenderTimeline(DateTime first,int days)
@@ -110,11 +110,17 @@ public partial class MainWindow
             void Layout(){foreach(var child in canvas.Children.OfType<Button>().ToList())canvas.Children.Remove(child);foreach(var row in placed){var item=row.Item;var b=Button(item.Title,()=>ShowEventDetail(item));b.Content=new TextBlock{Text=(CalendarProjection.DisplayTime(item.StartAt).Date<day?"‹ ":"")+item.Title+(CalendarProjection.DisplayTime(item.EndAt)>day.AddDays(1)?" ›":""),TextTrimming=TextTrimming.CharacterEllipsis,TextWrapping=TextWrapping.NoWrap,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center,FontWeight=FontWeights.Medium};b.ToolTip=$"{item.Title}\n{item.Local(item.StartAt):MM-dd HH:mm} — {item.Local(item.EndAt):MM-dd HH:mm}";b.Margin=new(0);b.Padding=new(5);b.MinHeight=0;b.VerticalContentAlignment=VerticalAlignment.Stretch;b.HorizontalContentAlignment=HorizontalAlignment.Stretch;b.Width=Math.Max(16,(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)-3);b.Height=Math.Max(30,(row.End-row.Start).TotalHours*timelineHeight/span);b.Background=Brush(item.CompletedAt!=null?"#EEF0F3":item.CancelledAt!=null?"#F5E7E7":"#E9F0FF");b.FontSize=16;Canvas.SetTop(b,((row.Start-day).TotalHours-startHour)*timelineHeight/span);Canvas.SetLeft(b,row.Lane*(canvas.ActualWidth-4)/Math.Max(1,laneEnds.Count)+2);canvas.Children.Add(b);}refreshTitles();}
             canvas.SizeChanged+=(_,_)=>Layout();refreshLayout.Add(Layout);
         }
-        var clockLayer=new Canvas{IsHitTestVisible=false,Margin=new(52,38,0,0),ClipToBounds=true};
-        Grid.SetColumn(clockLayer,1);Grid.SetColumnSpan(clockLayer,days);clockLayer.Margin=new(0,38,0,0);Panel.SetZIndex(clockLayer,10);grid.Children.Add(clockLayer);
-        void UpdateClock(){clockLayer.Children.Clear();var now=TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).DateTime;if(now.Date<first.Date||now.Date>=first.AddDays(days).Date)return;double y=(now.TimeOfDay.TotalHours-startHour)*timelineHeight/span;var line=new Border{Background=Brush("#E5484D"),Height=2,Width=clockLayer.ActualWidth};Canvas.SetTop(line,y);clockLayer.Children.Add(line);var tag=new Border{Background=Brush("#E5484D"),CornerRadius=new(4),Padding=new(5,2,5,2),Child=Text($"当前时间 {now:HH:mm}",11,"#FFFFFF")};Canvas.SetTop(tag,Math.Clamp(y-21,0,timelineHeight-25));tag.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));Canvas.SetLeft(tag,Math.Max(0,(clockLayer.ActualWidth-tag.DesiredSize.Width)/2));clockLayer.Children.Add(tag);}
+        var clockLayer=new Canvas{IsHitTestVisible=false,Margin=new(0,38,0,0),ClipToBounds=true};
+        Grid.SetColumnSpan(clockLayer,days+1);Panel.SetZIndex(clockLayer,10);grid.Children.Add(clockLayer);
+        void UpdateClock(){
+            clockLayer.Children.Clear();var now=CalendarProjection.Now;if(now.Date<first.Date||now.Date>=first.AddDays(days).Date)return;
+            double y=now.TimeOfDay.TotalHours*timelineHeight/24;double width=Math.Max(0,(clockLayer.ActualWidth-52)/days);int today=(now.Date-first.Date).Days;double left=52+today*width;
+            var line=new Border{Background=Brush("#E5484D"),Height=1,Width=width,Opacity=.75};Canvas.SetTop(line,y);Canvas.SetLeft(line,left);clockLayer.Children.Add(line);
+            var tag=new Border{Background=Brushes.White,CornerRadius=new(4),Padding=new(4,2,4,2),Child=Text(now.ToString("HH:mm"),11,"#D43F48")};
+            Canvas.SetTop(tag,Math.Clamp(y-20,0,timelineHeight-24));Canvas.SetLeft(tag,days==1?0:left+4);clockLayer.Children.Add(tag);
+        }
         var clock=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMinutes(1)};clock.Tick+=(_,_)=>UpdateClock();clockLayer.Loaded+=(_,_)=>{UpdateClock();clock.Start();};clockLayer.Unloaded+=(_,_)=>clock.Stop();clockLayer.SizeChanged+=(_,_)=>UpdateClock();
-        var timelineScroll=new ScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};
+        var timelineScroll=new QuietScrollViewer{Content=grid,Height=Math.Max(260,viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled,CanContentScroll=false};
         bool userMoved=false;timelineScroll.PreviewMouseWheel+=(_,_)=>userMoved=true;timelineScroll.PreviewMouseDown+=(_,_)=>userMoved=true;timelineScroll.PreviewKeyDown+=(_,_)=>userMoved=true;
         void CenterNow(){if(!focus||userMoved)return;timelineScroll.ScrollToVerticalOffset(Math.Max(0,38+TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).TimeOfDay.TotalHours*timelineHeight/24-timelineScroll.ViewportHeight/2));}
         void StickyTitles()
@@ -128,7 +134,10 @@ public partial class MainWindow
                 double top=38+Canvas.GetTop(button)+button.Padding.Top;
                 double visibleStart=Math.Clamp(timelineScroll.VerticalOffset-top,0,innerHeight);
                 double visibleEnd=Math.Clamp(timelineScroll.VerticalOffset+timelineScroll.ViewportHeight-top,visibleStart,innerHeight);
-                title.Margin=new(0,visibleStart,0,innerHeight-visibleEnd);
+                double currentY=38+CalendarProjection.Now.TimeOfDay.TotalHours*timelineHeight/24;
+                double center=top+(visibleStart+visibleEnd)/2;
+                double shift=Math.Abs(center-currentY)<26&&visibleEnd-visibleStart>90?-30:0;
+                title.Margin=new(0,Math.Max(0,visibleStart+shift),0,Math.Max(0,innerHeight-visibleEnd-shift));
             }
         }
         refreshTitles=StickyTitles;timelineScroll.SizeChanged+=(_,_)=>StickyTitles();timelineScroll.ScrollChanged+=(_,_)=>StickyTitles();timelineScroll.Loaded+=(_,_)=>{CenterNow();StickyTitles();};SizeChangedEventHandler resizeTimeline=(_,_)=>{timelineScroll.Height=Math.Max(260,viewport.ActualHeight-220);CenterNow();};viewport.SizeChanged+=resizeTimeline;timelineScroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resizeTimeline;

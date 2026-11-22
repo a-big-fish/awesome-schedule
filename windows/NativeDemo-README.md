@@ -1,10 +1,10 @@
-# Awesome Interview Windows 1.6.0-W Preview 1
+# Awesome Interview Windows 1.6.0-W Preview 2
 
 Windows 10/11 x64、WPF / .NET 10 原生追赶预览。面试、简历、面经录入与导出流程已接通，完整追赶PRD的全部发布门禁尚未通过。
 
 ## 安装
 
-解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview1-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
+解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview2-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
 
 使用现有账号在应用内登录。密码不落盘；会话、快照、私人草稿、简历页与提醒去重账本用Windows CurrentUser DPAPI加密，按server+owner隔离。退出登录清除账号缓存。卸载保留 `%LOCALAPPDATA%/AwesomeInterviewNative` 与 `%LOCALAPPDATA%/AwesomeInterviewNativeDemo` 中的数据和桌面偏好。
 
@@ -34,8 +34,15 @@ PDF当前由服务端PyMuPDF生成有界PNG页，WPF原生展示并加密缓存�
 
 ## 验证与构建
 
-Python全量268通过、1跳过；原生104项检查和3项真实只读联调通过。WPF构建通过，保留既有WinForms高DPI清单分析告警。真实窗口已启动并读取数据，UI工具点击无几何信息，截图重试超时，因此不能声称视觉、点击、穿透和系统通知已验收。
+Python全量268通过、1跳过；本轮原生107项检查通过；3项真实只读联调为上一轮结果，未重复计入本轮。WPF构建通过，保留既有WinForms高DPI清单分析告警。真实窗口已启动并读取数据，UI工具点击无几何信息，截图重试超时，因此不能声称视觉、点击、穿透和系统通知已验收。
 
-使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview1` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
+使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview2` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
 
 验收记录：`windows/acceptance/2026-11-21/README.md`；历史版本：`windows/NativeDemo-HISTORY.md`。
+
+
+## 2026-11-22界面修正
+
+主日历时间标签改到左侧刻度附近，周视图红线仅覆盖今天的列；任务标题避开红线。日历和随身日程默认不显示已完成任务，可主动切换查看。随身日程增加HH:mm时间标签、任务起止时刻、卡片留白和自适应宽度；刷新保留滚动位置。穿透时右上角保留独立可点击的“解锁交互”浮钮，主体继续穿透，托盘恢复仍可用。
+
+滚动条改为不占布局空间的细条：默认隐藏，用户滚动时短暂显示，停止约800毫秒后用180毫秒淡出；初始自动定位不显示滚动条。新版测试窗口已启动，用户按Esc停止了界面工具，因此不声称实机交互验收通过。
