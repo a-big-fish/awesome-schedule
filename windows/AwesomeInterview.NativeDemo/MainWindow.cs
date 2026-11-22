@@ -32,7 +32,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title="Awesome Interview · Windows 1.6.0-W Preview 3"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
+        Title="Awesome Interview · Windows 1.6.0-W Preview 4"; Width=1280; Height=850; MinWidth=940; MinHeight=640;
         UseLayoutRounding=true; SnapsToDevicePixels=true; TextOptions.SetTextFormattingMode(this,TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this,TextRenderingMode.ClearType); WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=Brush("#F6F8FC"); Foreground=Brush("#192C46"); FontFamily=new("Microsoft YaHei UI"); FontSize=14;

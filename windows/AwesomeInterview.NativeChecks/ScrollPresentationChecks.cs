@@ -17,6 +17,23 @@ static class ScrollPresentationChecks
             check(viewer.ViewportWidth>=319&&viewer.ViewportHeight>=199,"hidden scroll rails reserve no content gutter");
             viewer.ScrollToVerticalOffset(120);viewer.ScrollToHorizontalOffset(80);viewer.UpdateLayout();
             check(viewer.VerticalOffset==120&&viewer.HorizontalOffset==80,"quiet scroll template preserves both scrolling axes");
+            bool firstNotch = viewer.TryScrollWithWheel(-120);
+            bool secondNotch = viewer.TryScrollWithWheel(-120);
+            viewer.UpdateLayout();
+            check(firstNotch && secondNotch && viewer.VerticalOffset == 216,
+                "consecutive redirected wheel input accumulates before layout");
+            check(vertical.Opacity == .5, "redirected wheel reveals the otherwise hidden rail");
+            bool reachedEnd = viewer.TryScrollWithWheel(-3000);
+            bool atEnd = viewer.TryScrollWithWheel(-120);
+            viewer.UpdateLayout();
+            check(reachedEnd && !atEnd && viewer.VerticalOffset == viewer.ScrollableHeight,
+                "redirected wheel clamps to the bottom and declines further input for outer scrolling");
+            viewer.ScrollToTop();
+            viewer.UpdateLayout();
+            check(!viewer.TryScrollWithWheel(120) && viewer.TryScrollWithWheel(-60),
+                "redirected wheel respects the top boundary and accepts high-resolution input");
+            viewer.UpdateLayout();
+            check(viewer.VerticalOffset == 24, "a partial wheel notch moves proportionally");
         }catch(Exception error){failure=error;}});
         worker.SetApartmentState(ApartmentState.STA);worker.Start();if(!worker.Join(TimeSpan.FromSeconds(10)))throw new Exception("scroll layout check timed out");if(failure!=null)throw failure;
     }

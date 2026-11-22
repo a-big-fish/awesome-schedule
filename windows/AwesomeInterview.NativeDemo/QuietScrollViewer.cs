@@ -15,6 +15,7 @@ public sealed class QuietScrollViewer : ScrollViewer
     readonly DispatcherTimer idle=new(){Interval=TimeSpan.FromMilliseconds(800)};
     ScrollBar? vertical,horizontal;
     long lastInput=-10000;
+    double? queuedWheelOffset;
     const string Markup="""
     <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ScrollViewer">
       <Grid Background="{TemplateBinding Background}">
@@ -44,10 +45,35 @@ public sealed class QuietScrollViewer : ScrollViewer
             e.Handled=true;
         };
         PreviewMouseDown+=(_,_)=>lastInput=Environment.TickCount64;PreviewKeyDown+=(_,_)=>lastInput=Environment.TickCount64;
-        ScrollChanged+=(_,e)=>{if(e.OriginalSource!=this||e.VerticalChange==0&&e.HorizontalChange==0)return;if(Environment.TickCount64-lastInput>250&&vertical?.IsMouseCaptureWithin!=true&&horizontal?.IsMouseCaptureWithin!=true)return;Reveal(vertical);Reveal(horizontal);idle.Stop();idle.Start();};
+        ScrollChanged += (_, e) =>
+        {
+            if (e.OriginalSource != this) return;
+            if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
+                queuedWheelOffset = null;
+            if (e.VerticalChange == 0 && e.HorizontalChange == 0) return;
+            if (Environment.TickCount64 - lastInput > 250 &&
+                vertical?.IsMouseCaptureWithin != true && horizontal?.IsMouseCaptureWithin != true)
+                return;
+            Reveal(vertical);
+            Reveal(horizontal);
+            idle.Stop();
+            idle.Start();
+        };
         idle.Tick+=(_,_)=>{if(vertical?.IsMouseCaptureWithin==true||horizontal?.IsMouseCaptureWithin==true)return;idle.Stop();Fade(vertical);Fade(horizontal);};
-        Unloaded+=(_,_)=>idle.Stop();
+        Unloaded += (_, _) => { idle.Stop(); queuedWheelOffset = null; };
     }
+
+    internal bool TryScrollWithWheel(int delta)
+    {
+        double offset = queuedWheelOffset ?? VerticalOffset;
+        double target = Math.Clamp(offset - delta * .4, 0, ScrollableHeight);
+        if (Math.Abs(target - offset) < .01) return false;
+        queuedWheelOffset = target;
+        lastInput = Environment.TickCount64;
+        ScrollToVerticalOffset(target);
+        return true;
+    }
+
     public override void OnApplyTemplate(){base.OnApplyTemplate();vertical=GetTemplateChild("PART_VerticalScrollBar") as ScrollBar;horizontal=GetTemplateChild("PART_HorizontalScrollBar") as ScrollBar;}
     static void Reveal(ScrollBar? rail){if(rail==null)return;rail.BeginAnimation(OpacityProperty,null);rail.Opacity=.5;rail.IsHitTestVisible=true;}
     static void Fade(ScrollBar? rail){if(rail==null)return;rail.IsHitTestVisible=false;rail.BeginAnimation(OpacityProperty,new DoubleAnimation(0,TimeSpan.FromMilliseconds(180)));}

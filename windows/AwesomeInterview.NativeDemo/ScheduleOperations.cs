@@ -123,7 +123,7 @@ public partial class MainWindow
         }
         content.Children.Insert(0,Surface(body,new(20,14,14,14)));
     }
-    void EditIdea(IdeaData? item)
+    void EditIdea(IdeaData? item, Window? owner = null)
     {
         if(repository.Current==null){status.Text="登录并载入账号后即可记录想法。";return;}
         var body=new StackPanel{Margin=new(24)};body.Children.Add(Text(item==null?"添加想法":"修改想法",22));
@@ -131,7 +131,7 @@ public partial class MainWindow
         var note=new TextBox{Text=item?.Note??"",Height=100,AcceptsReturn=true,TextWrapping=TextWrapping.Wrap};body.Children.Add(Text("备注"));body.Children.Add(note);
         var links=new ReferenceEditor(item?.ReferenceLinks??new(),()=>{});body.Children.Add(new Expander{Header="参考资料",Content=links,IsExpanded=links.HasLinks});
         var feedback=Text("",13,"#B42332",new(0,12,0,8));body.Children.Add(feedback);
-        var dialog=new Window{Title="待安排事项",Owner=this,Width=660,Height=620,MaxHeight=SystemParameters.WorkArea.Height-50,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Brushes.White,FontFamily=FontFamily,Content=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};
+        var dialog=new Window{Title="待安排事项",Owner=owner??this,Width=660,Height=620,MaxHeight=SystemParameters.WorkArea.Height-50,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Brushes.White,FontFamily=FontFamily,Content=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}};
         Button? save=null;save=Button("保存想法",()=>Run(async()=>{
             if(string.IsNullOrWhiteSpace(title.Text)){feedback.Text="请输入标题。";return;}save!.IsEnabled=false;
             try{await repository.SaveIdeaQueuedAsync(title.Text.Trim(),note.Text,links.Read(),item?.Id);dialog.Close();ShowIdeas(showAbandoned);}
