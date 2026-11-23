@@ -25,12 +25,8 @@ internal sealed partial class SchedulePages(MainWindow shell, WorkspaceProfile a
     void RenderCalendar(bool centerToday = false)
     {
         Begin(PageRoute.Calendar,"日历与日程","日历与日程","用日、周、月视图查看你的安排");if(NeedAccount())return;
-        var controls=new WrapPanel{Margin=new(0,0,0,14)};
-        foreach(var (key,caption) in new[]{("day","日视图"),("week","周视图"),("month","月视图")})
-        {var b=Button(caption,()=>{calendarView=key;ShowCalendar();});if(key==calendarView){b.Background=Brush("#E9F0FF");b.Foreground=Brush("#2357CE");}controls.Children.Add(b);}
-        controls.Children.Add(Button("待安排 · "+(Repository.Current?.Ideas.Count(i=>i.Status=="pending"&&i.ArrangedEventId==null)??0),()=>Navigate(()=>ShowIdeas())));
-        controls.Children.Add(Button("刷新日历",()=>Run(Repository.RefreshCalendarAsync)));
-        if(calendarView=="day")controls.Children.Add(Button(focusCurrentTime?"查看24小时概览":"聚焦当前时间",()=>{focusCurrentTime=!focusCurrentTime;ShowCalendar();}));Content.Children.Add(controls);
+        var toolbar = BuildCalendarToolbar();
+        Content.Children.Add(toolbar);
         AddSyncStatus();
         var datebar=new Grid{Margin=new(0,0,0,16)};
         datebar.ColumnDefinitions.Add(new(){Width=new(44)});datebar.ColumnDefinitions.Add(new());datebar.ColumnDefinitions.Add(new(){Width=GridLength.Auto});datebar.ColumnDefinitions.Add(new(){Width=new(44)});
@@ -44,9 +40,71 @@ internal sealed partial class SchedulePages(MainWindow shell, WorkspaceProfile a
         if(calendarView=="month")RenderMonth(centerToday);else if(calendarView=="week")RenderWeek(first);else RenderTimeline(first, centerToday);
         Content.HorizontalAlignment=HorizontalAlignment.Center;
         void ResizeCalendar(){Content.Width=Math.Max(560,Viewport.ActualWidth*(calendarView=="day"?.88:1));}
-        TrackViewportSize(controls, ResizeCalendar);
+        TrackViewportSize(toolbar, ResizeCalendar);
 
     }
+    Grid BuildCalendarToolbar()
+    {
+        var views = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left
+        };
+        foreach (var (key, caption) in new[] { ("day", "日视图"), ("week", "周视图"), ("month", "月视图") })
+        {
+            var view = Button(caption, () =>
+            {
+                calendarView = key;
+                ShowCalendar();
+            });
+            if (key == calendarView)
+            {
+                view.Background = Brush("#E9F0FF");
+                view.Foreground = Brush("#2357CE");
+            }
+            views.Children.Add(view);
+        }
+
+        var commands = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right
+        };
+        int pendingIdeas = Repository.Current?.Ideas.Count(item => item.Status == "pending" && item.ArrangedEventId == null) ?? 0;
+        commands.Children.Add(Button($"待安排 · {pendingIdeas}", () => Navigate(() => ShowIdeas())));
+        commands.Children.Add(Button("刷新日历", () => Run(Repository.RefreshCalendarAsync)));
+        if (calendarView == "day")
+        {
+            commands.Children.Add(Button(focusCurrentTime ? "查看24小时概览" : "聚焦当前时间", () =>
+            {
+                focusCurrentTime = !focusCurrentTime;
+                ShowCalendar();
+            }));
+        }
+
+        foreach (var group in new[] { views, commands })
+        {
+            var last = (Button)group.Children[group.Children.Count - 1];
+            last.Margin = new Thickness(last.Margin.Left, last.Margin.Top, 0, last.Margin.Bottom);
+        }
+
+        var toolbar = new Grid { Margin = new(0, 0, 0, 14) };
+        toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        toolbar.Children.Add(views);
+        toolbar.Children.Add(commands);
+        void ArrangeGroups()
+        {
+            const double gap = 12;
+            bool fitsOnOneRow = views.DesiredSize.Width + commands.DesiredSize.Width + gap <= toolbar.ActualWidth;
+            Grid.SetRow(commands, fitsOnOneRow ? 0 : 1);
+        }
+        toolbar.Loaded += (_, _) => ArrangeGroups();
+        toolbar.SizeChanged += (_, args) =>
+        {
+            if (args.WidthChanged) ArrangeGroups();
+        };
+        return toolbar;
+    }
+
     void RenderTimeline(DateTime first, bool scrollFromTop)
     {
         bool focus=focusCurrentTime&&CalendarProjection.Now.Date==first.Date;
