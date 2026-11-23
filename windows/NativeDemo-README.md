@@ -1,10 +1,10 @@
-# Awesome Interview Windows 1.6.0-W Preview 9
+# Awesome Interview Windows 1.6.0-W Preview 10
 
 Windows 10/11 x64、WPF / .NET 10 原生追赶预览。面试、简历、面经录入与导出流程已接通，完整追赶PRD的全部发布门禁尚未通过。
 
 ## 安装
 
-解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview9-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
+解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview10-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
 
 使用现有账号在应用内登录。可主动勾选「在此电脑记住密码」。保存的凭据由 Windows 当前用户 DPAPI 加密，重登绑定原服务器与账号。退出登录会清除已保存凭据和账号缓存，也可在登录页单独清除密码。会话、快照、私人草稿、简历页和提醒账本同样加密保存。卸载保留 `%LOCALAPPDATA%/AwesomeInterviewNative` 与 `%LOCALAPPDATA%/AwesomeInterviewNativeDemo` 中的数据和桌面偏好。
 
@@ -20,7 +20,7 @@ Windows 10/11 x64、WPF / .NET 10 原生追赶预览。面试、简历、面经�
 - 普通会议和面试：邀请解析、校对入会链接/会议号，保存和编辑保留这些字段；简历入口在面试工作台。
 - 主日历视图切换靠左，待安排、刷新和概览靠右。窄窗按组换行。
 - 日视图点击「回到今天」后从时间表顶部滚到当前时间。月视图将高亮日期滚到视口中央附近，遵循月历的滚动边界。
-- 随身日程默认用内容区显示时间表。点击「当日任务」切换到列表，返回时保留时间表滚动位置。时间轴保留固定宽度，时间表和列表仅纵向滚动。超出可见容量的重叠任务可在列表查看。当天没有待办时仍可打开想法录入，已完成任务可按需显示和恢复。穿透时保留滚轮浏览。鼠标悬停约 0.8 秒可临时操作，移开后恢复穿透。右上角或托盘可关闭穿透。组件失焦 5 秒后自动返回时间表并将当前时间线居中。置顶位于顶栏，整体、底色和字体透明度可独立调节，底色可调至完全透明。
+- 随身日程默认用内容区显示时间表。点击「当日任务」切换到列表，返回时保留时间表滚动位置。时间轴保留固定宽度，时间表和列表仅纵向滚动。超出可见容量的重叠任务可在列表查看。当天没有待办时仍可打开想法录入，已完成任务可按需显示和恢复。穿透时保留滚轮浏览。鼠标悬停约 0.8 秒可临时操作，移开后恢复穿透。右上角或托盘可关闭穿透。组件失焦 5 秒后自动返回时间表并将当前时间线居中。置顶位于顶栏，整体、底色、字体和边框透明度可独立调节。底色全透明时仍可保留任务卡片描边。
 - 提醒：应用运行或留在托盘时按日程选项尝试系统托盘提醒；完成/废除/重复单日状态参与判断，去重账本防重复，合并同轮提醒，三分钟宽限后不补发陈旧提醒。
 - 管理员：保留原生汇总入口，新增面试、简历、草稿、解析、导出固定监控节点，不记录私密正文或查询词。
 
@@ -44,9 +44,9 @@ PDF当前由服务端PyMuPDF生成有界PNG页，WPF原生展示并加密缓存�
 
 ## 验证与构建
 
-Python 全量测试 270 项通过、1 项跳过。Windows 原生检查 131 项通过，覆盖凭据保存、会话恢复、账号匹配与悬停状态。WPF 构建通过，保留既有 WinForms 高 DPI 清单分析告警。本轮用合成数据离屏验证失焦回位、日界线附近的当前时间居中、置顶按钮和三项透明度的独立调节及设置兼容。凭据测试使用模拟 HTTP 响应。随身日程离屏布局及系统滚轮钩子的注册和释放已在 Preview 4 验证。真实窗口的鼠标穿透和多屏 DPI 仍待验收。
+Python 全量测试 270 项通过、1 项跳过。Windows 原生检查 131 项通过，覆盖凭据保存、会话恢复、账号匹配与悬停状态。WPF 构建通过，保留既有 WinForms 高 DPI 清单分析告警。本轮用合成数据离屏验证了全透明底色下的任务卡片描边、四项透明度的独立调节与保存，以及旧版设置的兼容性。凭据测试使用模拟 HTTP 响应。随身日程离屏布局及系统滚轮钩子的注册和释放已在 Preview 4 验证。真实窗口的鼠标穿透和多屏 DPI 仍待验收。
 
-使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview9` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
+使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview10` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
 
 验收记录：`windows/acceptance/2026-11-21/README.md`；历史版本：`windows/NativeDemo-HISTORY.md`。
 
