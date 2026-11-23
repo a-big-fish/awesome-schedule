@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -12,7 +13,8 @@ using AwesomeInterview.NativeDemo.Data;
 
 namespace AwesomeInterview.NativeDemo;
 
-internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages schedule)
+internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages schedule,
+    Func<IReadOnlyCollection<System.Drawing.Point>, IReadOnlyDictionary<System.Drawing.Point, Color>>? readBackdrop = null)
 {
     DesktopPreferences preferences = new();
     Forms.NotifyIcon? tray;
@@ -106,13 +108,18 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         };
         portable.Content = portableSurface;
         AttachPortableFocusReset(portable);
+        AttachPortableContrast(portable);
         UpdatePortableTools();
         ApplyPortableAppearance();
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
         portable.PreviewKeyDown += (_, e) => { if (PortablePassThrough) e.Handled = true; };
         portable.LocationChanged += (_, _) => PositionPortableUnlock();
         portable.SizeChanged += (_, _) => PositionPortableUnlock();
-        portable.Closing += (_, _) => ClosePortableAppearance();
+        portable.Closing += (_, _) =>
+        {
+            ClosePortableAppearance();
+            StopPortableContrast();
+        };
         portable.Closed += (_, _) =>
         {
             StopPortableInput();

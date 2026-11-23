@@ -59,6 +59,8 @@ internal sealed partial class DesktopIntegration
         string ink = pinned ? "#2357CE" : "#192C46";
         button.Background = active ? Brush(fill) : PortableFill(fill);
         button.Foreground = active ? Brush(ink) : PortableInk(ink);
+        if (active) RestorePortableToolInk(button);
+        SchedulePortableContrast();
     }
 
     static SolidColorBrush OpacityBrush(Dictionary<string, SolidColorBrush> brushes, string color, double opacity)
@@ -215,6 +217,7 @@ internal sealed partial class DesktopIntegration
         ApplyPortableUnlockOpacity();
         PositionPortableUnlock();
         if (!portableUnlock.IsVisible) portableUnlock.Show();
+        SchedulePortableContrast();
     }
 
     const int ExtendedStyle = -20;
@@ -362,6 +365,7 @@ internal sealed partial class DesktopIntegration
         }
         foreach (var button in portableToolbarButtons) PaintPortableTool(button);
         ApplyPortableUnlockOpacity();
+        SchedulePortableContrast();
     }
 
     void ApplyPortableUnlockOpacity()

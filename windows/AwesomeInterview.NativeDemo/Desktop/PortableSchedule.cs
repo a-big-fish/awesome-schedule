@@ -55,8 +55,13 @@ internal sealed partial class DesktopIntegration
         if (portableNowLine != null) Canvas.SetTop(portableNowLine, y);
         if (portableClock != null)
         {
-            portableClock.Text = now.ToString("HH:mm");
-            Canvas.SetTop(portableClock, Math.Clamp(y - 8, 0, PortableDayHeight - 15));
+            string time = now.ToString("HH:mm");
+            if (portableClock.Text != time)
+            {
+                portableClock.Text = time;
+                SchedulePortableContrast();
+            }
+            Canvas.SetTop((Border)portableClock.Parent, Math.Clamp(y - 8, 0, PortableDayHeight - 15));
         }
     }
 
@@ -122,6 +127,7 @@ internal sealed partial class DesktopIntegration
             }
             portableContent.Children.Add(page);
         }
+        SchedulePortableContrast();
     }
 
     FrameworkElement BuildPortableSummary(DateTime today, int pending, int completed, bool signedIn)
@@ -259,10 +265,9 @@ internal sealed partial class DesktopIntegration
         timeline.Children.Add(nowLine);
         portableNowLine = nowLine;
         var clock = PortableText("", 10, "#BD2936");
-        clock.Background = PortableFill("#F8FAFC");
-        clock.IsHitTestVisible = false;
-        Canvas.SetLeft(clock, 33);
-        timeline.Children.Add(clock);
+        var clockBadge = new Border { Child = clock, Background = PortableFill("#F8FAFC"), IsHitTestVisible = false };
+        Canvas.SetLeft(clockBadge, 33);
+        timeline.Children.Add(clockBadge);
         portableClock = clock;
         UpdatePortableClock();
 
