@@ -29,13 +29,22 @@ internal sealed partial class DesktopIntegration
         string EndLabel => EndTime == TimeSpan.FromDays(1) ? "24:00" : EndTime.ToString(@"hh\:mm");
     }
 
-    static Button PortableButton(string label, Action action)
+    static Button CompactPortableButton(string label, Action action)
     {
         var button = Button(label, action);
         button.FontSize = 11;
         button.MinHeight = 25;
         button.Padding = new(7, 3, 7, 3);
         button.Margin = new(0);
+        return button;
+    }
+
+    Button PortableButton(string label, Action action)
+    {
+        var button = CompactPortableButton(label, action);
+        button.Background = PortableFill("#FFFFFF");
+        button.BorderBrush = PortableFill("#DCE3ED");
+        button.Foreground = PortableInk("#263650");
         return button;
     }
 
@@ -51,7 +60,7 @@ internal sealed partial class DesktopIntegration
         }
     }
 
-    internal void RefreshPortable()
+    internal void RefreshPortable(bool centerCurrentTime = false)
     {
         if (portableContent == null) return;
         var today = CalendarProjection.Now.Date;
@@ -63,10 +72,12 @@ internal sealed partial class DesktopIntegration
         }
         else
         {
-            if (portableTimelineScroll is { IsLoaded: true } timeline) portableTimeOffset = timeline.VerticalOffset;
+            if (portableTimelineScroll is { IsLoaded: true, Content: Canvas axis } timeline)
+                portableTimeOffset = timeline.VerticalOffset - axis.Margin.Top;
             if (portableTaskScroll is { IsLoaded: true } tasks) portableTaskOffset = tasks.VerticalOffset;
         }
 
+        if (centerCurrentTime) portableTimeOffset = null;
         portableContent.Children.Clear();
         portableTimelineScroll = null;
         portableTaskScroll = null;
@@ -124,8 +135,8 @@ internal sealed partial class DesktopIntegration
             var scheduleTab = PortableButton("时间表", () => ShowPortableTasks(false));
             foreach (var button in new[] { scheduleTab, taskTab }) tabs.Children.Add(button);
             var selectedView = portableShowingTasks ? taskTab : scheduleTab;
-            selectedView.Background = Brush("#EBF2FF");
-            selectedView.Foreground = Brush("#2357CE");
+            selectedView.Background = PortableFill("#EBF2FF");
+            selectedView.Foreground = PortableInk("#2357CE");
             AutomationProperties.SetHelpText(selectedView, "当前视图");
             DockPanel.SetDock(tabs, Dock.Right);
             row.Children.Add(tabs);
@@ -171,11 +182,11 @@ internal sealed partial class DesktopIntegration
         var hourRules = new Border[24];
         for (int hour = 0; hour < 24; hour++)
         {
-            var label = Text($"{hour:00}:00", 10, "#52647D");
+            var label = PortableText($"{hour:00}:00", 10, "#52647D");
             Canvas.SetTop(label, hour * PortableHourHeight + 2);
             Canvas.SetLeft(label, 5);
             timeline.Children.Add(label);
-            var rule = new Border { Height = 1, Background = Brush("#DFE7F1"), IsHitTestVisible = false };
+            var rule = new Border { Height = 1, Background = PortableFill("#DFE7F1"), IsHitTestVisible = false };
             Canvas.SetTop(rule, hour * PortableHourHeight);
             Canvas.SetLeft(rule, PortableTimeGutter);
             timeline.Children.Add(rule);
@@ -216,11 +227,12 @@ internal sealed partial class DesktopIntegration
             label.Children.Add(new TextBlock
             {
                 Text = task.Title, FontSize = 11, FontWeight = FontWeights.SemiBold,
-                TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center
+                TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center,
+                Foreground = PortableInk("#263650")
             });
             if (height >= 37)
             {
-                var hours = Text(task.Hours, 10, "#52647D");
+                var hours = PortableText(task.Hours, 10, "#52647D");
                 hours.TextAlignment = TextAlignment.Center;
                 label.Children.Add(hours);
             }
@@ -234,20 +246,20 @@ internal sealed partial class DesktopIntegration
             card.ClipToBounds = true;
             card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             card.VerticalContentAlignment = VerticalAlignment.Stretch;
-            card.Background = Brush(task.Completed ? "#EEF0F3" : "#EDF3FF");
-            card.BorderBrush = Brush("#E2EAF6");
+            card.Background = PortableFill(task.Completed ? "#EEF0F3" : "#EDF3FF");
+            card.BorderBrush = PortableFill("#E2EAF6");
             AutomationProperties.SetName(card, $"{task.Title}，{task.Hours}");
             Canvas.SetTop(card, top);
             timeline.Children.Add(card);
             cards.Add((card, label, lane));
         }
 
-        var nowLine = new Border { Height = 1, Background = Brush("#E5484D"), IsHitTestVisible = false };
+        var nowLine = new Border { Height = 1, Background = PortableInk("#E5484D"), IsHitTestVisible = false };
         Canvas.SetLeft(nowLine, PortableTimeGutter);
         timeline.Children.Add(nowLine);
         portableNowLine = nowLine;
-        var clock = Text("", 10, "#BD2936");
-        clock.Background = Brush("#F8FAFC");
+        var clock = PortableText("", 10, "#BD2936");
+        clock.Background = PortableFill("#F8FAFC");
         clock.IsHitTestVisible = false;
         Canvas.SetLeft(clock, 33);
         timeline.Children.Add(clock);
@@ -272,8 +284,9 @@ internal sealed partial class DesktopIntegration
                 Canvas.SetLeft(card, PortableTimeGutter + lane * (width + gap));
                 double top = Canvas.GetTop(card);
                 double room = Math.Max(0, card.Height - 4);
-                double start = Math.Clamp(timeView.VerticalOffset - top, 0, room);
-                double end = Math.Clamp(timeView.VerticalOffset + timeView.ViewportHeight - top, start, room);
+                double viewportTop = timeView.VerticalOffset - timeline.Margin.Top;
+                double start = Math.Clamp(viewportTop - top, 0, room);
+                double end = Math.Clamp(viewportTop + timeView.ViewportHeight - top, start, room);
                 label.Margin = new(0, start, 0, room - end);
             }
             overflow.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -284,13 +297,23 @@ internal sealed partial class DesktopIntegration
         timeView.Loaded += (_, _) => timeView.Dispatcher.InvokeAsync(() =>
         {
             if (!timeView.IsLoaded) return;
-            double offset = portableTimeOffset ?? (CalendarProjection.Now.TimeOfDay.TotalHours * PortableHourHeight - timeView.ViewportHeight / 2);
-            timeView.ScrollToVerticalOffset(Math.Clamp(offset, 0, timeView.ScrollableHeight));
+            PositionPortableTimeline(timeView, timeline, CalendarProjection.Now.TimeOfDay.TotalHours * PortableHourHeight, portableTimeOffset);
             Fit();
         }, DispatcherPriority.Loaded);
         var section = PortableSection(body, new(4));
         section.Margin = new(0);
         return section;
+    }
+
+    static void PositionPortableTimeline(QuietScrollViewer scroll, Canvas timeline, double currentY, double? savedOffset)
+    {
+        double viewportHeight = scroll.ViewportHeight;
+        double offset = savedOffset ?? currentY - viewportHeight / 2;
+        // Extend the scroll range only when a centered time would fall beyond a day boundary.
+        double beforeDay = Math.Max(0, -offset);
+        double afterDay = Math.Max(0, offset + viewportHeight - PortableDayHeight);
+        timeline.Margin = new(0, beforeDay, 0, afterDay);
+        scroll.ScrollToVerticalOffset(offset + beforeDay);
     }
 
     FrameworkElement BuildPortableTaskList(IReadOnlyList<PortableTask> tasks, int completeCount)
@@ -314,11 +337,11 @@ internal sealed partial class DesktopIntegration
 
                 var detail = PortableButton("", () => ShowTaskDetail(task));
                 var label = new DockPanel();
-                var hours = Text(task.Hours, 10, "#52647D", new(8, 0, 0, 0));
+                var hours = PortableText(task.Hours, 10, "#52647D", new(8, 0, 0, 0));
                 hours.VerticalAlignment = VerticalAlignment.Center;
                 DockPanel.SetDock(hours, Dock.Right);
                 label.Children.Add(hours);
-                label.Children.Add(new TextBlock { Text = task.Title, TextTrimming = TextTrimming.CharacterEllipsis });
+                label.Children.Add(new TextBlock { Text = task.Title, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = PortableInk("#263650") });
                 detail.Content = label;
                 detail.HorizontalContentAlignment = HorizontalAlignment.Stretch;
                 detail.ToolTip = task.Title;
@@ -358,8 +381,8 @@ internal sealed partial class DesktopIntegration
         var action = PortableButton(actionLabel, onAction);
         action.HorizontalAlignment = HorizontalAlignment.Center;
         action.Margin = new(0, 8, 0, 0);
-        action.Foreground = Brush("#2357CE");
-        action.Background = Brush("#EBF2FF");
+        action.Foreground = PortableInk("#2357CE");
+        action.Background = PortableFill("#EBF2FF");
         body.Children.Add(action);
         var section = PortableSection(body, new(14));
         section.Margin = new(0);

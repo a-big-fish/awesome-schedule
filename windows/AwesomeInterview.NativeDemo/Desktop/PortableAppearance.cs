@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Windows.Automation;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,11 +24,16 @@ internal sealed partial class DesktopIntegration
     QuietScrollViewer? portableTaskScroll, portableTimelineScroll;
     PortableWheelInput? portableWheel;
     readonly SolidColorBrush portableSectionTint = new();
+    readonly Dictionary<string, SolidColorBrush> portableFillBrushes = new();
+    readonly Dictionary<string, SolidColorBrush> portableInkBrushes = new();
+    double PortableOverallOpacity => Math.Clamp(preferences.PortableOverallOpacity, .10, 1);
+    double PortableBackgroundOpacity => Math.Clamp(preferences.PortableOpacity, 0, 1);
+    double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
     TextBlock? portableClock;
     Window? portableUnlock;
-    Button? portableLockTool;
+    Button? portableLockTool, portablePinTool;
     Border? portableAppearancePanel;
     readonly System.Collections.Generic.List<Button> portableToolbarButtons=new();
 
@@ -44,53 +51,143 @@ internal sealed partial class DesktopIntegration
 
     void PaintPortableTool(Button button)
     {
-        bool active=button.IsMouseOver||button.IsKeyboardFocused||SystemParameters.HighContrast;
-        var tint=Color.FromRgb(246,249,255);
-        tint.A=active?(byte)255:(byte)(255*(.70+.28*Math.Clamp(preferences.PortableOpacity,.15,1)));
-        button.Background=new SolidColorBrush(tint);
-        button.Foreground=Brush("#192C46");
+        bool active = button.IsMouseOver || button.IsKeyboardFocused || SystemParameters.HighContrast;
+        bool pinned = button == portablePinTool && preferences.PortableTopmost;
+        string fill = pinned ? "#EBF2FF" : "#F6F9FF";
+        string ink = pinned ? "#2357CE" : "#192C46";
+        button.Background = active ? Brush(fill) : PortableFill(fill);
+        button.Foreground = active ? Brush(ink) : PortableInk(ink);
     }
 
-    static TextBlock PortableLabel(string label, double size = 13, Thickness? margin = null)
-        => Text(label, size, "#192C46", margin);
+    static SolidColorBrush OpacityBrush(Dictionary<string, SolidColorBrush> brushes, string color, double opacity)
+    {
+        if (brushes.TryGetValue(color, out var existing)) return existing;
+        var brush = Brush(color);
+        brush.Opacity = opacity;
+        brushes.Add(color, brush);
+        return brush;
+    }
+
+    SolidColorBrush PortableFill(string color) => OpacityBrush(portableFillBrushes, color, PortableBackgroundOpacity);
+    SolidColorBrush PortableInk(string color) => OpacityBrush(portableInkBrushes, color, PortableTextOpacity);
+
+    TextBlock PortableText(string label, double size, string color, Thickness? margin = null)
+    {
+        var text = Text(label, size, color, margin);
+        text.Foreground = PortableInk(color);
+        return text;
+    }
+
+    TextBlock PortableLabel(string label, double size = 13, Thickness? margin = null) =>
+        PortableText(label, size, "#192C46", margin);
 
     Border PortableSection(UIElement child, Thickness padding) => new()
     {
         Child = child, Padding = padding, Background = portableSectionTint,
-        CornerRadius = new(10), BorderBrush = Brush("#CCD6E7"), BorderThickness = new(1),
+        CornerRadius = new(10), BorderBrush = PortableFill("#CCD6E7"), BorderThickness = new(1),
         Margin = new(0, 0, 0, 12)
     };
 
     Border BuildPortableAppearancePanel()
     {
-        var body=new StackPanel();
-        var heading=PortableLabel("随身日程外观",12,new(0,0,0,4));
-        heading.FontWeight=FontWeights.SemiBold;body.Children.Add(heading);
-        var value=Text("",12,"#52647D");body.Children.Add(value);
-        var slider=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,4,0,6)};
-        System.Windows.Automation.AutomationProperties.SetName(slider,"背景透明度");
-        body.Children.Add(slider);
-        var palette=new WrapPanel();
-        foreach(var (label,color) in new[]{("雾白","white"),("浅蓝","blue"),("暖米","warm")}){
-            var choice=PortableButton(label,()=>{preferences=preferences with{PortableColor=color};ApplyPortableAppearance();});
-            choice.Margin = new(0,0,5,0); palette.Children.Add(choice);
-        }
-        body.Children.Add(palette);
-        var footer=new DockPanel{Margin=new(0,6,0,0)};
-        var pin=new CheckBox{Content="置顶",IsChecked=preferences.PortableTopmost,VerticalAlignment=VerticalAlignment.Center};
-        pin.Click+=(_,_)=>{preferences=preferences with{PortableTopmost=pin.IsChecked==true};ApplyPortableAppearance();};
-        var done=PortableButton("完成",()=>{if(SavePreferences()&&portableAppearancePanel!=null)portableAppearancePanel.Visibility=Visibility.Collapsed;});
-        DockPanel.SetDock(done,Dock.Right);footer.Children.Add(done);footer.Children.Add(pin);body.Children.Add(footer);
-        void Refresh(){
-            value.Text=$"透明度 {1-slider.Value:P0}";
-            preferences=preferences with{PortableOpacity=slider.Value};ApplyPortableAppearance();
-        }
-        value.Text=$"透明度 {1-slider.Value:P0}";
-        slider.IsDirectionReversed=true;
-        slider.ValueChanged+=(_,_)=>Refresh();
-        var panel=Surface(body,new(8));panel.Margin=new(8,2,8,4);panel.Visibility=Visibility.Collapsed;
+        var panel = Surface(new StackPanel(), new(8));
+        panel.Margin = new(8, 2, 8, 4);
+        panel.Visibility = Visibility.Collapsed;
         return panel;
     }
+
+    void TogglePortableAppearance()
+    {
+        if (portableAppearancePanel == null) return;
+        if (portableAppearancePanel.IsVisible)
+        {
+            ClosePortableAppearance();
+            return;
+        }
+
+        var body = new StackPanel();
+        var heading = Text("随身日程外观", 12, margin: new(0, 0, 0, 4));
+        heading.FontWeight = FontWeights.SemiBold;
+        body.Children.Add(heading);
+        AddPortableTransparencyControls(body);
+        var footer = new DockPanel { Margin = new(0, 4, 0, 0) };
+        var done = CompactPortableButton("完成", ClosePortableAppearance);
+        DockPanel.SetDock(done, Dock.Right);
+        footer.Children.Add(done);
+        var palette = new WrapPanel();
+        foreach (var (label, color) in new[] { ("雾白", "white"), ("浅蓝", "blue"), ("暖米", "warm") })
+        {
+            var choice = CompactPortableButton(label, () =>
+            {
+                preferences = preferences with { PortableColor = color };
+                ApplyPortableAppearance();
+            });
+            choice.Margin = new(0, 0, 5, 0);
+            palette.Children.Add(choice);
+        }
+        footer.Children.Add(palette);
+        body.Children.Add(footer);
+        portableAppearancePanel.Child = body;
+        portableAppearancePanel.Visibility = Visibility.Visible;
+    }
+
+    void ClosePortableAppearance()
+    {
+        if (portableAppearancePanel is not { IsVisible: true } panel) return;
+        SavePreferences();
+        panel.Visibility = Visibility.Collapsed;
+    }
+
+    void TogglePortableTopmost()
+    {
+        var previous = preferences;
+        preferences = preferences with { PortableTopmost = !preferences.PortableTopmost };
+        if (!SavePreferences()) preferences = previous;
+        ApplyPortableAppearance();
+    }
+
+    void AddPortableTransparencyControls(Panel body)
+    {
+        AddTransparencySlider(body, "整体透明度", PortableOverallOpacity, .9,
+            opacity => preferences = preferences with { PortableOverallOpacity = opacity });
+        AddTransparencySlider(body, "底色透明度", PortableBackgroundOpacity, 1,
+            opacity => preferences = preferences with { PortableOpacity = opacity });
+        AddTransparencySlider(body, "字体透明度", PortableTextOpacity, .9,
+            opacity => preferences = preferences with { PortableTextOpacity = opacity });
+    }
+
+    void AddTransparencySlider(Panel body, string name, double opacity, double maxTransparency, Action<double> change)
+    {
+        var row = new Grid { Margin = new(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new() { Width = new(74) });
+        row.ColumnDefinitions.Add(new());
+        row.ColumnDefinitions.Add(new() { Width = new(40) });
+        var title = Text(name, 11);
+        title.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(title);
+        var slider = new Slider
+        {
+            Minimum = 0, Maximum = maxTransparency, Value = Math.Clamp(1 - opacity, 0, maxTransparency),
+            SmallChange = .01, LargeChange = .1, VerticalAlignment = VerticalAlignment.Center,
+            Margin = new(2, 0, 3, 0)
+        };
+        AutomationProperties.SetName(slider, name);
+        Grid.SetColumn(slider, 1);
+        row.Children.Add(slider);
+        var value = Text(slider.Value.ToString("P0"), 11, "#52647D");
+        value.HorizontalAlignment = HorizontalAlignment.Right;
+        value.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(value, 2);
+        row.Children.Add(value);
+        slider.ValueChanged += (_, e) =>
+        {
+            value.Text = e.NewValue.ToString("P0");
+            change(1 - e.NewValue);
+            ApplyPortableAppearance();
+        };
+        body.Children.Add(row);
+    }
+
     void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-9;portableUnlock.Top=portable.Top+7;}}
     void ShowPortableUnlock()
     {
@@ -102,7 +199,7 @@ internal sealed partial class DesktopIntegration
             {
                 Owner = portable, Title = "恢复随身日程交互", Width = 90, Height = 27,
                 WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
-                Background = Brushes.Transparent, ShowInTaskbar = false, ShowActivated = false,
+                Background = Brush("#01FFFFFF"), ShowInTaskbar = false, ShowActivated = false,
                 Topmost = portable.Topmost, FontFamily = shell.FontFamily
             };
             var unlock = PortableTool("解锁交互", () => SetPortableLocked(false), toolbar: false);
@@ -110,6 +207,7 @@ internal sealed partial class DesktopIntegration
             unlock.ToolTip = "关闭鼠标穿透，恢复完整交互";
             portableUnlock.Content = unlock;
         }
+        ApplyPortableUnlockOpacity();
         PositionPortableUnlock();
         if (!portableUnlock.IsVisible) portableUnlock.Show();
     }
@@ -143,8 +241,9 @@ internal sealed partial class DesktopIntegration
         portableHover.Reset();
         if (locked)
         {
-            if (portableAppearancePanel != null) portableAppearancePanel.Visibility = Visibility.Collapsed;
+            ClosePortableAppearance();
             Keyboard.ClearFocus();
+            SchedulePortableFocusReset();
             portableWheel = new PortableWheelInput(hwnd, ScrollLockedPortable);
             if (!portableWheel.Start())
             {
@@ -186,9 +285,11 @@ internal sealed partial class DesktopIntegration
         portableHoverActive = interactive;
         if (!interactive)
         {
-            if (portableAppearancePanel != null) portableAppearancePanel.Visibility = Visibility.Collapsed;
+            ClosePortableAppearance();
             if (window.IsKeyboardFocusWithin) Keyboard.ClearFocus();
+            SchedulePortableFocusReset();
         }
+        else portableFocusReset?.Stop();
         UpdatePortableTools();
     }
 
@@ -209,8 +310,12 @@ internal sealed partial class DesktopIntegration
     bool ScrollLockedPortable(int screenX, int screenY, int delta)
     {
         var scroll = portableTimelineScroll ?? portableTaskScroll;
-        return PortablePassThrough && scroll is { IsVisible: true } &&
-            ContainsPortablePoint(scroll, new Point(screenX, screenY)) && scroll.TryScrollWithWheel(delta);
+        if (!PortablePassThrough || scroll is not { IsVisible: true } ||
+            !ContainsPortablePoint(scroll, new Point(screenX, screenY)) || !scroll.TryScrollWithWheel(delta))
+            return false;
+
+        SchedulePortableFocusReset();
+        return true;
     }
 
     static bool ContainsPortablePoint(FrameworkElement element, Point screenPoint)
@@ -219,37 +324,82 @@ internal sealed partial class DesktopIntegration
 
     void ApplyPortableAppearance()
     {
-        if(portable==null||portableSurface==null)return;
-        var color = preferences.PortableColor switch
+        double overall = PortableOverallOpacity, background = PortableBackgroundOpacity, ink = PortableTextOpacity;
+        foreach (var brush in portableFillBrushes.Values) brush.Opacity = background;
+        foreach (var brush in portableInkBrushes.Values) brush.Opacity = ink;
+        portableSectionTint.Color = preferences.PortableColor switch
         {
             "blue" => Color.FromRgb(236, 243, 253),
             "warm" => Color.FromRgb(250, 246, 237),
             _ => Color.FromRgb(248, 250, 252)
         };
-        double opacity = Math.Clamp(preferences.PortableOpacity, .15, 1);
-        color.A = (byte)(255 * opacity);
-        portableSurface.Background = new SolidColorBrush(color);
-        color.A = (byte)(255 * (.86 + .12 * opacity));
-        portableSectionTint.Color = color;
-        if (portableHeader != null) portableHeader.Background = portableSectionTint;
-        portable.Topmost = preferences.PortableTopmost;
-        foreach(var button in portableToolbarButtons)PaintPortableTool(button);
-        if (portableUnlock != null)
+        portableSectionTint.Opacity = background;
+
+        if (portable == null || portableSurface == null) return;
+        // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.
+        portableSurface.Background = Brush("#01FFFFFF");
+        var outline = Brush("#CCD6E7");
+        outline.Opacity = overall * background;
+        portableSurface.BorderBrush = outline;
+        if (portableHeader != null)
         {
-            portableUnlock.Topmost = portable.Topmost;
-            if (portableUnlock.Content is Button unlock) PaintPortableTool(unlock);
+            portableHeader.Background = portableSectionTint;
+            portableHeader.Opacity = overall;
+        }
+        if (portableContent != null) portableContent.Opacity = overall;
+        portable.Topmost = preferences.PortableTopmost;
+        if (portablePinTool != null)
+        {
+            portablePinTool.Content = preferences.PortableTopmost ? "已置顶" : "置顶";
+            portablePinTool.ToolTip = preferences.PortableTopmost ? "取消随身日程置顶" : "保持随身日程置顶";
+        }
+        foreach (var button in portableToolbarButtons) PaintPortableTool(button);
+        ApplyPortableUnlockOpacity();
+    }
+
+    void ApplyPortableUnlockOpacity()
+    {
+        if (portableUnlock == null) return;
+        portableUnlock.Topmost = preferences.PortableTopmost;
+        if (portableUnlock.Content is Button unlock)
+        {
+            unlock.Opacity = PortableOverallOpacity;
+            PaintPortableTool(unlock);
         }
     }
+
     void AddPortablePreferences(StackPanel body)
     {
-        body.Children.Add(Text("随身日程外观",19,margin:new(0,24,0,14)));
-        body.Children.Add(Text("背景透明度（文字保持清晰）",13));var opacity=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,12,0,18)};body.Children.Add(opacity);
-        var palette=new ComboBox{ItemsSource=new[]{"雾白","浅蓝","暖米"},SelectedIndex=preferences.PortableColor=="blue"?1:preferences.PortableColor=="warm"?2:0};body.Children.Add(palette);
-        var topmost=new CheckBox{Content="随身日程置顶",IsChecked=preferences.PortableTopmost,Margin=new(0,14,0,14)};body.Children.Add(topmost);
-        var feedback=Text("穿透时可用滚轮浏览。鼠标停稳约 0.8 秒可临时操作，移开后恢复穿透。",13,"#64748B");body.Children.Add(feedback);
-        void Change(){preferences=preferences with{PortableOpacity=opacity.Value,PortableColor=palette.SelectedIndex==1?"blue":palette.SelectedIndex==2?"warm":"white",PortableTopmost=topmost.IsChecked==true};ApplyPortableAppearance();}
-        opacity.ValueChanged+=(_,_)=>Change();palette.SelectionChanged+=(_,_)=>Change();topmost.Click+=(_,_)=>Change();
-        body.Children.Add(Button("保存随身日程外观",()=>{Change();if(SavePreferences())feedback.Text="外观已保存，下次打开继续使用。";}));
-        body.Children.Add(Button("恢复随身日程交互",()=>SetPortableLocked(false)));
+        body.Children.Add(Text("随身日程外观", 19, margin: new(0, 24, 0, 14)));
+        AddPortableTransparencyControls(body);
+        var palette = new ComboBox
+        {
+            ItemsSource = new[] { "雾白", "浅蓝", "暖米" },
+            SelectedIndex = preferences.PortableColor == "blue" ? 1 : preferences.PortableColor == "warm" ? 2 : 0
+        };
+        palette.SelectionChanged += (_, _) =>
+        {
+            preferences = preferences with { PortableColor = palette.SelectedIndex == 1 ? "blue"
+                : palette.SelectedIndex == 2 ? "warm" : "white" };
+            ApplyPortableAppearance();
+        };
+        body.Children.Add(palette);
+        var topmost = new CheckBox
+        {
+            Content = "随身日程置顶", IsChecked = preferences.PortableTopmost, Margin = new(0, 14, 0, 14)
+        };
+        topmost.Click += (_, _) =>
+        {
+            preferences = preferences with { PortableTopmost = topmost.IsChecked == true };
+            ApplyPortableAppearance();
+        };
+        body.Children.Add(topmost);
+        var feedback = Text("穿透时可用滚轮浏览。鼠标停稳约 0.8 秒可临时操作，移开后恢复穿透。", 13, "#64748B");
+        body.Children.Add(feedback);
+        body.Children.Add(Button("保存随身日程外观", () =>
+        {
+            if (SavePreferences()) feedback.Text = "外观已保存，下次打开继续使用。";
+        }));
+        body.Children.Add(Button("恢复随身日程交互", () => SetPortableLocked(false)));
     }
 }

@@ -105,21 +105,25 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = dock
         };
         portable.Content = portableSurface;
+        AttachPortableFocusReset(portable);
         UpdatePortableTools();
         ApplyPortableAppearance();
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
         portable.PreviewKeyDown += (_, e) => { if (PortablePassThrough) e.Handled = true; };
         portable.LocationChanged += (_, _) => PositionPortableUnlock();
         portable.SizeChanged += (_, _) => PositionPortableUnlock();
+        portable.Closing += (_, _) => ClosePortableAppearance();
         portable.Closed += (_, _) =>
         {
             StopPortableInput();
+            StopPortableFocusReset();
             portableHoverActive = false;
             portableUnlock = null;
             portableAppearancePanel = null;
             portableHeader = null;
             portableToolbarButtons.Clear();
             portableLockTool = null;
+            portablePinTool = null;
             portable = null;
             portableContent = null;
             portableSurface = null;
@@ -149,11 +153,9 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             controls.Children.Add(button);
         }
         AddTool(PortableTool("关闭", () => portable?.Close()));
-        AddTool(PortableTool("外观", () =>
-        {
-            if (portableAppearancePanel != null)
-                portableAppearancePanel.Visibility = portableAppearancePanel.IsVisible ? Visibility.Collapsed : Visibility.Visible;
-        }));
+        AddTool(PortableTool("外观", TogglePortableAppearance));
+        portablePinTool = PortableTool("置顶", TogglePortableTopmost);
+        AddTool(portablePinTool);
         var lockButton = PortableTool("鼠标穿透", () => SetPortableLocked(!portableLocked));
         portableLockTool = lockButton;
         AddTool(lockButton);
