@@ -241,8 +241,32 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function focusCalendarDate() {
+    const month = document.querySelector('.personal-period-month');
+    if (!month) {
+      centerNowLine();
+      return;
+    }
+    const day = month.querySelector('.personal-period-day.is-selected')
+      || month.querySelector('.personal-period-day.is-today:not(.outside-month)');
+    if (!day) return;
+    requestAnimationFrame(() => {
+      if (!month.isConnected) return;
+      const dayRect = day.getBoundingClientRect();
+      const maxTop = month.scrollHeight - month.clientHeight;
+      if (maxTop > 0) {
+        const viewportTop = month.getBoundingClientRect().top + month.clientTop;
+        const target = month.scrollTop + dayRect.top - viewportTop
+          + (dayRect.height - month.clientHeight) / 2;
+        month.scrollTo({top: Math.max(0, Math.min(maxTop, target)), behavior: 'instant'});
+      } else if (dayRect.top < 0 || dayRect.bottom > window.innerHeight) {
+        day.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'});
+      }
+    });
+  }
+
   updateNowLines();
-  centerNowLine();
+  focusCalendarDate();
   scheduleNowLineUpdate();
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) updateNowLines();
@@ -250,12 +274,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.addEventListener('personal:navigated', (event) => {
     updateNowLines();
-    if (event.detail?.resetScroll !== false) centerNowLine();
+    if (event.detail?.resetScroll !== false) focusCalendarDate();
     scheduleNowLineUpdate();
   });
   document.addEventListener('personal:focus-now', () => {
     updateNowLines();
-    centerNowLine();
+    focusCalendarDate();
   });
 
   const dateScope = document.querySelector('[data-date-scope]');

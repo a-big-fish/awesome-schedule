@@ -146,7 +146,7 @@
     const currentMain = document.querySelector('.page > main');
     if (!nextMain || !currentMain || !page.body.classList.contains('personal-app'))
       throw new Error('页面结构已变化');
-    const scrollSelector = '.time-grid-wrap, .personal-week-timeline, .personal-side-list, .personal-event-list';
+    const scrollSelector = '.time-grid-wrap, .personal-week-timeline, .personal-period-month, .personal-side-list, .personal-event-list';
     const positions = resetScroll ? [] : [...currentMain.querySelectorAll(scrollSelector)]
       .map(element => ({top: element.scrollTop, left: element.scrollLeft}));
     document.title = page.title;

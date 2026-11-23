@@ -5,6 +5,12 @@ const event=(extra={})=>({id:'event',type:'personal',title:'任务',start_at:'20
 const snapshot=events=>({events,workday_start:'09:30',workday_end:'17:30'});
 const now=Date.parse('2026-11-13T12:00:00+08:00');
 
+test('month markup identifies the selected day separately from today', () => {
+  const html = model.monthHTML(model.project(snapshot([]), '2026-11-26', 'month', now));
+  assert.match(html, /is-selected"><a class="personal-period-date"[^>]*date_value=2026-11-26/);
+  assert.match(html, /is-today"><a class="personal-period-date"[^>]*date_value=2026-11-13/);
+});
+
 test('local projection clips work hours, skips weekends and keeps midnight end exclusive',()=>{
   const ctx=model.project(snapshot([event({workday_only:true,skip_weekends:true})]),'2026-11-13','week',now);
   const e=ctx.expanded[0],friday=ctx.segment(e,'2026-11-13');

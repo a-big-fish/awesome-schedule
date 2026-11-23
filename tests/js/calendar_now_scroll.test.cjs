@@ -12,7 +12,8 @@ test('calendar paints the top before smooth centering, replays on navigation and
     querySelector: () => line, getBoundingClientRect: () => ({top: 100}),
     scrollTo(options) {calls.push(options); this.scrollTop = options.top;}};
   vm.runInNewContext(code, {
-    document: {querySelector: () => wrap, addEventListener: (name, callback) => listeners[name] = callback},
+    document: {querySelector: selector => selector === '.time-grid-wrap' ? wrap : null,
+      addEventListener: (name, callback) => listeners[name] = callback},
     window: {matchMedia: () => ({matches: false})}, requestAnimationFrame: callback => frames.push(callback),
     updateNowLines() {}, scheduleNowLineUpdate() {},
   });
@@ -29,4 +30,30 @@ test('calendar paints the top before smooth centering, replays on navigation and
   assert.equal(calls.length, 3); // Background refresh must not restart scrolling.
   listeners['personal:navigated']({detail: {resetScroll: true}});
   assert.equal(calls.length, 4);
+});
+
+test('month view centers the selected week and retains manual scroll on refresh', () => {
+  const frames = [], calls = [], listeners = {};
+  const selected = {getBoundingClientRect: () => ({top: 680, height: 120})};
+  const month = {
+    isConnected: true, scrollTop: 80, clientHeight: 400, scrollHeight: 1040, clientTop: 1,
+    querySelector: selector => selector.endsWith('.is-selected') ? selected : null,
+    getBoundingClientRect: () => ({top: 100}),
+    scrollTo: options => calls.push(options),
+  };
+  vm.runInNewContext(code, {
+    document: {querySelector: selector => selector === '.personal-period-month' ? month : null,
+      addEventListener: (name, callback) => listeners[name] = callback},
+    window: {}, requestAnimationFrame: callback => frames.push(callback),
+    updateNowLines() {}, scheduleNowLineUpdate() {},
+  });
+  frames.shift()();
+  assert.equal(calls[0].top, 519);
+  assert.equal(calls[0].behavior, 'instant');
+  listeners['personal:navigated']({detail: {resetScroll: false}});
+  assert.equal(frames.length, 0);
+  listeners['personal:navigated']({detail: {resetScroll: true}});
+  month.scrollTop = 999;
+  frames.shift()();
+  assert.equal(calls[1].top, 640);
 });
