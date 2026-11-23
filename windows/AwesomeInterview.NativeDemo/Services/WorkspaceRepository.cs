@@ -26,6 +26,7 @@ public sealed partial class WorkspaceRepository : IDisposable
     public NativeApi? Api { get; private set; }
     public Snapshot? Current { get; private set; }
     public bool Online { get; private set; }
+    public bool RequiresSignIn { get; private set; }
     public bool Busy { get; private set; }
     public bool SyncBusy { get; private set; }
     public string Message { get; private set; } = "登录后查看你的日程与面经。";
@@ -79,30 +80,119 @@ public sealed partial class WorkspaceRepository : IDisposable
             await Api!.ConnectAsync();
             if(Api.Session!.UserId!=identity?.UserId)throw new ApiFailure(401,"会话账号已变化，请重新登录。");
             foreach(var item in outbox.Items.Where(item=>item.State==SyncStates.Auth)){item.State=SyncStates.Pending;item.NextAttempt=0;}
-            Online=true;Message="已加载18小时有效期内的本机缓存；可手动同步获取跨端修改。";
+            Online=true;RequiresSignIn=false;Message="已加载18小时有效期内的本机缓存；可手动同步获取跨端修改。";
         }
-        catch(Exception error)when(Expected(error)){Online=false;Message=Explain(error)+" 当前仅可查看缓存。";}
+        catch(Exception error)when(Expected(error)){OnConnectionFailure(error);}
         finally{Busy=false;syncGate.Release();Changed?.Invoke();}
     }
-    public async Task LoginAsync(string server, string name, string password)
+    internal async Task<RememberedLogin?> ReadRememberedLoginAsync()
     {
-        var candidate = apiFactory(server); await syncGate.WaitAsync(); Busy=true; Changed?.Invoke();
-        try {
-            await candidate.LoginAsync(name.Trim(),password);
+        var saved = await cache.ReadLoginAsync();
+        return IsMatchingLogin(saved) ? new RememberedLogin(saved!.Server, saved.Identifier) : null;
+    }
+
+    bool IsMatchingLogin(SavedLogin? saved) => saved != null &&
+        (identity == null || (identity.UserId == saved.UserId && identity.Server == saved.Server)) &&
+        (Current == null || (Current.UserId == saved.UserId && Api?.Server.AbsoluteUri == saved.Server));
+
+    internal async Task ForgetRememberedLoginAsync()
+    {
+        await syncGate.WaitAsync();
+        try { cache.ForgetLogin(); }
+        finally { syncGate.Release(); }
+    }
+
+    internal async Task LoginRememberedAsync()
+    {
+        await syncGate.WaitAsync();
+        try
+        {
+            var saved = await cache.ReadLoginAsync();
+            if (!IsMatchingLogin(saved)) throw new ApiFailure(401, "当前账号没有保存的密码，请手动登录。");
+            await LoginCoreAsync(saved!.Server, saved.Identifier, saved.Password, true, saved.UserId);
+        }
+        finally
+        {
+            Busy = false;
+            syncGate.Release();
+            Changed?.Invoke();
+        }
+    }
+
+    public async Task LoginAsync(string server, string name, string password, bool rememberPassword = false)
+    {
+        await syncGate.WaitAsync();
+        try { await LoginCoreAsync(server, name, password, rememberPassword); }
+        finally
+        {
+            Busy = false;
+            syncGate.Release();
+            Changed?.Invoke();
+        }
+    }
+
+    async Task LoginCoreAsync(string server, string name, string password, bool rememberPassword, string? expectedUser = null)
+    {
+        var candidate = apiFactory(server);
+        Busy = true;
+        Changed?.Invoke();
+        try
+        {
+            await candidate.LoginAsync(name.Trim(), password);
+            if (expectedUser != null && candidate.Session?.UserId != expectedUser)
+                throw new ApiFailure(401, "已保存凭据对应的账号发生变化，请手动登录。");
             var snapshot = await candidate.SnapshotAsync();
-            await FlushCacheAsync(); ++epoch; Api?.Dispose(); Api=candidate; Current=snapshot; Online=true;
-            identity = candidate.SessionCookie is string cookie ? new(candidate.Server.AbsoluteUri,snapshot.UserId,cookie) : null;
-            outbox = identity != null
-                ? await cache.ReadOutboxAsync(identity.Server, identity.UserId) ?? new SyncOutbox { UserId = identity.UserId }
+            var saved = candidate.SessionCookie is string cookie
+                ? new SavedConnection(candidate.Server.AbsoluteUri, snapshot.UserId, cookie) : null;
+            await FlushCacheAsync();
+            var queue = saved != null
+                ? await cache.ReadOutboxAsync(saved.Server, saved.UserId) ?? new SyncOutbox { UserId = saved.UserId }
                 : new SyncOutbox { UserId = snapshot.UserId };
-            outboxUnavailable=false;
-            foreach(var item in outbox.Items.Where(item=>item.State is SyncStates.Auth or SyncStates.Sending)){item.State=SyncStates.Pending;item.NextAttempt=0;}
-            confirmedIdeas = snapshot.Ideas.ToList(); confirmedEvents = snapshot.Events.ToList(); RebuildProjection();
+
+            ++epoch;
+            Api?.Dispose();
+            Api = candidate;
+            Current = snapshot;
+            Online = true;
+            RequiresSignIn = false;
+            identity = saved;
+            outbox = queue;
+            outboxUnavailable = false;
+            foreach (var item in outbox.Items.Where(item => item.State is SyncStates.Auth or SyncStates.Sending))
+            {
+                item.State = SyncStates.Pending;
+                item.NextAttempt = 0;
+            }
+            confirmedIdeas = snapshot.Ideas.ToList();
+            confirmedEvents = snapshot.Events.ToList();
+            RebuildProjection();
             Message = outbox.Items.Count > 0 ? $"已连接 · {outbox.Items.Count} 项本机修改待同步。" : "已连接，数据与 Web 账号同步。";
             QueuePersist();
+            try
+            {
+                if (rememberPassword)
+                    await cache.SaveLoginAsync(new SavedLogin(candidate.Server.AbsoluteUri, snapshot.UserId, name.Trim(), password));
+                else
+                    cache.ForgetLogin();
+            }
+            catch (Exception error) when (Expected(error))
+            {
+                Message = rememberPassword ? "已登录，但密码未能保存。" : "已登录，但旧凭据未能删除，请在账号页重试。";
+            }
         }
-        catch { if(Api != candidate) candidate.Dispose(); throw; }
-        finally { Busy=false; syncGate.Release(); Changed?.Invoke(); }
+        catch
+        {
+            if (Api != candidate) candidate.Dispose();
+            throw;
+        }
+    }
+
+    void OnConnectionFailure(Exception error)
+    {
+        Online = false;
+        if (error is ApiFailure { Status: 401 or 403 }) RequiresSignIn = true;
+        Message = (RequiresSignIn ? "登录已过期，请重新登录。" : Explain(error)) +
+            (Current != null ? " 当前可查看本机缓存。" : "");
     }
     // Capture record lists before serializing off the dispatcher. Writes stay ordered.
     void QueuePersist()
@@ -152,10 +242,10 @@ public sealed partial class WorkspaceRepository : IDisposable
                 next.Validate(Api.Session!.UserId); Current=next;
             }
             confirmedIdeas = Current.Ideas.ToList(); confirmedEvents = Current.Events.ToList(); RebuildProjection();
-            Online=true; Message=$"已同步 · {CalendarProjection.Now:HH:mm} · {Current.Events.Count} 条日程 / {Current.Experiences.Count} 份面经"+
+            Online=true; RequiresSignIn=false; Message=$"已同步 · {CalendarProjection.Now:HH:mm} · {Current.Events.Count} 条日程 / {Current.Experiences.Count} 份面经"+
                 (outbox.Items.Count > 0 ? $" · {outbox.Items.Count} 项待同步" : ""); QueuePersist();
         }
-        catch(Exception error) when(Expected(error)) { Online=false; Message=Explain(error)+(Current != null ? " 当前仅可查看缓存。" : ""); }
+        catch(Exception error) when(Expected(error)) { OnConnectionFailure(error); }
         finally { Busy=false; syncGate.Release(); Changed?.Invoke(); }
     }
     // Calendar writes use the same encrypted queue and the Web's operation-id receipts.
@@ -315,7 +405,7 @@ public sealed partial class WorkspaceRepository : IDisposable
         if(!await syncGate.WaitAsync(0)) return;
         var anySuccess = false;
         try {
-            if(Api == null || Current == null || outbox.Items.Count == 0) return;
+            if(Api == null || Current == null || outbox.Items.Count == 0 || RequiresSignIn) return;
             await FlushCacheAsync();if(queuePersistenceError!=null){Message="本机队列尚未安全写盘，本次不发送，请检查磁盘后重试。";return;}
             if(Api.Session==null){await Api.ConnectAsync();if(Api.Session!.UserId!=Current.UserId)throw new ApiFailure(401,"会话账号已变化，请重新登录。");foreach(var pending in outbox.Items.Where(entry=>entry.State==SyncStates.Auth)){pending.State=SyncStates.Pending;pending.NextAttempt=0;}}
             SyncBusy = true; Changed?.Invoke();
@@ -334,7 +424,7 @@ public sealed partial class WorkspaceRepository : IDisposable
                 catch(ApiFailure failure) {
                     item.Attempts++;
                     if(failure.Status is 401 or 403) {
-                        item.State = SyncStates.Auth; item.Error = failure.Message; Online = false;
+                        item.State = SyncStates.Auth; item.Error = failure.Message; Online = false; RequiresSignIn = true;
                         Message = "登录已过期，本机修改已保留；重新登录后自动同步。";
                         RebuildProjection(); QueuePersist(); break;
                     }
@@ -350,9 +440,13 @@ public sealed partial class WorkspaceRepository : IDisposable
                 catch(Exception error) when(Expected(error)) { RetrySyncLater(item,Explain(error)); break; }
                 AcknowledgeSync(item,reply);
             }
-            if(anySuccess) { Online = true; Message = outbox.Items.Count == 0 ? "本机修改已全部同步。" : $"已同步 · 仍有 {outbox.Items.Count} 项待处理"; }
+            if(anySuccess && !RequiresSignIn) { Online = true; Message = outbox.Items.Count == 0 ? "本机修改已全部同步。" : $"已同步 · 仍有 {outbox.Items.Count} 项待处理"; }
         }
-        catch(Exception error) when(Expected(error)) { Message = Explain(error); }
+        catch (Exception error) when (Expected(error))
+        {
+            if (error is ApiFailure { Status: 401 or 403 }) OnConnectionFailure(error);
+            else Message = Explain(error);
+        }
         // SyncNowAsync is also fire-and-forget from a save, so it must never surface an exception.
         catch(Exception) { Message = "同步时出现异常，本机修改已保留；请稍后重试。"; }
         finally { SyncBusy = false; syncGate.Release(); Changed?.Invoke(); }
@@ -553,6 +647,7 @@ public sealed partial class WorkspaceRepository : IDisposable
         }
         catch(Exception error) when(Expected(error)) {
             if(error is HttpRequestException or OperationCanceledException || error is ApiFailure{Status:401 or 403 or 503}) Online=false;
+            if (error is ApiFailure { Status: 401 } && Api?.Session != null) RequiresSignIn = true;
             throw;
         }
         finally { Busy=false;syncGate.Release();Changed?.Invoke(); }
@@ -567,14 +662,18 @@ public sealed partial class WorkspaceRepository : IDisposable
         try { if(Api!=null)await Api.LogoutAsync(); }
         finally {
             await FlushCacheAsync();++epoch;
-            try { if(server!=null&&owner!=null)cache.Forget(server,owner);else cache.ForgetConnection(); }
-            finally {Api?.Dispose();Api=null;Current=null;identity=null;Online=false;Busy=false;
+            try
+            {
+                try { cache.ForgetLogin(); }
+                finally { if(server!=null&&owner!=null)cache.Forget(server,owner);else cache.ForgetConnection(); }
+            }
+            finally {Api?.Dispose();Api=null;Current=null;identity=null;Online=false;RequiresSignIn=false;Busy=false;
                 outbox=new SyncOutbox{UserId=""};confirmedIdeas=new();
                 Message="已退出，账号缓存与待同步队列已清除。";syncGate.Release();Changed?.Invoke();}
         }
     }
     void RequireOnline(){if(!Online||Api?.Session==null)throw new ApiFailure(401,"离线状态仅能查看缓存，请连接后重试。");}
-    public static bool Expected(Exception error)=>error is ApiFailure or HttpRequestException or System.IO.IOException or System.IO.InvalidDataException or System.Text.Json.JsonException or OperationCanceledException or System.Security.Cryptography.CryptographicException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException;
+    public static bool Expected(Exception error)=>error is ApiFailure or HttpRequestException or System.IO.IOException or System.IO.InvalidDataException or System.Text.Json.JsonException or OperationCanceledException or System.Security.Cryptography.CryptographicException or UnauthorizedAccessException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException;
     public static string Explain(Exception error)=>error switch{ApiFailure=>error.Message,ArgumentException=>error.Message,OperationCanceledException=>"连接超时，请先同步核对操作结果，避免重复创建。",HttpRequestException=>"无法连接服务器，请检查网络或 VPN。",_=>"数据格式或本机缓存异常，已保留现有内容，请重新登录或同步。"};
     public void Dispose(){Api?.Dispose();}
 }

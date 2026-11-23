@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     };
     readonly List<Button> nav = new();
     readonly Button adminNav;
+    Button syncButton = null!;
     readonly WorkspaceProfile profile;
     readonly AccountPage account;
     readonly AdminPage admin;
@@ -137,9 +138,13 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(top);
 
         var footer = new DockPanel { Margin = new(0, 14, 0, 0) };
-        var sync = Button("同步", () => Run(Repository.SynchronizeAsync));
-        DockPanel.SetDock(sync, Dock.Right);
-        footer.Children.Add(sync);
+        syncButton = Button("同步", () =>
+        {
+            if (Repository.RequiresSignIn) Navigate(ShowAccount);
+            else Run(Repository.SynchronizeAsync);
+        });
+        DockPanel.SetDock(syncButton, Dock.Right);
+        footer.Children.Add(syncButton);
         footer.Children.Add(Status);
         DockPanel.SetDock(footer, Dock.Bottom);
         panel.Children.Add(footer);
@@ -259,6 +264,7 @@ public sealed partial class MainWindow : Window
         Status.Text = Repository.Busy || Repository.SyncBusy ? "正在后台同步，仍可浏览当前页面…" : Repository.Message;
         connectionLabel.Text = Repository.Current == null
             ? "尚未登录" : (Repository.Online ? "账号已连接" : "离线 · 缓存可用") + queued;
+        syncButton.Content = Repository.RequiresSignIn ? "重新登录" : "同步";
         profile.UpdateFromRepository();
         desktop.RefreshPortable();
         Run(desktop.CheckRemindersAsync);

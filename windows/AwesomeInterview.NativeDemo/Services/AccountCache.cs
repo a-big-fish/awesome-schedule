@@ -8,6 +8,16 @@ using System.Linq;
 
 namespace AwesomeInterview.NativeDemo.Data;
 
+internal sealed class SavedLogin(string server, string userId, string identifier, string password)
+{
+    public string Server { get; } = server;
+    public string UserId { get; } = userId;
+    public string Identifier { get; } = identifier;
+    public string Password { get; } = password;
+}
+
+internal sealed record RememberedLogin(string Server, string Identifier);
+
 public record SavedConnection(string Server, string UserId, string Cookie);
 
 // Windows CurrentUser encryption protects private notes and the session cookie at rest.
@@ -19,6 +29,10 @@ public sealed class AccountCache
     string PathFor(string server, string owner) => Path.Combine(folder, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(server + "\n" + owner))) + ".bin");
     string OutboxPathFor(string server, string owner) => PathFor(server, owner) + ".outbox.bin";
     string ConnectionPath => Path.Combine(folder, "connection.bin");
+    string LoginPath => Path.Combine(folder, "remembered-login.bin");
+    internal Task SaveLoginAsync(SavedLogin value) => SaveAsync(LoginPath, value);
+    internal Task<SavedLogin?> ReadLoginAsync() => ReadAsync<SavedLogin>(LoginPath);
+    internal void ForgetLogin() { if (File.Exists(LoginPath)) File.Delete(LoginPath); }
     public Task SaveConnectionAsync(SavedConnection value) => SaveAsync(ConnectionPath, value);
     public Task<SavedConnection?> ReadConnectionAsync() => ReadAsync<SavedConnection>(ConnectionPath);
     // The pending-write queue is private per server and owner, and encrypted like the snapshot.
@@ -53,7 +67,12 @@ public sealed class AccountCache
     public Task<System.Collections.Generic.List<string>?> ReadReminderLedgerAsync(string server,string owner)=>ReadAsync<System.Collections.Generic.List<string>>(PathFor(server,owner)+".reminders.bin");
     async Task SaveAsync<T>(string path, T value)
     {
-        var encrypted = await Task.Run(() => ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(value, Wire.Json), entropy, DataProtectionScope.CurrentUser));
+        var encrypted = await Task.Run(() =>
+        {
+            var plain = JsonSerializer.SerializeToUtf8Bytes(value, Wire.Json);
+            try { return ProtectedData.Protect(plain, entropy, DataProtectionScope.CurrentUser); }
+            finally { CryptographicOperations.ZeroMemory(plain); }
+        });
         Directory.CreateDirectory(folder); var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try { await File.WriteAllBytesAsync(temp, encrypted); File.Move(temp, path, true); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -63,7 +82,8 @@ public sealed class AccountCache
         if (!File.Exists(path)) return default;
         var bytes = await File.ReadAllBytesAsync(path);
         var plain = await Task.Run(() => ProtectedData.Unprotect(bytes, entropy, DataProtectionScope.CurrentUser));
-        return JsonSerializer.Deserialize<T>(plain, Wire.Json);
+        try { return JsonSerializer.Deserialize<T>(plain, Wire.Json); }
+        finally { CryptographicOperations.ZeroMemory(plain); }
     }
     public void Forget(string server, string owner)
     {
