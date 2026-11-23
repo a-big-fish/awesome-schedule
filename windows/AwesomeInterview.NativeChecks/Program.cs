@@ -352,6 +352,7 @@ await DesktopReliabilityChecks.Run(Check);
 await OfflineDependencyChecks.Run(Check);
 ScrollPresentationChecks.Run(Check);
 await RememberedLoginChecks.Run(Check);
+PortableHoverChecks.Run(Check);
 
 var monthBase = new EventData{Id="same",OwnerId="fixture",Type="personal",Title="跨天任务",
     StartAt=DateTimeOffset.Parse("2026-11-16T08:00:00+08:00"),EndAt=DateTimeOffset.Parse("2026-11-20T17:00:00+08:00")};

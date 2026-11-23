@@ -109,19 +109,21 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = dock
         };
         portable.Content = portableSurface;
+        UpdatePortableTools();
         ApplyPortableAppearance();
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
-        portable.PreviewKeyDown += (_, e) => { if (portableLocked) e.Handled = true; };
+        portable.PreviewKeyDown += (_, e) => { if (PortablePassThrough) e.Handled = true; };
         portable.LocationChanged += (_, _) => PositionPortableUnlock();
         portable.SizeChanged += (_, _) => PositionPortableUnlock();
         portable.Closed += (_, _) =>
         {
-            portableWheel?.Dispose();
-            portableWheel = null;
+            StopPortableInput();
+            portableHoverActive = false;
             portableUnlock = null;
             portableAppearancePanel = null;
             portableHeader = null;
             portableToolbarButtons.Clear();
+            portableLockTool = null;
             portable = null;
             portableContent = null;
             portableSurface = null;
@@ -154,8 +156,8 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             if (portableAppearancePanel != null)
                 portableAppearancePanel.Visibility = portableAppearancePanel.IsVisible ? Visibility.Collapsed : Visibility.Visible;
         }));
-        var lockButton = PortableTool("鼠标穿透", () => SetPortableLocked(true));
-        lockButton.ToolTip = "可继续滚动日程，点击组件右上角可恢复交互";
+        var lockButton = PortableTool("鼠标穿透", () => SetPortableLocked(!portableLocked));
+        portableLockTool = lockButton;
         AddTool(lockButton);
 
         var title = PortableLabel("随身日程", 14);
@@ -166,7 +168,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         // ButtonBase handles its own mouse down. This handler covers the label, gaps and padding.
         header.MouseLeftButtonDown += (_, e) =>
         {
-            if (portable is { IsVisible: true } window && !portableLocked &&
+            if (portable is { IsVisible: true } window && !PortablePassThrough &&
                 e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
                 window.DragMove();
         };
@@ -296,7 +298,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         }
         long lastScrollInput=-10000;timeView.PreviewMouseWheel+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewMouseDown+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewKeyDown+=(_,_)=>lastScrollInput=Environment.TickCount64;
         timeView.Loaded+=(_,_)=>{double target=portableTimeOffset??Math.Max(0,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40-110);timeView.ScrollToVerticalOffset(target);portableTimeOffset=target;Layout();};
-        timeView.SizeChanged+=(_,_)=>Layout();timeView.ScrollChanged+=(_,e)=>{if(e.OriginalSource==timeView){if(timeView.IsVisible&&e.VerticalChange!=0&&(portableLocked||Environment.TickCount64-lastScrollInput<2000))portableTimeOffset=timeView.VerticalOffset;Layout();}};
+        timeView.SizeChanged+=(_,_)=>Layout();timeView.ScrollChanged+=(_,e)=>{if(e.OriginalSource==timeView){if(timeView.IsVisible&&e.VerticalChange!=0&&(PortablePassThrough||Environment.TickCount64-lastScrollInput<2000))portableTimeOffset=timeView.VerticalOffset;Layout();}};
         portableContent.Children.Add(PortableSection(new Expander{Header=PortableLabel("今日时间表"),Content=timeView,IsExpanded=true}, new(14, 10, 10, 10)));
         foreach(bool completed in new[]{false,true}){
             if(completed&&!portableShowCompleted)continue;

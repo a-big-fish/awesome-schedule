@@ -7,8 +7,6 @@ internal sealed class PortableWheelInput : IDisposable
 {
     const int LowLevelMouseHook = 14;
     const int MouseWheel = 0x020A;
-    const uint RootWindow = 2;
-    const uint PreviousWindow = 3;
 
     readonly HookProc callback;
     readonly nint window;
@@ -41,38 +39,11 @@ internal sealed class PortableWheelInput : IDisposable
         {
             var input = Marshal.PtrToStructure<MouseInput>(data);
             var delta = unchecked((short)(input.MouseData >> 16));
-            if (delta != 0 && IsAboveWindowAt(input.Position) && scroll(input.Position.X, input.Position.Y, delta))
+            if (delta != 0 && PortableWindowHitTest.CoversPoint(window, input.Position) && scroll(input.Position.X, input.Position.Y, delta))
                 return 1;
         }
         return CallNextHookEx(0, code, message, data);
     }
-
-    bool IsAboveWindowAt(ScreenPoint point)
-    {
-        if (!GetWindowRect(window, out var bounds) ||
-            point.X < bounds.Left || point.X >= bounds.Right ||
-            point.Y < bounds.Top || point.Y >= bounds.Bottom)
-            return false;
-
-        var hit = WindowFromPoint(point);
-        if (hit == 0) return false;
-        var candidate = GetAncestor(hit, RootWindow);
-
-        // WindowFromPoint skips the transparent surface. Check that no interactive
-        // window covers it here, including the separate unlock control.
-        for (int i = 0; candidate != 0 && i < 128; i++)
-        {
-            if (candidate == window) return true;
-            candidate = GetWindow(candidate, PreviousWindow);
-        }
-        return false;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct ScreenPoint { public int X, Y; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    struct ScreenRect { public int Left, Top, Right, Bottom; }
 
     [StructLayout(LayoutKind.Sequential)]
     struct MouseInput
@@ -96,15 +67,4 @@ internal sealed class PortableWheelInput : IDisposable
     [DllImport("user32.dll")]
     static extern nint CallNextHookEx(nint hook, int code, nint message, nint data);
 
-    [DllImport("user32.dll")]
-    static extern bool GetWindowRect(nint window, out ScreenRect bounds);
-
-    [DllImport("user32.dll")]
-    static extern nint WindowFromPoint(ScreenPoint point);
-
-    [DllImport("user32.dll")]
-    static extern nint GetAncestor(nint window, uint flags);
-
-    [DllImport("user32.dll")]
-    static extern nint GetWindow(nint window, uint command);
 }

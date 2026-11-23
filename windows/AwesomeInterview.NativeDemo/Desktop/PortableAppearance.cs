@@ -4,6 +4,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Input;
+using System.Windows.Threading;
 using Forms=System.Windows.Forms;
 using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
@@ -11,7 +13,10 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed partial class DesktopIntegration
 {
-    bool portableLocked;
+    bool portableLocked, portableHoverActive;
+    bool PortablePassThrough => portableLocked && !portableHoverActive;
+    DispatcherTimer? portableHoverTimer;
+    readonly PortableHoverGesture portableHover = new();
     Border? portableSurface;
     Border? portableHeader;
     QuietScrollViewer? portableBodyScroll, portableTimelineScroll;
@@ -21,14 +26,15 @@ internal sealed partial class DesktopIntegration
     Border? portableNowLine;
     TextBlock? portableClock;
     Window? portableUnlock;
+    Button? portableLockTool;
     Border? portableAppearancePanel;
     readonly System.Collections.Generic.List<Button> portableToolbarButtons=new();
 
-    Button PortableTool(string label,Action action)
+    Button PortableTool(string label, Action action, bool toolbar = true)
     {
         var button=Button(label,action);
         button.Padding=new(12,6,12,6);button.MinHeight=34;button.Margin=new(5,0,0,0);
-        portableToolbarButtons.Add(button);
+        if (toolbar) portableToolbarButtons.Add(button);
         button.MouseEnter+=(_,_)=>PaintPortableTool(button);
         button.MouseLeave+=(_,_)=>PaintPortableTool(button);
         button.IsKeyboardFocusedChanged+=(_,_)=>PaintPortableTool(button);
@@ -89,53 +95,121 @@ internal sealed partial class DesktopIntegration
     void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-20;portableUnlock.Top=portable.Top+10;}}
     void ShowPortableUnlock()
     {
-        if(portable==null||portableUnlock!=null)return;
-        // An independent owned window remains clickable while the schedule surface passes input through.
-        portableUnlock=new Window{Owner=portable,Title="恢复随身日程交互",Width=116,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=portable.Topmost,FontFamily=shell.FontFamily};
-        var unlock=PortableTool("解锁交互",()=>SetPortableLocked(false));unlock.Margin=new(0);unlock.ToolTip="恢复随身日程的点击与拖动";portableUnlock.Content=unlock;PositionPortableUnlock();portableUnlock.Show();
+        if (portable == null) return;
+        // Independent button stays clickable when this window passes clicks to the desktop.
+        if (portableUnlock == null)
+        {
+            portableUnlock = new Window
+            {
+                Owner = portable, Title = "恢复随身日程交互", Width = 116, Height = 44,
+                WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
+                Background = Brushes.Transparent, ShowInTaskbar = false, ShowActivated = false,
+                Topmost = portable.Topmost, FontFamily = shell.FontFamily
+            };
+            var unlock = PortableTool("解锁交互", () => SetPortableLocked(false), toolbar: false);
+            unlock.Margin = new(0);
+            unlock.ToolTip = "关闭鼠标穿透，恢复完整交互";
+            portableUnlock.Content = unlock;
+        }
+        PositionPortableUnlock();
+        if (!portableUnlock.IsVisible) portableUnlock.Show();
     }
-    const int ExtendedStyle=-20;
-    const long TransparentStyle=0x20,NoActivateStyle=0x08000000;
-    [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW",SetLastError=true)]static extern nint GetWindowLongPtr(nint handle,int index);
-    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW",SetLastError=true)]static extern nint SetWindowLongPtr(nint handle,int index,nint value);
+
+    const int ExtendedStyle = -20;
+    const long TransparentStyle = 0x20, NoActivateStyle = 0x08000000;
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    static extern nint GetWindowLongPtr(nint handle, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    static extern nint SetWindowLongPtr(nint handle, int index, nint value);
+
+    bool ApplyPortableInputStyle(nint hwnd, bool passThrough)
+    {
+        long value = GetWindowLongPtr(hwnd, ExtendedStyle).ToInt64();
+        long next = passThrough ? value | TransparentStyle | NoActivateStyle : value & ~(TransparentStyle | NoActivateStyle);
+        if (next == value) return true;
+        var old = SetWindowLongPtr(hwnd, ExtendedStyle, new nint(next));
+        if (old != 0 || Marshal.GetLastPInvokeError() == 0) return true;
+        shell.Status.Text = "无法切换随身日程的鼠标模式，请重新打开。";
+        return false;
+    }
+
     void SetPortableLocked(bool locked)
     {
         if (portable == null || portableLocked == locked) return;
-        var hwnd=new WindowInteropHelper(portable).Handle;if(hwnd==0)return;
-        long value=GetWindowLongPtr(hwnd,ExtendedStyle).ToInt64();
-        value=locked?value|TransparentStyle|NoActivateStyle:value&~(TransparentStyle|NoActivateStyle);
-        Marshal.SetLastPInvokeError(0);var result=SetWindowLongPtr(hwnd,ExtendedStyle,new nint(value));
-        if(result==0&&Marshal.GetLastWin32Error()!=0){shell.Status.Text="无法切换鼠标穿透，请重开随身日程。";return;}
+        var hwnd = new WindowInteropHelper(portable).Handle;
+        if (hwnd == 0 || !ApplyPortableInputStyle(hwnd, locked)) return;
+
         portableLocked = locked;
+        portableHoverActive = false;
+        portableHover.Reset();
         if (locked)
         {
             if (portableAppearancePanel != null) portableAppearancePanel.Visibility = Visibility.Collapsed;
-            System.Windows.Input.Keyboard.ClearFocus();
+            Keyboard.ClearFocus();
             portableWheel = new PortableWheelInput(hwnd, ScrollLockedPortable);
             if (!portableWheel.Start())
             {
                 portableWheel = null;
                 shell.Status.Text = "随身日程已开启穿透，滚轮接收暂不可用。";
             }
-            foreach (var tool in portableToolbarButtons) tool.Visibility = Visibility.Hidden;
-            ShowPortableUnlock();
+            portableHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            portableHoverTimer.Tick += (_, _) => UpdatePortableHover(hwnd);
+            portableHoverTimer.Start();
         }
         else
         {
-            portableWheel?.Dispose();
-            portableWheel = null;
-            if (portableUnlock?.Content is Button button) portableToolbarButtons.Remove(button);
+            StopPortableInput();
             portableUnlock?.Close();
             portableUnlock = null;
-            portable.Activate();
-            portable.Focus();
         }
+
+        UpdatePortableTools();
         if (unlockPortable != null) unlockPortable.Enabled = locked;
+        if (!locked) portable.Activate();
+    }
+
+    void StopPortableInput()
+    {
+        portableHoverTimer?.Stop();
+        portableHoverTimer = null;
+        portableWheel?.Dispose();
+        portableWheel = null;
+    }
+
+    void UpdatePortableHover(nint hwnd)
+    {
+        if (!portableLocked || portable is not { IsVisible: true } window) return;
+        bool over = PortableWindowHitTest.TryGetCursor(out var point) && PortableWindowHitTest.CoversPoint(hwnd, point);
+        bool mouseBusy = PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
+        bool interactive = portableHover.Update(over, mouseBusy, point.X, point.Y, Environment.TickCount64);
+        if (interactive == portableHoverActive || !ApplyPortableInputStyle(hwnd, !interactive)) return;
+
+        portableHoverActive = interactive;
+        if (!interactive)
+        {
+            if (portableAppearancePanel != null) portableAppearancePanel.Visibility = Visibility.Collapsed;
+            if (window.IsKeyboardFocusWithin) Keyboard.ClearFocus();
+        }
+        UpdatePortableTools();
+    }
+
+    void UpdatePortableTools()
+    {
+        foreach (var tool in portableToolbarButtons)
+            tool.Visibility = PortablePassThrough ? Visibility.Hidden : Visibility.Visible;
+        if (portableLockTool != null)
+        {
+            portableLockTool.Content = portableHoverActive ? "解除穿透" : "鼠标穿透";
+            portableLockTool.ToolTip = portableHoverActive ? "关闭穿透，移开鼠标后仍可交互"
+                : "穿透后可滚动。悬停可临时操作，右上角可完全恢复。";
+        }
+        if (PortablePassThrough) ShowPortableUnlock();
+        else portableUnlock?.Hide();
     }
 
     bool ScrollLockedPortable(int screenX, int screenY, int delta)
     {
-        if (!portableLocked || portableBodyScroll is not { IsVisible: true } body) return false;
+        if (!PortablePassThrough || portableBodyScroll is not { IsVisible: true } body) return false;
         var screenPoint = new Point(screenX, screenY);
         if (!ContainsPortablePoint(body, screenPoint)) return false;
         if (portableTimelineScroll is { IsVisible: true } timeline &&
@@ -165,7 +239,11 @@ internal sealed partial class DesktopIntegration
         if (portableHeader != null) portableHeader.Background = portableSectionTint;
         portable.Topmost = preferences.PortableTopmost;
         foreach(var button in portableToolbarButtons)PaintPortableTool(button);
-        if(portableUnlock!=null)portableUnlock.Topmost=portable.Topmost;
+        if (portableUnlock != null)
+        {
+            portableUnlock.Topmost = portable.Topmost;
+            if (portableUnlock.Content is Button unlock) PaintPortableTool(unlock);
+        }
     }
     void AddPortablePreferences(StackPanel body)
     {
@@ -173,7 +251,7 @@ internal sealed partial class DesktopIntegration
         body.Children.Add(Text("背景透明度（文字保持清晰）",13));var opacity=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,12,0,18)};body.Children.Add(opacity);
         var palette=new ComboBox{ItemsSource=new[]{"雾白","浅蓝","暖米"},SelectedIndex=preferences.PortableColor=="blue"?1:preferences.PortableColor=="warm"?2:0};body.Children.Add(palette);
         var topmost=new CheckBox{Content="随身日程置顶",IsChecked=preferences.PortableTopmost,Margin=new(0,14,0,14)};body.Children.Add(topmost);
-        var feedback=Text("穿透时可用滚轮浏览。点击组件右上角或通过托盘菜单恢复交互。",13,"#64748B");body.Children.Add(feedback);
+        var feedback=Text("穿透时可用滚轮浏览。鼠标停稳约 0.8 秒可临时操作，移开后恢复穿透。",13,"#64748B");body.Children.Add(feedback);
         void Change(){preferences=preferences with{PortableOpacity=opacity.Value,PortableColor=palette.SelectedIndex==1?"blue":palette.SelectedIndex==2?"warm":"white",PortableTopmost=topmost.IsChecked==true};ApplyPortableAppearance();}
         opacity.ValueChanged+=(_,_)=>Change();palette.SelectionChanged+=(_,_)=>Change();topmost.Click+=(_,_)=>Change();
         body.Children.Add(Button("保存随身日程外观",()=>{Change();if(SavePreferences())feedback.Text="外观已保存，下次打开继续使用。";}));
