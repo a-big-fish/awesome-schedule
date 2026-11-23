@@ -1550,6 +1550,10 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
   border-color: #fecdca;
 }
 
+[data-database-status][hidden] {
+  display: none;
+}
+
 .btn.danger {
   color: #b42318;
   border-color: #fecdca;
