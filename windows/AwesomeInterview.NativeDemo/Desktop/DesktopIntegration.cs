@@ -18,7 +18,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     Forms.NotifyIcon? tray;
     Forms.ToolStripMenuItem? portableMenu;
     Window? portable;
-    StackPanel? portableContent;
+    DockPanel? portableContent;
     readonly DispatcherTimer dayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     DateTime portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
     bool exiting;
@@ -85,12 +85,12 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     void TogglePortable()
     {
         if (portable != null) { portable.Close(); return; }
-        portableContent = new StackPanel { Margin = new Thickness(18, 14, 18, 20) };
+        portableContent = new DockPanel { Margin = new Thickness(8, 4, 8, 8) };
         portable = new Window
         {
-            Title = "随身日程", Width = 720, Height = 620, MinWidth = 540, MinHeight = 400,
+            Title = "随身日程", Width = 620, Height = 540, MinWidth = 420, MinHeight = 320,
             WindowStyle = WindowStyle.None, AllowsTransparency = true, ResizeMode = ResizeMode.CanResizeWithGrip,
-            ShowInTaskbar = false, Background = Brushes.Transparent, FontFamily = shell.FontFamily, FontSize = 14,
+            ShowInTaskbar = false, Background = Brushes.Transparent, FontFamily = shell.FontFamily, FontSize = 12,
             UseLayoutRounding = true, SnapsToDevicePixels = true
         };
 
@@ -99,11 +99,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         portableAppearancePanel = BuildPortableAppearancePanel();
         DockPanel.SetDock(portableAppearancePanel, Dock.Top);
         dock.Children.Add(portableAppearancePanel);
-        portableBodyScroll = new QuietScrollViewer
-        {
-            Content = portableContent, VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-        };
-        dock.Children.Add(portableBodyScroll);
+        dock.Children.Add(portableContent);
         portableSurface = new Border
         {
             CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = dock
@@ -129,11 +125,13 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableSurface = null;
             portableNowLine = null;
             portableClock = null;
-            portableBodyScroll = null;
+            portableTaskScroll = null;
             portableTimelineScroll = null;
             portableLocked = false;
             portableShowCompleted = false;
+            portableShowingTasks = false;
             portableTimeOffset = null;
+            portableTaskOffset = 0;
             if (unlockPortable != null) unlockPortable.Enabled = false;
             portableMenu!.Text = "开启随身日程";
         };
@@ -160,11 +158,11 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         portableLockTool = lockButton;
         AddTool(lockButton);
 
-        var title = PortableLabel("随身日程", 14);
+        var title = PortableLabel("随身日程", 13);
         title.FontWeight = FontWeights.SemiBold;
         title.VerticalAlignment = VerticalAlignment.Center;
         controls.Children.Add(title);
-        var header = new Border { Padding = new(18, 10, 12, 10), CornerRadius = new(13, 13, 0, 0), Child = controls };
+        var header = new Border { Padding = new(10, 6, 8, 6), CornerRadius = new(13, 13, 0, 0), Child = controls };
         // ButtonBase handles its own mouse down. This handler covers the label, gaps and padding.
         header.MouseLeftButtonDown += (_, e) =>
         {
@@ -175,158 +173,6 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         DockPanel.SetDock(header, Dock.Top);
         portableHeader = header;
         return header;
-    }
-
-    bool portableShowCompleted;
-    double? portableTimeOffset;
-    DateTime portableRenderedDay;
-    void UpdatePortableClock()
-    {
-        var now=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now;
-        if(portableNowLine!=null)Canvas.SetTop(portableNowLine,now.TimeOfDay.TotalHours*40);
-        if(portableClock!=null){portableClock.Text=now.ToString("HH:mm");Canvas.SetTop(portableClock,Math.Max(0,now.TimeOfDay.TotalHours*40-18));}
-    }
-    internal void RefreshPortable()
-    {
-        if(portableContent==null)return;
-        var today=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
-        if(portableRenderedDay!=today){portableRenderedDay=today;portableTimeOffset=null;}
-        portableContent.Children.Clear();
-        portableTimelineScroll = null;
-        portableNowLine = null;
-        portableClock = null;
-
-        var dayTasks = schedule.EventsFor(today).Where(item => item.CancelledAt == null).Select(item =>
-        {
-            var segment = CalendarProjection.Segment(item, today, schedule.WorkTime(false), schedule.WorkTime(true))!.Value;
-            return new PortableTask(item, segment.Start - today, segment.End - today);
-        }).ToList();
-        int completedCount = dayTasks.Count(t => t.Completed);
-        var summary = new DockPanel();
-        if (completedCount > 0)
-        {
-            var toggle = new CheckBox
-            {
-                Content = PortableLabel($"显示已完成 · {completedCount}", 12),
-                IsChecked = portableShowCompleted, VerticalAlignment = VerticalAlignment.Center
-            };
-            toggle.Click += (_, _) =>
-            {
-                portableShowCompleted = toggle.IsChecked == true;
-                RefreshPortable();
-            };
-            DockPanel.SetDock(toggle, Dock.Right);
-            summary.Children.Add(toggle);
-        }
-
-        var date = PortableLabel(today.ToString("MM月dd日 dddd"), 20);
-        date.FontWeight = FontWeights.SemiBold;
-        summary.Children.Add(date);
-        var summaryBody = new StackPanel();
-        summaryBody.Children.Add(summary);
-        if (shell.Repository.Current != null && !shell.Repository.Online)
-            summaryBody.Children.Add(Text("离线，修改将保存在本机", 12, "#52647D", new(0, 5, 0, 0)));
-        portableContent.Children.Add(PortableSection(summaryBody, new(14, 10, 14, 10)));
-
-        if (shell.Repository.Current == null)
-        {
-            AddPortableEmptyState("登录后查看今日日程", "登录账号", () => shell.Navigate(() =>
-            {
-                shell.RestoreMain();
-                shell.ShowAccount();
-            }));
-            return;
-        }
-
-        bool hasPending = dayTasks.Any(t => !t.Completed);
-        if (!hasPending && (!portableShowCompleted || completedCount == 0))
-        {
-            AddPortableEmptyState(completedCount > 0 ? "今日任务已全部完成，真棒！" : "今天没有安排，留点时间给自己。",
-                "来点 Idea？", () => shell.Navigate(() =>
-                {
-                    shell.RestoreMain();
-                    schedule.ShowIdeas();
-                    schedule.EditIdea(null, portable);
-                }));
-            return;
-        }
-
-        var timeline = new Canvas { Height = 960, Background = Brushes.Transparent };
-        var hourRules = new Border[24];
-        for (int hour = 0; hour < 24; hour++)
-        {
-            var label = Text($"{hour:00}:00", 11, "#52647D");
-            Canvas.SetTop(label, hour * 40 + 5);
-            Canvas.SetLeft(label, 8);
-            timeline.Children.Add(label);
-            var hourRule = new Border { Height = 1, Background = Brush("#CCD9E8"), IsHitTestVisible = false };
-            Canvas.SetTop(hourRule, hour * 40);
-            Canvas.SetLeft(hourRule, 54);
-            timeline.Children.Add(hourRule);
-            hourRules[hour] = hourRule;
-        }
-        var timed = dayTasks.Where(t => (portableShowCompleted || !t.Completed)).ToList();
-        var timeView = new QuietScrollViewer
-        {
-            Content = timeline, Height = 260, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-        };
-        portableTimelineScroll = timeView;
-        var cards=new System.Collections.Generic.List<(Button Button,StackPanel Label)>();
-        for(int index=0;index<timed.Count;index++){
-            var task=timed[index];var label=new StackPanel();label.Children.Add(new TextBlock{Text=task.Title,FontSize=15,FontWeight=FontWeights.SemiBold,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap,Foreground=Brush("#263650")});
-            label.Children.Add(new TextBlock{Text=$"{task.StartTime:hh\\:mm} — {task.EndTime:hh\\:mm}",FontSize=11,TextAlignment=TextAlignment.Center,Foreground=Brush("#64748B"),Margin=new(0,6,0,0)});
-            var item=Button("",()=>ShowTaskDetail(task));item.Content=label;item.ToolTip=task.Title;item.Height=Math.Max(40,(task.EndTime-task.StartTime).TotalHours*40);item.MinHeight=0;item.Padding=new(12,8,12,8);item.Margin=new(0);item.HorizontalContentAlignment=HorizontalAlignment.Stretch;item.VerticalContentAlignment=VerticalAlignment.Stretch;
-            item.Background=Brush(task.Completed?"#EEF0F3":"#EDF3FF");item.BorderBrush=Brush("#E2EAF6");Canvas.SetTop(item,task.StartTime.TotalHours*40);timeline.Children.Add(item);cards.Add((item,label));
-        }
-        portableNowLine=new Border{Height=1,Background=Brush("#E5484D"),IsHitTestVisible=false};Canvas.SetLeft(portableNowLine,54);timeline.Children.Add(portableNowLine);
-        var currentLine=portableNowLine;
-        portableClock=Text("",11,"#D43F48");portableClock.Background=Brush("#F8FAFC");Canvas.SetLeft(portableClock,8);timeline.Children.Add(portableClock);UpdatePortableClock();
-        void Layout(){
-            double available=Math.Max(340,timeView.ActualWidth-8);double width=Math.Clamp((available-64)/Math.Max(1,cards.Count)-12,140,240);timeline.Width=Math.Max(available,54+cards.Count*(width+12));
-            currentLine.Width=Math.Max(0,timeline.Width-54);
-            foreach (var rule in hourRules) rule.Width = currentLine.Width;
-            for(int i=0;i<cards.Count;i++){
-                var (button,label)=cards[i];button.Width=width;Canvas.SetLeft(button,54+i*(width+12));
-                double start=Canvas.GetTop(button)+8,end=start+button.Height-16;
-                double visibleStart=Math.Clamp(timeView.VerticalOffset-start,0,Math.Max(0,end-start));double visibleEnd=Math.Clamp(timeView.VerticalOffset+timeView.ViewportHeight-start,visibleStart,Math.Max(0,end-start));
-                // Leave space between task captions and the live time rule.
-                double center=start+(visibleStart+visibleEnd)/2,now=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40;
-                double shift=Math.Abs(center-now)<40&&visibleEnd-visibleStart>110?-38:0;
-                label.Margin=new(0,Math.Max(0,visibleStart+shift),0,Math.Max(0,end-start-visibleEnd-shift));label.VerticalAlignment=VerticalAlignment.Center;
-            }
-        }
-        long lastScrollInput=-10000;timeView.PreviewMouseWheel+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewMouseDown+=(_,_)=>lastScrollInput=Environment.TickCount64;timeView.PreviewKeyDown+=(_,_)=>lastScrollInput=Environment.TickCount64;
-        timeView.Loaded+=(_,_)=>{double target=portableTimeOffset??Math.Max(0,AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.TimeOfDay.TotalHours*40-110);timeView.ScrollToVerticalOffset(target);portableTimeOffset=target;Layout();};
-        timeView.SizeChanged+=(_,_)=>Layout();timeView.ScrollChanged+=(_,e)=>{if(e.OriginalSource==timeView){if(timeView.IsVisible&&e.VerticalChange!=0&&(PortablePassThrough||Environment.TickCount64-lastScrollInput<2000))portableTimeOffset=timeView.VerticalOffset;Layout();}};
-        portableContent.Children.Add(PortableSection(new Expander{Header=PortableLabel("今日时间表"),Content=timeView,IsExpanded=true}, new(14, 10, 10, 10)));
-        foreach(bool completed in new[]{false,true}){
-            if(completed&&!portableShowCompleted)continue;
-            var entries=dayTasks.Where(t=>t.Completed==completed).ToList();var list=new StackPanel{Margin=new(0,10,0,0)};
-            if (entries.Count == 0) continue;
-            foreach(var task in entries){var row=new DockPanel{Margin=new(0,0,0,10)};var action=Button(completed?"恢复":"完成",()=>ToggleTask(task));action.IsEnabled=!shell.Repository.Busy;action.Padding=new(14,8,14,8);DockPanel.SetDock(action,Dock.Right);row.Children.Add(action);var detail=Button(task.Title,()=>ShowTaskDetail(task));detail.HorizontalContentAlignment=HorizontalAlignment.Left;detail.Margin=new(0,4,12,4);row.Children.Add(detail);list.Children.Add(row);}
-            portableContent.Children.Add(PortableSection(new Expander{Header=PortableLabel($"{(completed?"今日已完成":"当日任务")} · {entries.Count}"),Content=list,IsExpanded=true}, new(14, 10, 14, 8)));
-        }
-    }
-
-    void AddPortableEmptyState(string title, string actionLabel, Action onAction)
-    {
-        var copy = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-        var heading = PortableLabel(title, 22);
-        heading.FontWeight = FontWeights.SemiBold;
-        heading.TextAlignment = TextAlignment.Center;
-        copy.Children.Add(heading);
-        var actionButton = Button(actionLabel, onAction);
-        actionButton.Margin = new(0, 18, 0, 0);
-        actionButton.Padding = new(16, 8, 16, 8);
-        actionButton.HorizontalAlignment = HorizontalAlignment.Center;
-        actionButton.Foreground = Brush("#2357CE");
-        actionButton.Background = Brush("#EBF2FF");
-        actionButton.BorderBrush = Brush("#D5E4FC");
-        copy.Children.Add(actionButton);
-        var card = PortableSection(copy, new(20));
-        card.MinHeight = 248;
-        portableContent!.Children.Add(card);
     }
 
     internal void AddSettings(StackPanel body)
@@ -358,9 +204,4 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         AddPortablePreferences(body);
     }
 
-    readonly record struct PortableTask(EventData Event, TimeSpan StartTime, TimeSpan EndTime)
-    {
-        public string Title => Event.Title;
-        public bool Completed => Event.CompletedAt != null;
-    }
 }

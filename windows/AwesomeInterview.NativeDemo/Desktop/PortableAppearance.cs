@@ -19,7 +19,7 @@ internal sealed partial class DesktopIntegration
     readonly PortableHoverGesture portableHover = new();
     Border? portableSurface;
     Border? portableHeader;
-    QuietScrollViewer? portableBodyScroll, portableTimelineScroll;
+    QuietScrollViewer? portableTaskScroll, portableTimelineScroll;
     PortableWheelInput? portableWheel;
     readonly SolidColorBrush portableSectionTint = new();
     Forms.ToolStripMenuItem? unlockPortable;
@@ -32,8 +32,8 @@ internal sealed partial class DesktopIntegration
 
     Button PortableTool(string label, Action action, bool toolbar = true)
     {
-        var button=Button(label,action);
-        button.Padding=new(12,6,12,6);button.MinHeight=34;button.Margin=new(5,0,0,0);
+        var button = PortableButton(label, action);
+        button.Margin = new(4, 0, 0, 0);
         if (toolbar) portableToolbarButtons.Add(button);
         button.MouseEnter+=(_,_)=>PaintPortableTool(button);
         button.MouseLeave+=(_,_)=>PaintPortableTool(button);
@@ -64,23 +64,22 @@ internal sealed partial class DesktopIntegration
     Border BuildPortableAppearancePanel()
     {
         var body=new StackPanel();
-        var heading=PortableLabel("随身日程外观",14,new(0,0,0,6));
+        var heading=PortableLabel("随身日程外观",12,new(0,0,0,4));
         heading.FontWeight=FontWeights.SemiBold;body.Children.Add(heading);
         var value=Text("",12,"#52647D");body.Children.Add(value);
-        var slider=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,8,0,8)};
+        var slider=new Slider{Minimum=.15,Maximum=1,Value=Math.Clamp(preferences.PortableOpacity,.15,1),Margin=new(0,4,0,6)};
         System.Windows.Automation.AutomationProperties.SetName(slider,"背景透明度");
         body.Children.Add(slider);
         var palette=new WrapPanel();
         foreach(var (label,color) in new[]{("雾白","white"),("浅蓝","blue"),("暖米","warm")}){
-            var choice=Button(label,()=>{preferences=preferences with{PortableColor=color};ApplyPortableAppearance();});
-            choice.MinHeight=30;choice.Padding=new(9,3,9,3);palette.Children.Add(choice);
+            var choice=PortableButton(label,()=>{preferences=preferences with{PortableColor=color};ApplyPortableAppearance();});
+            choice.Margin = new(0,0,5,0); palette.Children.Add(choice);
         }
         body.Children.Add(palette);
         var footer=new DockPanel{Margin=new(0,6,0,0)};
         var pin=new CheckBox{Content="置顶",IsChecked=preferences.PortableTopmost,VerticalAlignment=VerticalAlignment.Center};
         pin.Click+=(_,_)=>{preferences=preferences with{PortableTopmost=pin.IsChecked==true};ApplyPortableAppearance();};
-        var done=Button("完成",()=>{if(SavePreferences()&&portableAppearancePanel!=null)portableAppearancePanel.Visibility=Visibility.Collapsed;});
-        done.MinHeight=30;done.Padding=new(10,3,10,3);done.Margin=new(0);
+        var done=PortableButton("完成",()=>{if(SavePreferences()&&portableAppearancePanel!=null)portableAppearancePanel.Visibility=Visibility.Collapsed;});
         DockPanel.SetDock(done,Dock.Right);footer.Children.Add(done);footer.Children.Add(pin);body.Children.Add(footer);
         void Refresh(){
             value.Text=$"透明度 {1-slider.Value:P0}";
@@ -89,10 +88,10 @@ internal sealed partial class DesktopIntegration
         value.Text=$"透明度 {1-slider.Value:P0}";
         slider.IsDirectionReversed=true;
         slider.ValueChanged+=(_,_)=>Refresh();
-        var panel=Surface(body,new(14));panel.Margin=new(18,10,18,0);panel.Visibility=Visibility.Collapsed;
+        var panel=Surface(body,new(8));panel.Margin=new(8,2,8,4);panel.Visibility=Visibility.Collapsed;
         return panel;
     }
-    void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-20;portableUnlock.Top=portable.Top+10;}}
+    void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-9;portableUnlock.Top=portable.Top+7;}}
     void ShowPortableUnlock()
     {
         if (portable == null) return;
@@ -101,7 +100,7 @@ internal sealed partial class DesktopIntegration
         {
             portableUnlock = new Window
             {
-                Owner = portable, Title = "恢复随身日程交互", Width = 116, Height = 44,
+                Owner = portable, Title = "恢复随身日程交互", Width = 90, Height = 27,
                 WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
                 Background = Brushes.Transparent, ShowInTaskbar = false, ShowActivated = false,
                 Topmost = portable.Topmost, FontFamily = shell.FontFamily
@@ -209,13 +208,9 @@ internal sealed partial class DesktopIntegration
 
     bool ScrollLockedPortable(int screenX, int screenY, int delta)
     {
-        if (!PortablePassThrough || portableBodyScroll is not { IsVisible: true } body) return false;
-        var screenPoint = new Point(screenX, screenY);
-        if (!ContainsPortablePoint(body, screenPoint)) return false;
-        if (portableTimelineScroll is { IsVisible: true } timeline &&
-            ContainsPortablePoint(timeline, screenPoint) && timeline.TryScrollWithWheel(delta))
-            return true;
-        return body.TryScrollWithWheel(delta);
+        var scroll = portableTimelineScroll ?? portableTaskScroll;
+        return PortablePassThrough && scroll is { IsVisible: true } &&
+            ContainsPortablePoint(scroll, new Point(screenX, screenY)) && scroll.TryScrollWithWheel(delta);
     }
 
     static bool ContainsPortablePoint(FrameworkElement element, Point screenPoint)
