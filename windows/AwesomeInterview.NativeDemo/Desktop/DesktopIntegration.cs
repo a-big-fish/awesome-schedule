@@ -7,12 +7,12 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
+using AwesomeInterview.NativeDemo.Data;
 
 namespace AwesomeInterview.NativeDemo;
 
-public record DesktopPreferences(bool CloseToTray = true, bool TrayHintShown = false, string DemoName = "演示用户",double PortableOpacity=.92,string PortableColor="white",bool PortableTopmost=true);
-
-public partial class MainWindow
+internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages schedule)
 {
     DesktopPreferences preferences = new();
     Forms.NotifyIcon? tray;
@@ -21,73 +21,65 @@ public partial class MainWindow
     StackPanel? portableContent;
     readonly DispatcherTimer dayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     DateTime portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
-    bool exiting, formDirty;
-    string PreferencesPath => Path.Combine(Path.GetDirectoryName(dataPath)!, "desktop-settings.json");
+    bool exiting;
+    string PreferencesPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AwesomeInterviewNativeDemo", "desktop-settings.json");
 
-    void InitializeDesktopFeatures()
+    internal void Initialize(Action showSettings)
     {
         try { if (File.Exists(PreferencesPath)) preferences = JsonSerializer.Deserialize<DesktopPreferences>(File.ReadAllText(PreferencesPath)) ?? new(); }
-        catch { status.Text = "窗口设置读取失败，使用默认值。"; }
+        catch { shell.Status.Text = "窗口设置读取失败，使用默认值。"; }
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("打开主窗口", null, (_, _) => Dispatcher.Invoke(RestoreMain));
+        menu.Items.Add("打开主窗口", null, (_, _) => shell.Dispatcher.Invoke(shell.RestoreMain));
         portableMenu = new Forms.ToolStripMenuItem("开启随身日程");
-        portableMenu.Click += (_, _) => Dispatcher.Invoke(TogglePortable);
+        portableMenu.Click += (_, _) => shell.Dispatcher.Invoke(TogglePortable);
         menu.Items.Add(portableMenu);
-        unlockPortable=new Forms.ToolStripMenuItem("恢复随身日程交互"){Enabled=false};unlockPortable.Click+=(_,_)=>Dispatcher.Invoke(()=>SetPortableLocked(false));menu.Items.Add(unlockPortable);
-        menu.Items.Add("设置", null, (_, _) => Dispatcher.Invoke(() => { RestoreMain(); ShowSettings(); }));
+        unlockPortable=new Forms.ToolStripMenuItem("恢复随身日程交互"){Enabled=false};unlockPortable.Click+=(_,_)=>shell.Dispatcher.Invoke(()=>SetPortableLocked(false));menu.Items.Add(unlockPortable);
+        menu.Items.Add("设置", null, (_, _) => shell.Dispatcher.Invoke(() => { shell.RestoreMain(); showSettings(); }));
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("退出应用", null, (_, _) => Dispatcher.Invoke(() => { if (CanLeaveForm()) { exiting = true; Close(); } }));
+        menu.Items.Add("退出应用", null, (_, _) => shell.Dispatcher.Invoke(() => { if (shell.CanLeaveForm()) { exiting = true; shell.Close(); } }));
         tray = new Forms.NotifyIcon { Text = "Awesome Interview", ContextMenuStrip = menu,
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Visible = true };
-        tray.DoubleClick += (_, _) => Dispatcher.Invoke(RestoreMain);
-        tray.BalloonTipClicked+=(_,_)=>Dispatcher.Invoke(OpenNotification);
-        Closing += (_, args) => {
-            if (!exiting && !CanLeaveForm()) { args.Cancel = true; return; }
+        tray.DoubleClick += (_, _) => shell.Dispatcher.Invoke(shell.RestoreMain);
+        tray.BalloonTipClicked+=(_,_)=>shell.Dispatcher.Invoke(OpenNotification);
+        shell.Closing += (_, args) => {
+            if (!exiting && !shell.CanLeaveForm()) { args.Cancel = true; return; }
             if (!exiting && preferences.CloseToTray) {
                 args.Cancel = true;
                 if (!preferences.TrayHintShown) {
-                    if(!Confirm("关闭到系统托盘","关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。","知道了","返回"))return;
+                    if(!shell.Confirm("关闭到系统托盘","关闭后应用将在系统托盘继续运行。双击托盘图标可重新打开，右键可退出；可在设置中关闭此行为。","知道了","返回"))return;
                     preferences = preferences with { TrayHintShown = true }; SavePreferences();
                 }
-                Hide();
+                shell.Hide();
             }
         };
-        Closed += (_, _) => { exiting = true; dayTimer.Stop(); portable?.Close(); tray?.Dispose(); System.Windows.Application.Current.Shutdown(); };
+        shell.Closed += (_, _) => { exiting = true; dayTimer.Stop(); portable?.Close(); tray?.Dispose(); System.Windows.Application.Current.Shutdown(); };
         dayTimer.Tick += (_, _) => {
-            if (portableDay != AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date) { portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date; RefreshPortable(); if(page=="today"&&!formDirty)ShowTasks(false); }
-            if(repository.Online&&!repository.Busy&&repository.Current!=null&&DateTimeOffset.UtcNow-repository.Current.ServerTime>TimeSpan.FromHours(18))Run(repository.SynchronizeAsync);
-            if(!repository.Busy&&!repository.SyncBusy&&repository.HasPendingSync)Run(repository.SyncNowAsync);
+            if (portableDay != AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date) { portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date; RefreshPortable(); if (shell.Route == PageRoute.Today && !shell.FormDirty) schedule.ShowTasks(false); }
+            if(shell.Repository.Online&&!shell.Repository.Busy&&shell.Repository.Current!=null&&DateTimeOffset.UtcNow-shell.Repository.Current.ServerTime>TimeSpan.FromHours(18))shell.Run(shell.Repository.SynchronizeAsync);
+            if(!shell.Repository.Busy&&!shell.Repository.SyncBusy&&shell.Repository.HasPendingSync)shell.Run(shell.Repository.SyncNowAsync);
             UpdatePortableClock();
-            Run(CheckRemindersAsync);
+            shell.Run(CheckRemindersAsync);
         };
         dayTimer.Start();
     }
 
-    bool CanLeaveForm()
-    {
-        if (!formDirty) return true;
-        if (!Confirm(page=="note-editor"?"尚未提交的面经":"未保存的日程",page=="note-editor"?"离开前将保留已自动保存的本机草稿；尚未同步的输入请先点击保存。是否离开？":"当前表单尚未保存，是否放弃输入？","离开页面","继续编辑")) return false;
-        formDirty = false; return true;
-    }
-
-    void RestoreMain() { Show(); WindowState = WindowState.Normal; Activate(); }
     bool SavePreferences()
     {
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)!);
             File.WriteAllText(PreferencesPath + ".tmp", JsonSerializer.Serialize(preferences));
             File.Move(PreferencesPath + ".tmp", PreferencesPath, true); return true;
-        } catch { status.Text = "设置保存失败，请检查目录权限或磁盘空间。"; return false; }
+        } catch { shell.Status.Text = "设置保存失败，请检查目录权限或磁盘空间。"; return false; }
     }
 
-    void ToggleTask(DemoTask task)
+    void ToggleTask(PortableTask task)
     {
-        if(task.Event != null) Run(()=>repository.CompleteEventQueuedAsync(task.Event));
+        shell.Run(()=>shell.Repository.CompleteEventQueuedAsync(task.Event));
     }
 
-    void ShowTaskDetail(DemoTask task)
+    void ShowTaskDetail(PortableTask task)
     {
-        if(task.Event != null)ShowEventDetail(task.Event);
+        schedule.ShowEventDetail(task.Event, portable);
     }
 
     void TogglePortable()
@@ -98,7 +90,7 @@ public partial class MainWindow
         {
             Title = "随身日程", Width = 720, Height = 620, MinWidth = 540, MinHeight = 400,
             WindowStyle = WindowStyle.None, AllowsTransparency = true, ResizeMode = ResizeMode.CanResizeWithGrip,
-            ShowInTaskbar = false, Background = Brushes.Transparent, FontFamily = FontFamily, FontSize = 14,
+            ShowInTaskbar = false, Background = Brushes.Transparent, FontFamily = shell.FontFamily, FontSize = 14,
             UseLayoutRounding = true, SnapsToDevicePixels = true
         };
 
@@ -192,18 +184,21 @@ public partial class MainWindow
         if(portableNowLine!=null)Canvas.SetTop(portableNowLine,now.TimeOfDay.TotalHours*40);
         if(portableClock!=null){portableClock.Text=now.ToString("HH:mm");Canvas.SetTop(portableClock,Math.Max(0,now.TimeOfDay.TotalHours*40-18));}
     }
-    void RefreshPortable()
+    internal void RefreshPortable()
     {
         if(portableContent==null)return;
         var today=AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
         if(portableRenderedDay!=today){portableRenderedDay=today;portableTimeOffset=null;}
-        ProjectTasks(today);
         portableContent.Children.Clear();
         portableTimelineScroll = null;
         portableNowLine = null;
         portableClock = null;
 
-        var dayTasks = tasks.Where(t => t.Event?.CancelledAt == null).ToList();
+        var dayTasks = schedule.EventsFor(today).Where(item => item.CancelledAt == null).Select(item =>
+        {
+            var segment = CalendarProjection.Segment(item, today, schedule.WorkTime(false), schedule.WorkTime(true))!.Value;
+            return new PortableTask(item, segment.Start - today, segment.End - today);
+        }).ToList();
         int completedCount = dayTasks.Count(t => t.Completed);
         var summary = new DockPanel();
         if (completedCount > 0)
@@ -227,16 +222,16 @@ public partial class MainWindow
         summary.Children.Add(date);
         var summaryBody = new StackPanel();
         summaryBody.Children.Add(summary);
-        if (repository.Current != null && !repository.Online)
+        if (shell.Repository.Current != null && !shell.Repository.Online)
             summaryBody.Children.Add(Text("离线，修改将保存在本机", 12, "#52647D", new(0, 5, 0, 0)));
         portableContent.Children.Add(PortableSection(summaryBody, new(14, 10, 14, 10)));
 
-        if (repository.Current == null)
+        if (shell.Repository.Current == null)
         {
-            AddPortableEmptyState("登录后查看今日日程", "登录账号", () => Navigate(() =>
+            AddPortableEmptyState("登录后查看今日日程", "登录账号", () => shell.Navigate(() =>
             {
-                RestoreMain();
-                ShowAccount();
+                shell.RestoreMain();
+                shell.ShowAccount();
             }));
             return;
         }
@@ -245,11 +240,11 @@ public partial class MainWindow
         if (!hasPending && (!portableShowCompleted || completedCount == 0))
         {
             AddPortableEmptyState(completedCount > 0 ? "今日任务已全部完成，真棒！" : "今天没有安排，留点时间给自己。",
-                "来点 Idea？", () => Navigate(() =>
+                "来点 Idea？", () => shell.Navigate(() =>
                 {
-                    RestoreMain();
-                    ShowIdeas();
-                    EditIdea(null, portable);
+                    shell.RestoreMain();
+                    schedule.ShowIdeas();
+                    schedule.EditIdea(null, portable);
                 }));
             return;
         }
@@ -268,7 +263,7 @@ public partial class MainWindow
             timeline.Children.Add(hourRule);
             hourRules[hour] = hourRule;
         }
-        var timed = dayTasks.Where(t => (portableShowCompleted || !t.Completed) && t.StartTime.HasValue && t.EndTime.HasValue).ToList();
+        var timed = dayTasks.Where(t => (portableShowCompleted || !t.Completed)).ToList();
         var timeView = new QuietScrollViewer
         {
             Content = timeline, Height = 260, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -279,8 +274,8 @@ public partial class MainWindow
         for(int index=0;index<timed.Count;index++){
             var task=timed[index];var label=new StackPanel();label.Children.Add(new TextBlock{Text=task.Title,FontSize=15,FontWeight=FontWeights.SemiBold,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.Wrap,Foreground=Brush("#263650")});
             label.Children.Add(new TextBlock{Text=$"{task.StartTime:hh\\:mm} — {task.EndTime:hh\\:mm}",FontSize=11,TextAlignment=TextAlignment.Center,Foreground=Brush("#64748B"),Margin=new(0,6,0,0)});
-            var item=Button("",()=>ShowTaskDetail(task));item.Content=label;item.ToolTip=task.Title;item.Height=Math.Max(40,(task.EndTime!.Value-task.StartTime!.Value).TotalHours*40);item.MinHeight=0;item.Padding=new(12,8,12,8);item.Margin=new(0);item.HorizontalContentAlignment=HorizontalAlignment.Stretch;item.VerticalContentAlignment=VerticalAlignment.Stretch;
-            item.Background=Brush(task.Completed?"#EEF0F3":"#EDF3FF");item.BorderBrush=Brush("#E2EAF6");Canvas.SetTop(item,task.StartTime.Value.TotalHours*40);timeline.Children.Add(item);cards.Add((item,label));
+            var item=Button("",()=>ShowTaskDetail(task));item.Content=label;item.ToolTip=task.Title;item.Height=Math.Max(40,(task.EndTime-task.StartTime).TotalHours*40);item.MinHeight=0;item.Padding=new(12,8,12,8);item.Margin=new(0);item.HorizontalContentAlignment=HorizontalAlignment.Stretch;item.VerticalContentAlignment=VerticalAlignment.Stretch;
+            item.Background=Brush(task.Completed?"#EEF0F3":"#EDF3FF");item.BorderBrush=Brush("#E2EAF6");Canvas.SetTop(item,task.StartTime.TotalHours*40);timeline.Children.Add(item);cards.Add((item,label));
         }
         portableNowLine=new Border{Height=1,Background=Brush("#E5484D"),IsHitTestVisible=false};Canvas.SetLeft(portableNowLine,54);timeline.Children.Add(portableNowLine);
         var currentLine=portableNowLine;
@@ -307,7 +302,7 @@ public partial class MainWindow
             if(completed&&!portableShowCompleted)continue;
             var entries=dayTasks.Where(t=>t.Completed==completed).ToList();var list=new StackPanel{Margin=new(0,10,0,0)};
             if (entries.Count == 0) continue;
-            foreach(var task in entries){var row=new DockPanel{Margin=new(0,0,0,10)};var action=Button(completed?"恢复":"完成",()=>ToggleTask(task));action.IsEnabled=!repository.Busy;action.Padding=new(14,8,14,8);DockPanel.SetDock(action,Dock.Right);row.Children.Add(action);var detail=Button(task.Title,()=>ShowTaskDetail(task));detail.HorizontalContentAlignment=HorizontalAlignment.Left;detail.Margin=new(0,4,12,4);row.Children.Add(detail);list.Children.Add(row);}
+            foreach(var task in entries){var row=new DockPanel{Margin=new(0,0,0,10)};var action=Button(completed?"恢复":"完成",()=>ToggleTask(task));action.IsEnabled=!shell.Repository.Busy;action.Padding=new(14,8,14,8);DockPanel.SetDock(action,Dock.Right);row.Children.Add(action);var detail=Button(task.Title,()=>ShowTaskDetail(task));detail.HorizontalContentAlignment=HorizontalAlignment.Left;detail.Margin=new(0,4,12,4);row.Children.Add(detail);list.Children.Add(row);}
             portableContent.Children.Add(PortableSection(new Expander{Header=PortableLabel($"{(completed?"今日已完成":"当日任务")} · {entries.Count}"),Content=list,IsExpanded=true}, new(14, 10, 14, 8)));
         }
     }
@@ -332,20 +327,38 @@ public partial class MainWindow
         portableContent!.Children.Add(card);
     }
 
-    string settingsCategory="账号";
-    void ShowSettings()
+    internal void AddSettings(StackPanel body)
     {
-        page="settings";bSelect("设置与版本");Begin("偏好设置","账号、日程与桌面行为");
-        var layout=new Grid();layout.ColumnDefinitions.Add(new(){Width=new(150)});layout.ColumnDefinitions.Add(new());
-        var categories=new StackPanel{Margin=new(0,0,24,0)};foreach(var label in new[]{"账号","日程偏好","桌面行为","关于与版本"}){var entry=Button(label,()=>{settingsCategory=label;ShowSettings();});if(label==settingsCategory)entry.Background=Brush("#E9F0FF");categories.Children.Add(entry);}layout.Children.Add(categories);
-        var body=new StackPanel{MaxWidth=620,HorizontalAlignment=HorizontalAlignment.Stretch};Grid.SetColumn(body,1);layout.Children.Add(body);
-        if(settingsCategory=="账号")ShowProfileSettings(body);
-        else if(settingsCategory=="桌面行为"){
-            body.Children.Add(Text("桌面行为",19,margin:new(0,0,0,20)));var keep=new CheckBox{Content="关闭窗口后保留在系统托盘",IsChecked=preferences.CloseToTray,Margin=new(0,8,0,18)};body.Children.Add(keep);var feedback=Text("",13);body.Children.Add(feedback);
-            var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
-            AddPortablePreferences(body);
-        }else if(settingsCategory=="日程偏好")ShowWorkdaySettings(body);
-        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.6.0-W Preview 5 · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
-        content.Children.Add(Surface(layout,new(26)));
+        body.Children.Add(Text("桌面行为", 19, margin: new(0, 0, 0, 20)));
+        var keep = new CheckBox
+        {
+            Content = "关闭窗口后保留在系统托盘",
+            IsChecked = preferences.CloseToTray,
+            Margin = new(0, 8, 0, 18)
+        };
+        body.Children.Add(keep);
+        var feedback = Text("", 13);
+        body.Children.Add(feedback);
+        var save = Button("保存", () =>
+        {
+            var previous = preferences;
+            preferences = preferences with { CloseToTray = keep.IsChecked == true };
+            if (SavePreferences()) feedback.Text = "已保存";
+            else
+            {
+                preferences = previous;
+                feedback.Text = "保存失败";
+            }
+        });
+        save.HorizontalAlignment = HorizontalAlignment.Left;
+        body.Children.Add(save);
+        body.Children.Add(Button("开启 / 关闭随身日程", TogglePortable));
+        AddPortablePreferences(body);
+    }
+
+    readonly record struct PortableTask(EventData Event, TimeSpan StartTime, TimeSpan EndTime)
+    {
+        public string Title => Event.Title;
+        public bool Completed => Event.CompletedAt != null;
     }
 }

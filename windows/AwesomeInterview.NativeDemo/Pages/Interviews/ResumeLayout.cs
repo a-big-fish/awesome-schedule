@@ -5,10 +5,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using AwesomeInterview.NativeDemo.Data;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
 namespace AwesomeInterview.NativeDemo;
 
-public partial class MainWindow
+internal sealed partial class InterviewWorkspace
 {
     Grid ResumeColumns(StackPanel document)
     {
@@ -19,7 +20,7 @@ public partial class MainWindow
         dayCard.VerticalAlignment=VerticalAlignment.Top;planCard.VerticalAlignment=VerticalAlignment.Top;
         layout.Children.Add(document);layout.Children.Add(dayCard);layout.Children.Add(planCard);
         void Resize(){
-            double width=viewport.ActualWidth;
+            double width=Viewport.ActualWidth;
             layout.ColumnDefinitions.Clear();layout.RowDefinitions.Clear();
             var weights=width>=1080?new[]{5d,3d,2.5}:width>=760?new[]{1d,1d}:new[]{1d};
             foreach(var weight in weights)layout.ColumnDefinitions.Add(new(){Width=new(weight,GridUnitType.Star)});
@@ -29,7 +30,7 @@ public partial class MainWindow
             Grid.SetColumn(planCard,weights.Length-1);Grid.SetRow(planCard,weights.Length==3?0:weights.Length==2?1:2);
             document.Margin=new(0,0,weights.Length==3?14:0,0);dayCard.Margin=new(0,0,weights.Length>=2?14:0,16);
         }
-        Resize();SizeChangedEventHandler resize=(_,_)=>Resize();viewport.SizeChanged+=resize;layout.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
+        TrackViewportSize(layout, Resize);
 
         DateTime date=CalendarProjection.Now.Date;
         var toolbar=new DockPanel{Margin=new(0,0,0,10)};
@@ -52,7 +53,7 @@ public partial class MainWindow
         void Refresh(){
             dateTitle.Text=date.ToString("M月d日 ddd");
             gridHost.Children.Clear();
-            var rows=EventsFor(date).Where(e=>e.Type=="interview"&&e.CancelledAt==null).OrderBy(e=>e.StartAt).ToList();
+            var rows=schedule.EventsFor(date).Where(e=>e.Type=="interview"&&e.CancelledAt==null).OrderBy(e=>e.StartAt).ToList();
             const double hourHeight=48;
             int first=rows.Count==0?8:Math.Min(8,rows.Min(e=>CalendarProjection.DisplayTime(e.StartAt).Date<date?0:CalendarProjection.DisplayTime(e.StartAt).Hour));
             var grid=new Grid();grid.ColumnDefinitions.Add(new(){Width=new(48)});grid.ColumnDefinitions.Add(new());
@@ -65,14 +66,14 @@ public partial class MainWindow
             }
             var laneEnds=new List<DateTime>();var positions=new List<(EventData Item,DateTime From,DateTime To,int Lane)>();
             foreach(var item in rows){
-                if(CalendarProjection.Segment(item,date,WorkTime(false),WorkTime(true)) is not { } segment)continue;
+                if(CalendarProjection.Segment(item,date,schedule.WorkTime(false),schedule.WorkTime(true)) is not { } segment)continue;
                 int lane=laneEnds.FindIndex(end=>end<=segment.Start);
                 if(lane<0){lane=laneEnds.Count;laneEnds.Add(segment.End);}else laneEnds[lane]=segment.End;
                 positions.Add((item,segment.Start,segment.End,lane));
             }
             var cards=new Grid();for(int lane=0;lane<laneEnds.Count;lane++)cards.ColumnDefinitions.Add(new());body.Children.Add(cards);
             foreach(var (item,from,to,lane) in positions){
-                var card=CalendarEntry(item,item.Title,13);card.MinHeight=0;card.Padding=new(8,2,8,2);
+                var card=schedule.CalendarEntry(item,item.Title,13);card.MinHeight=0;card.Padding=new(8,2,8,2);
                 card.Height=Math.Max(22,(to-from).TotalHours*hourHeight-2);
                 card.Margin=new(2,Math.Max(0,(from-date).TotalHours-first)*hourHeight,2,0);
                 card.VerticalAlignment=VerticalAlignment.Top;Grid.SetColumn(card,lane);cards.Children.Add(card);
@@ -96,13 +97,13 @@ public partial class MainWindow
             plan.Children.Clear();
             var heading=Text("面试计划",18,margin:new(0,0,0,16));heading.FontWeight=FontWeights.SemiBold;plan.Children.Add(heading);
             var now=DateTimeOffset.UtcNow;var today=CalendarProjection.Now.Date;
-            var items=repository.Current?.Events.Where(e=>e.Type=="interview"&&e.CancelledAt==null).OrderBy(e=>e.StartAt).ToList()??new();
+            var items=Repository.Current?.Events.Where(e=>e.Type=="interview"&&e.CancelledAt==null).OrderBy(e=>e.StartAt).ToList()??new();
             bool Active(EventData e)=>e.EndAt>now&&e.CompletedAt==null;
             void Group(string name,IEnumerable<EventData> entries){
                 plan.Children.Add(Text(name,14,"#2357CE",new(0,0,0,9)));
                 var rows=entries.ToList();
                 foreach(var item in rows){
-                    var card=CalendarEntry(item,item.Title,13);
+                    var card=schedule.CalendarEntry(item,item.Title,13);
                     var detail=new StackPanel();detail.Children.Add(Text(CalendarProjection.DisplayTime(item.StartAt).ToString("M/d HH:mm"),11,"#52647D"));
                     detail.Children.Add(Text(item.Title,13,margin:new(0,5,0,0)));card.Content=detail;card.Margin=new(0,0,0,8);
                     plan.Children.Add(card);
@@ -113,16 +114,16 @@ public partial class MainWindow
             Group("未来面试",items.Where(e=>Active(e)&&CalendarProjection.DisplayTime(e.StartAt).Date>today));
             var finished=items.Where(e=>!Active(e)).Reverse().ToList();
             if(finished.Count>0){
-                var list=new StackPanel();foreach(var item in finished)list.Children.Add(CalendarEntry(item,item.Title,13));
+                var list=new StackPanel();foreach(var item in finished)list.Children.Add(schedule.CalendarEntry(item,item.Title,13));
                 plan.Children.Add(new Expander{Header=$"已结束 · {finished.Count}",Content=list,Margin=new(0,6,0,0)});
             }
         }
         void OnChanged(){
             if(!Dispatcher.CheckAccess()){Dispatcher.BeginInvoke(new Action(OnChanged));return;}
-            if(layout.IsLoaded&&page=="resume")Refresh();
+            if(layout.IsLoaded&&Route == PageRoute.Resume)Refresh();
         }
-        layout.Loaded+=(_,_)=>repository.Changed+=OnChanged;
-        layout.Unloaded+=(_,_)=>repository.Changed-=OnChanged;
+        layout.Loaded+=(_,_)=>Repository.Changed+=OnChanged;
+        layout.Unloaded+=(_,_)=>Repository.Changed-=OnChanged;
         Refresh();
         return layout;
     }

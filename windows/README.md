@@ -1,4 +1,4 @@
-> 当前 Windows 原生预览 **1.6.0-W Preview 5**：见 [原生 Demo 安装与构建说明](NativeDemo-README.md)。完整追赶验收尚未完成。下文为旧 1.0-W WebView2 客户端，二者保留独立工程。
+> 当前 Windows 原生预览 **1.6.0-W Preview 6**：见 [原生 Demo 安装与构建说明](NativeDemo-README.md)。完整追赶验收尚未完成。下文为旧 1.0-W WebView2 客户端，二者保留独立工程。
 
 # Awesome Interview for Windows · App 1.0-W
 

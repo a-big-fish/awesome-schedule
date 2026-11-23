@@ -1,10 +1,10 @@
-# Awesome Interview Windows 1.6.0-W Preview 5
+# Awesome Interview Windows 1.6.0-W Preview 6
 
 Windows 10/11 x64、WPF / .NET 10 原生追赶预览。面试、简历、面经录入与导出流程已接通，完整追赶PRD的全部发布门禁尚未通过。
 
 ## 安装
 
-解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview5-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
+解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview6-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
 
 使用现有账号在应用内登录。密码不落盘；会话、快照、私人草稿、简历页与提醒去重账本用Windows CurrentUser DPAPI加密，按server+owner隔离。退出登录清除账号缓存。卸载保留 `%LOCALAPPDATA%/AwesomeInterviewNative` 与 `%LOCALAPPDATA%/AwesomeInterviewNativeDemo` 中的数据和桌面偏好。
 
@@ -33,11 +33,19 @@ PDF当前由服务端PyMuPDF生成有界PNG页，WPF原生展示并加密缓存�
 
 尚未完成：独立待办持久队列、广场长期缓存、大账号按需加载、完整本地PDF引擎、旧队列完整迁移、全量窗口/DPI/表单交互、通知送达及安装升级/卸载验收。旧队列缺少确认基线时，历史离线回滚仍需迁移和服务端核对；新增基线保护不能代替历史迁移。
 
+## Windows 源码入口
+
+- `MainWindow.cs` 负责导航、页头、状态栏及仓库变更分发。`WorkspacePage.cs` 为模块提供页面挂载和通用交互。
+- `Pages/Schedule` 负责日周月视图、今日待办、待安排和日程编辑。
+- `Pages/Interviews` 负责面试和简历。`Pages/Experiences` 负责面经列表与详情、广场、编辑和导出。
+- `Pages/AccountPage.cs`、`SettingsPage.cs` 和 `AdminPage.cs` 分别负责账号、偏好和管理员监控。
+- `Controls` 存放共用控件。`Desktop` 负责托盘、随身日程和提醒。`Services` 负责 API、缓存、同步和账号资料。
+
 ## 验证与构建
 
-Python 全量测试 268 项通过、1 项跳过。Windows 原生检查 115 项通过，覆盖滚轮累积、边界处理、高精度滚轮和滚动条短暂显示。WPF 构建通过，保留既有 WinForms 高 DPI 清单分析告警。本轮用合成数据离屏验证了从其他月份返回、在当前月份重复定位和滚动范围边界。随身日程离屏布局及系统滚轮钩子的注册和释放已在 Preview 4 验证。真实窗口的鼠标穿透和多屏 DPI 仍待验收。
+Python 全量测试 270 项通过、1 项跳过。Windows 原生检查 115 项通过，覆盖滚轮累积、边界处理、高精度滚轮和滚动条短暂显示。WPF 构建通过，保留既有 WinForms 高 DPI 清单分析告警。本轮用合成数据和模拟 HTTP 响应离屏验证页面导航、月视图定位、未保存表单、简历和面经入口、账号偏好及管理员权限变化。随身日程离屏布局及系统滚轮钩子的注册和释放已在 Preview 4 验证。真实窗口的鼠标穿透和多屏 DPI 仍待验收。
 
-使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview5` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
+使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview6` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
 
 验收记录：`windows/acceptance/2026-11-21/README.md`；历史版本：`windows/NativeDemo-HISTORY.md`。
 

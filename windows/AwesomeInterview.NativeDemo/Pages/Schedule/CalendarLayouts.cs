@@ -5,15 +5,15 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using AwesomeInterview.NativeDemo.Data;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
 namespace AwesomeInterview.NativeDemo;
 
-public partial class MainWindow
+internal sealed partial class SchedulePages
 {
-    static readonly string[] Weekdays = {"周一","周二","周三","周四","周五","周六","周日"};
     static string CalendarColor(EventData item) => item.CancelledAt!=null?"#F9E9E9":item.CompletedAt!=null?"#EFF2F5":"#EBF2FF";
 
-    Button CalendarEntry(EventData item,string title,double size)
+    internal Button CalendarEntry(EventData item,string title,double size)
     {
         var button=Button("",()=>ShowEventDetail(item));
         button.Content=new TextBlock{Text=title,FontSize=size,FontWeight=FontWeights.Medium,TextTrimming=TextTrimming.CharacterEllipsis,VerticalAlignment=VerticalAlignment.Center};
@@ -32,13 +32,10 @@ public partial class MainWindow
     QuietScrollViewer AddCalendarScroller(Grid grid,bool horizontal)
     {
         var scroll=new QuietScrollViewer{Content=grid,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=horizontal?ScrollBarVisibility.Auto:ScrollBarVisibility.Disabled};
-        void Resize(){scroll.MaxHeight=Math.Max(270,viewport.ActualHeight-184);}
-        Resize();
+        void Resize(){scroll.MaxHeight=Math.Max(270,Viewport.ActualHeight-184);}
+        TrackViewportSize(scroll, Resize);
         scroll.SizeChanged+=(_,_)=>grid.Width=Math.Max(grid.MinWidth,scroll.ActualWidth);
-        SizeChangedEventHandler resize=(_,_)=>Resize();
-        viewport.SizeChanged+=resize;
-        scroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
-        content.Children.Add(Surface(scroll,new(8)));
+        Content.Children.Add(Surface(scroll,new(8)));
         return scroll;
     }
 

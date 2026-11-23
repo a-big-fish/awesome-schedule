@@ -1,4 +1,4 @@
-param([ValidatePattern('^[0-9A-Za-z.-]+$')][string]$Version='1.6.0-W-preview5')
+param([ValidatePattern('^[0-9A-Za-z.-]+$')][string]$Version='1.6.0-W-preview6')
 $ErrorActionPreference='Stop'
 $windowsRoot=Split-Path -Parent $PSScriptRoot
 $repoRoot=Split-Path -Parent $windowsRoot

@@ -5,10 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Forms=System.Windows.Forms;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
 namespace AwesomeInterview.NativeDemo;
 
-public partial class MainWindow
+internal sealed partial class DesktopIntegration
 {
     bool portableLocked;
     Border? portableSurface;
@@ -90,7 +91,7 @@ public partial class MainWindow
     {
         if(portable==null||portableUnlock!=null)return;
         // An independent owned window remains clickable while the schedule surface passes input through.
-        portableUnlock=new Window{Owner=portable,Title="恢复随身日程交互",Width=116,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=portable.Topmost,FontFamily=FontFamily};
+        portableUnlock=new Window{Owner=portable,Title="恢复随身日程交互",Width=116,Height=44,WindowStyle=WindowStyle.None,ResizeMode=ResizeMode.NoResize,AllowsTransparency=true,Background=Brushes.Transparent,ShowInTaskbar=false,ShowActivated=false,Topmost=portable.Topmost,FontFamily=shell.FontFamily};
         var unlock=PortableTool("解锁交互",()=>SetPortableLocked(false));unlock.Margin=new(0);unlock.ToolTip="恢复随身日程的点击与拖动";portableUnlock.Content=unlock;PositionPortableUnlock();portableUnlock.Show();
     }
     const int ExtendedStyle=-20;
@@ -104,7 +105,7 @@ public partial class MainWindow
         long value=GetWindowLongPtr(hwnd,ExtendedStyle).ToInt64();
         value=locked?value|TransparentStyle|NoActivateStyle:value&~(TransparentStyle|NoActivateStyle);
         Marshal.SetLastPInvokeError(0);var result=SetWindowLongPtr(hwnd,ExtendedStyle,new nint(value));
-        if(result==0&&Marshal.GetLastWin32Error()!=0){status.Text="无法切换鼠标穿透，请重开随身日程。";return;}
+        if(result==0&&Marshal.GetLastWin32Error()!=0){shell.Status.Text="无法切换鼠标穿透，请重开随身日程。";return;}
         portableLocked = locked;
         if (locked)
         {
@@ -114,7 +115,7 @@ public partial class MainWindow
             if (!portableWheel.Start())
             {
                 portableWheel = null;
-                status.Text = "随身日程已开启穿透，滚轮接收暂不可用。";
+                shell.Status.Text = "随身日程已开启穿透，滚轮接收暂不可用。";
             }
             foreach (var tool in portableToolbarButtons) tool.Visibility = Visibility.Hidden;
             ShowPortableUnlock();

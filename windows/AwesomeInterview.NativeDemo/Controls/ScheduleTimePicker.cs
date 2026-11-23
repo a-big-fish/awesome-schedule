@@ -5,17 +5,18 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using AwesomeInterview.NativeDemo.Data;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
 namespace AwesomeInterview.NativeDemo;
 
-public partial class MainWindow
+internal sealed class ScheduleTimePicker(Window owner, WorkspaceProfile accountProfile)
 {
-    ScheduleTimeChoice? PickScheduleTime(string caption,DateTime initial,bool end,string timezone,bool preciseInitially=false)
+    internal ScheduleTimeChoice? Pick(string caption,DateTime initial,bool end,string timezone,bool preciseInitially=false)
     {
         ScheduleTimeChoice? result=null;
         bool precise=preciseInitially;
         DateTime selectedDate=initial.Date,month=new(initial.Year,initial.Month,1);
-        var window=new Window{Title=caption,Owner=this,Width=460,SizeToContent=SizeToContent.Height,MaxHeight=SystemParameters.WorkArea.Height-40,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Background=Brush("#F6F8FC"),FontFamily=FontFamily};
+        var window=new Window{Title=caption,Owner=owner,Width=460,SizeToContent=SizeToContent.Height,MaxHeight=SystemParameters.WorkArea.Height-40,WindowStartupLocation=WindowStartupLocation.CenterOwner,ResizeMode=ResizeMode.NoResize,ShowInTaskbar=false,Background=Brush("#F6F8FC"),FontFamily=owner.FontFamily};
         var body=new StackPanel{Margin=new(20,18,20,20)};
         var heading=Text(caption,21);heading.FontWeight=FontWeights.SemiBold;body.Children.Add(heading);
         var step=Text("选择日期",13,"#52647D",new(0,6,0,12));body.Children.Add(step);
@@ -23,7 +24,7 @@ public partial class MainWindow
         var modes=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(0,0,0,8)};
         var dateOnly=Button("只选日期",()=>{});var specified=Button("指定时间",()=>{});
         modes.Children.Add(dateOnly);modes.Children.Add(specified);body.Children.Add(modes);
-        var hint=Text($"只选日期时使用默认时刻 {WorkTime(end):hh\\:mm}",12,"#52647D",new(0,0,0,10));body.Children.Add(hint);
+        var hint=Text($"只选日期时使用默认时刻 {accountProfile.WorkTime(end):hh\\:mm}",12,"#52647D",new(0,0,0,10));body.Children.Add(hint);
         var dates=new StackPanel();
         var monthBar=new DockPanel{Margin=new(0,0,0,8)};
         var monthLabel=Text("",15);monthLabel.FontWeight=FontWeights.SemiBold;
@@ -126,7 +127,7 @@ public partial class MainWindow
         };
         confirm.Click+=(_,_)=>{
             if(precise&&timeCard.Visibility!=Visibility.Visible){TimeStep();return;}
-            result=new(ScheduleTime.Select(selectedDate,!precise,new TimeSpan(hours.SelectedIndex,minutes.SelectedIndex,0),WorkTime(end)),!precise);
+            result=new(ScheduleTime.Select(selectedDate,!precise,new TimeSpan(hours.SelectedIndex,minutes.SelectedIndex,0),accountProfile.WorkTime(end)),!precise);
             window.DialogResult=true;
         };
         dateOnly.Click+=(_,_)=>{precise=false;DateStep();};
