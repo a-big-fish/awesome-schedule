@@ -45,7 +45,9 @@ public partial class MainWindow
     }
 
     bool focusCurrentTime=true;
-    void ShowCalendar()
+    void ShowCalendar() => RenderCalendar();
+
+    void RenderCalendar(bool centerToday = false)
     {
         page="calendar";bSelect("日历与日程");Begin("日历与日程","用日、周、月视图查看你的安排");if(NeedAccount())return;
         var controls=new WrapPanel{Margin=new(0,0,0,14)};
@@ -60,11 +62,11 @@ public partial class MainWindow
         void Shift(int direction){selected=calendarView=="month"?selected.AddMonths(direction):selected.AddDays(direction*(calendarView=="week"?7:1));ShowCalendar();}
         Button Arrow(string glyph,string name,Action action){var button=Button("",action);button.Content=new TextBlock{Text=glyph,FontFamily=new("Segoe MDL2 Assets"),FontSize=16};button.Padding=new(8);button.Margin=new(0);System.Windows.Automation.AutomationProperties.SetName(button,name);return button;}
         datebar.Children.Add(Arrow("\uE76B","上一日期",()=>Shift(-1)));var next=Arrow("\uE76C","下一日期",()=>Shift(1));Grid.SetColumn(next,3);datebar.Children.Add(next);
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=CalendarProjection.Now.Date;ShowCalendar();}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=CalendarProjection.Now.Date;RenderCalendar(centerToday: true);}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
         var first=calendarView=="week"?selected.Date.AddDays(-(((int)selected.DayOfWeek+6)%7)):selected.Date;
         var label=Text(calendarView=="month"?selected.ToString("yyyy年M月"):calendarView=="week"?$"{first:yyyy-MM-dd} — {first.AddDays(6):MM-dd}":selected.ToString("yyyy-MM-dd dddd"),19);
         label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0,0,0,12);content.Children.Add(label);content.Children.Add(datebar);
-        if(calendarView=="month")RenderMonth();else if(calendarView=="week")RenderWeek(first);else RenderTimeline(first);
+        if(calendarView=="month")RenderMonth(centerToday);else if(calendarView=="week")RenderWeek(first);else RenderTimeline(first);
         content.HorizontalAlignment=HorizontalAlignment.Center;
         void ResizeCalendar(){content.Width=Math.Max(560,viewport.ActualWidth*(calendarView=="day"?.88:1));}
         ResizeCalendar();SizeChangedEventHandler resize=(_,_)=>ResizeCalendar();viewport.SizeChanged+=resize;content.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;

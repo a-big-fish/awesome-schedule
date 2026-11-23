@@ -345,7 +345,7 @@ public partial class MainWindow
             var save=Button("保存",()=>{var previous=preferences;preferences=preferences with{CloseToTray=keep.IsChecked==true};if(SavePreferences())feedback.Text="已保存";else{preferences=previous;feedback.Text="保存失败";}});save.HorizontalAlignment=HorizontalAlignment.Left;body.Children.Add(save);body.Children.Add(Button("开启 / 关闭随身日程",TogglePortable));
             AddPortablePreferences(body);
         }else if(settingsCategory=="日程偏好")ShowWorkdaySettings(body);
-        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.6.0-W Preview 4 · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
+        else{body.Children.Add(Text("Awesome Interview",22));body.Children.Add(Text("Windows 1.6.0-W Preview 5 · WPF / .NET 10",14,"#64748B",new(0,12,0,0)));}
         content.Children.Add(Surface(layout,new(26)));
     }
 }

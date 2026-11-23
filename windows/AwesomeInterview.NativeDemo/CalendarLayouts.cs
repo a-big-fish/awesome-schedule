@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using AwesomeInterview.NativeDemo.Data;
 
 namespace AwesomeInterview.NativeDemo;
@@ -28,7 +29,7 @@ public partial class MainWindow
 
     void OpenCalendarDay(DateTime day){selected=day;calendarView="day";ShowCalendar();}
     IEnumerable<EventData> VisibleCalendarItems(DateTime day)=>EventsFor(day).Where(item=>!hideCompleted||item.CompletedAt==null);
-    void AddCalendarScroller(Grid grid,bool horizontal)
+    QuietScrollViewer AddCalendarScroller(Grid grid,bool horizontal)
     {
         var scroll=new QuietScrollViewer{Content=grid,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=horizontal?ScrollBarVisibility.Auto:ScrollBarVisibility.Disabled};
         void Resize(){scroll.MaxHeight=Math.Max(270,viewport.ActualHeight-184);}
@@ -38,6 +39,7 @@ public partial class MainWindow
         viewport.SizeChanged+=resize;
         scroll.Unloaded+=(_,_)=>viewport.SizeChanged-=resize;
         content.Children.Add(Surface(scroll,new(8)));
+        return scroll;
     }
 
     void RenderWeek(DateTime first)
@@ -68,9 +70,11 @@ public partial class MainWindow
         AddCalendarScroller(grid,true);
     }
 
-    void RenderMonth()
+    void RenderMonth(bool centerToday)
     {
         var grid=new Grid{MinWidth=7*108};
+        var today = CalendarProjection.Now.Date;
+        Button? todayButton = null;
         for(int c=0;c<7;c++){
             grid.ColumnDefinitions.Add(new());
             var title=Text(Weekdays[c],12,"#52647D",new(0,6,0,10));title.HorizontalAlignment=HorizontalAlignment.Center;
@@ -95,8 +99,9 @@ public partial class MainWindow
                 Grid.SetColumn(divider,col);Grid.SetRowSpan(divider,band.RowDefinitions.Count);band.Children.Add(divider);
                 var date=Button(day.Day.ToString(),()=>OpenCalendarDay(day));
                 date.Margin=new(4,3,0,3);date.MinHeight=0;date.MinWidth=28;date.Padding=new(5,0,5,0);date.HorizontalAlignment=HorizontalAlignment.Left;date.BorderThickness=new(0);
-                bool today=day==CalendarProjection.Now.Date;
-                date.Background=Brush(today?"#285DDD":"#FFFFFF");date.Foreground=Brush(today?"#FFFFFF":day.Month==selected.Month?"#192C46":"#64748B");
+                bool isToday = day == today;
+                if (isToday) todayButton = date;
+                date.Background=Brush(isToday?"#285DDD":"#FFFFFF");date.Foreground=Brush(isToday?"#FFFFFF":day.Month==selected.Month?"#192C46":"#64748B");
                 Grid.SetColumn(date,col);band.Children.Add(date);
             }
             for(int row=0;row<rows.Count;row++){
@@ -114,6 +119,22 @@ public partial class MainWindow
             grid.RowDefinitions.Add(new(){Height=GridLength.Auto});
             Grid.SetRow(band,grid.RowDefinitions.Count-1);Grid.SetColumnSpan(band,7);grid.Children.Add(band);
         }
-        AddCalendarScroller(grid,true);
+        var scroll = AddCalendarScroller(grid, true);
+        if (!centerToday || todayButton == null) return;
+
+        scroll.Loaded += CenterToday;
+        void CenterToday(object sender, RoutedEventArgs args)
+        {
+            scroll.Loaded -= CenterToday;
+            // The viewport and variable-height week rows must be arranged before calculating the offset.
+            scroll.Dispatcher.InvokeAsync(() =>
+            {
+                if (!scroll.IsLoaded) return;
+                var center = todayButton.TranslatePoint(
+                    new Point(todayButton.ActualWidth / 2, todayButton.ActualHeight / 2), grid);
+                scroll.ScrollToVerticalOffset(Math.Clamp(center.Y - scroll.ViewportHeight / 2, 0, scroll.ScrollableHeight));
+                scroll.ScrollToHorizontalOffset(Math.Clamp(center.X - scroll.ViewportWidth / 2, 0, scroll.ScrollableWidth));
+            }, DispatcherPriority.Loaded);
+        }
     }
 }
