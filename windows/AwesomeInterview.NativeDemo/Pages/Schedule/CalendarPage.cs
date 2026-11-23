@@ -37,17 +37,17 @@ internal sealed partial class SchedulePages(MainWindow shell, WorkspaceProfile a
         void Shift(int direction){selected=calendarView=="month"?selected.AddMonths(direction):selected.AddDays(direction*(calendarView=="week"?7:1));ShowCalendar();}
         Button Arrow(string glyph,string name,Action action){var button=Button("",action);button.Content=new TextBlock{Text=glyph,FontFamily=new("Segoe MDL2 Assets"),FontSize=16};button.Padding=new(8);button.Margin=new(0);System.Windows.Automation.AutomationProperties.SetName(button,name);return button;}
         datebar.Children.Add(Arrow("\uE76B","上一日期",()=>Shift(-1)));var next=Arrow("\uE76C","下一日期",()=>Shift(1));Grid.SetColumn(next,3);datebar.Children.Add(next);
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=CalendarProjection.Now.Date;RenderCalendar(centerToday: true);}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
+        var actions=new StackPanel{Orientation=Orientation.Horizontal,Margin=new(10,0,10,0)};actions.Children.Add(Button("回到今天",()=>{selected=CalendarProjection.Now.Date;if(calendarView=="day")focusCurrentTime=true;RenderCalendar(centerToday: true);}));actions.Children.Add(Button(hideCompleted?"切换全部日程":"切换未完成日程",()=>{hideCompleted=!hideCompleted;ShowCalendar();}));Grid.SetColumn(actions,2);datebar.Children.Add(actions);
         var first=calendarView=="week"?selected.Date.AddDays(-(((int)selected.DayOfWeek+6)%7)):selected.Date;
         var label=Text(calendarView=="month"?selected.ToString("yyyy年M月"):calendarView=="week"?$"{first:yyyy-MM-dd} — {first.AddDays(6):MM-dd}":selected.ToString("yyyy-MM-dd dddd"),19);
         label.FontWeight=FontWeights.SemiBold;label.HorizontalAlignment=HorizontalAlignment.Center;label.VerticalAlignment=VerticalAlignment.Center;label.Margin=new(0,0,0,12);Content.Children.Add(label);Content.Children.Add(datebar);
-        if(calendarView=="month")RenderMonth(centerToday);else if(calendarView=="week")RenderWeek(first);else RenderTimeline(first);
+        if(calendarView=="month")RenderMonth(centerToday);else if(calendarView=="week")RenderWeek(first);else RenderTimeline(first, centerToday);
         Content.HorizontalAlignment=HorizontalAlignment.Center;
         void ResizeCalendar(){Content.Width=Math.Max(560,Viewport.ActualWidth*(calendarView=="day"?.88:1));}
         TrackViewportSize(controls, ResizeCalendar);
 
     }
-    void RenderTimeline(DateTime first)
+    void RenderTimeline(DateTime first, bool scrollFromTop)
     {
         bool focus=focusCurrentTime&&CalendarProjection.Now.Date==first.Date;
         double span=24;double startHour=0;double timelineHeight=focus?1920:Math.Max(340,Viewport.ActualHeight-230);
@@ -93,9 +93,53 @@ internal sealed partial class SchedulePages(MainWindow shell, WorkspaceProfile a
         }
         var clock=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromMinutes(1)};clock.Tick+=(_,_)=>UpdateClock();clockLayer.Loaded+=(_,_)=>{UpdateClock();clock.Start();};clockLayer.Unloaded+=(_,_)=>clock.Stop();clockLayer.SizeChanged+=(_,_)=>UpdateClock();
         var timelineScroll=new QuietScrollViewer{Content=grid,Height=Math.Max(260,Viewport.ActualHeight-220),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,CanContentScroll=false};
-        bool userMoved=false;timelineScroll.PreviewMouseWheel+=(_,_)=>userMoved=true;timelineScroll.PreviewMouseDown+=(_,_)=>userMoved=true;timelineScroll.PreviewKeyDown+=(_,_)=>userMoved=true;
+        bool userMoved = false;
+        var animation = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        var elapsed = new Stopwatch();
+        double TargetOffset()
+        {
+            double nowY = 38 + CalendarProjection.Now.TimeOfDay.TotalHours * timelineHeight / 24;
+            return Math.Clamp(nowY - timelineScroll.ViewportHeight / 2, 0, timelineScroll.ScrollableHeight);
+        }
+        void StopForInput()
+        {
+            userMoved = true;
+            animation.Stop();
+        }
+        timelineScroll.PreviewMouseWheel += (_, _) => StopForInput();
+        timelineScroll.PreviewMouseDown += (_, _) => StopForInput();
+        timelineScroll.PreviewKeyDown += (_, _) => StopForInput();
+        timelineScroll.Unloaded += (_, _) => animation.Stop();
+        animation.Tick += (_, _) =>
+        {
+            double progress = Math.Min(1, elapsed.Elapsed.TotalMilliseconds / 460);
+            timelineScroll.ScrollToVerticalOffset(TargetOffset() * (1 - Math.Pow(1 - progress, 3)));
+            if (progress == 1) animation.Stop();
+        };
         timelineScroll.SizeChanged+=(_,_)=>grid.Width=Math.Max(grid.MinWidth,timelineScroll.ActualWidth);
-        void CenterNow(){if(!focus||userMoved)return;timelineScroll.ScrollToVerticalOffset(Math.Max(0,38+TimeZoneInfo.ConvertTime(DateTimeOffset.Now,TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai")).TimeOfDay.TotalHours*timelineHeight/24-timelineScroll.ViewportHeight/2));}
+        void CenterNow()
+        {
+            if (focus && !userMoved && !scrollFromTop && !animation.IsEnabled)
+                timelineScroll.ScrollToVerticalOffset(TargetOffset());
+        }
+        bool animatedReturn = false;
+        timelineScroll.Loaded += (_, _) =>
+        {
+            if (!focus || !scrollFromTop || animatedReturn) return;
+            animatedReturn = true;
+            timelineScroll.Dispatcher.InvokeAsync(() =>
+            {
+                if (!timelineScroll.IsLoaded || userMoved) return;
+                if (!SystemParameters.ClientAreaAnimation)
+                {
+                    timelineScroll.ScrollToVerticalOffset(TargetOffset());
+                    return;
+                }
+                timelineScroll.ScrollToTop();
+                elapsed.Restart();
+                animation.Start();
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        };
         void StickyTitles()
         {
             foreach(var column in grid.Children.OfType<DockPanel>())
