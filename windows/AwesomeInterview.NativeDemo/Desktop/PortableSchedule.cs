@@ -43,7 +43,7 @@ internal sealed partial class DesktopIntegration
     {
         var button = CompactPortableButton(label, action);
         button.Background = PortableFill("#FFFFFF");
-        button.BorderBrush = PortableFill("#DCE3ED");
+        button.BorderBrush = PortableOutline("#ABBAD0");
         button.Foreground = PortableInk("#263650");
         return button;
     }
@@ -186,7 +186,7 @@ internal sealed partial class DesktopIntegration
             Canvas.SetTop(label, hour * PortableHourHeight + 2);
             Canvas.SetLeft(label, 5);
             timeline.Children.Add(label);
-            var rule = new Border { Height = 1, Background = PortableFill("#DFE7F1"), IsHitTestVisible = false };
+            var rule = new Border { Height = 1, Background = PortableOutline("#DFE7F1"), IsHitTestVisible = false };
             Canvas.SetTop(rule, hour * PortableHourHeight);
             Canvas.SetLeft(rule, PortableTimeGutter);
             timeline.Children.Add(rule);
@@ -247,7 +247,7 @@ internal sealed partial class DesktopIntegration
             card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             card.VerticalContentAlignment = VerticalAlignment.Stretch;
             card.Background = PortableFill(task.Completed ? "#EEF0F3" : "#EDF3FF");
-            card.BorderBrush = PortableFill("#E2EAF6");
+            card.BorderBrush = PortableOutline(task.Completed ? "#A1ADBE" : "#869AB8");
             AutomationProperties.SetName(card, $"{task.Title}，{task.Hours}");
             Canvas.SetTop(card, top);
             timeline.Children.Add(card);

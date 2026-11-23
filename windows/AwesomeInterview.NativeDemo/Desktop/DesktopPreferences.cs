@@ -8,4 +8,5 @@ internal sealed record DesktopPreferences(
     string PortableColor = "white",
     bool PortableTopmost = true,
     double PortableOverallOpacity = 1,
-    double PortableTextOpacity = 1);
+    double PortableTextOpacity = 1,
+    double PortableBorderOpacity = .85);

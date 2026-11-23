@@ -26,9 +26,11 @@ internal sealed partial class DesktopIntegration
     readonly SolidColorBrush portableSectionTint = new();
     readonly Dictionary<string, SolidColorBrush> portableFillBrushes = new();
     readonly Dictionary<string, SolidColorBrush> portableInkBrushes = new();
+    readonly Dictionary<string, SolidColorBrush> portableOutlineBrushes = new();
     double PortableOverallOpacity => Math.Clamp(preferences.PortableOverallOpacity, .10, 1);
     double PortableBackgroundOpacity => Math.Clamp(preferences.PortableOpacity, 0, 1);
     double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
+    double PortableBorderOpacity => Math.Clamp(preferences.PortableBorderOpacity, 0, 1);
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
     TextBlock? portableClock;
@@ -70,6 +72,7 @@ internal sealed partial class DesktopIntegration
 
     SolidColorBrush PortableFill(string color) => OpacityBrush(portableFillBrushes, color, PortableBackgroundOpacity);
     SolidColorBrush PortableInk(string color) => OpacityBrush(portableInkBrushes, color, PortableTextOpacity);
+    SolidColorBrush PortableOutline(string color) => OpacityBrush(portableOutlineBrushes, color, PortableBorderOpacity);
 
     TextBlock PortableText(string label, double size, string color, Thickness? margin = null)
     {
@@ -84,7 +87,7 @@ internal sealed partial class DesktopIntegration
     Border PortableSection(UIElement child, Thickness padding) => new()
     {
         Child = child, Padding = padding, Background = portableSectionTint,
-        CornerRadius = new(10), BorderBrush = PortableFill("#CCD6E7"), BorderThickness = new(1),
+        CornerRadius = new(10), BorderBrush = PortableOutline("#AABAD1"), BorderThickness = new(1),
         Margin = new(0, 0, 0, 12)
     };
 
@@ -152,6 +155,8 @@ internal sealed partial class DesktopIntegration
             opacity => preferences = preferences with { PortableOverallOpacity = opacity });
         AddTransparencySlider(body, "底色透明度", PortableBackgroundOpacity, 1,
             opacity => preferences = preferences with { PortableOpacity = opacity });
+        AddTransparencySlider(body, "边框透明度", PortableBorderOpacity, 1,
+            opacity => preferences = preferences with { PortableBorderOpacity = opacity });
         AddTransparencySlider(body, "字体透明度", PortableTextOpacity, .9,
             opacity => preferences = preferences with { PortableTextOpacity = opacity });
     }
@@ -327,6 +332,8 @@ internal sealed partial class DesktopIntegration
         double overall = PortableOverallOpacity, background = PortableBackgroundOpacity, ink = PortableTextOpacity;
         foreach (var brush in portableFillBrushes.Values) brush.Opacity = background;
         foreach (var brush in portableInkBrushes.Values) brush.Opacity = ink;
+        double border = PortableBorderOpacity;
+        foreach (var brush in portableOutlineBrushes.Values) brush.Opacity = border;
         portableSectionTint.Color = preferences.PortableColor switch
         {
             "blue" => Color.FromRgb(236, 243, 253),
@@ -338,8 +345,8 @@ internal sealed partial class DesktopIntegration
         if (portable == null || portableSurface == null) return;
         // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.
         portableSurface.Background = Brush("#01FFFFFF");
-        var outline = Brush("#CCD6E7");
-        outline.Opacity = overall * background;
+        var outline = Brush("#AABAD1");
+        outline.Opacity = overall * border;
         portableSurface.BorderBrush = outline;
         if (portableHeader != null)
         {
