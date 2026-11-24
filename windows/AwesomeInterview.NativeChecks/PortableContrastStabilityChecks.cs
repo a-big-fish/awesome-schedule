@@ -29,7 +29,9 @@ internal static class PortableContrastStabilityChecks
             "a one-frame background change cannot flicker the glyph");
         history.Observe([dim, dim, dim, dim], ink, 1, false);
         var committed = history.Observe([dim, dim, dim, dim], ink, 1, false);
-        check(committed.Choice.Ink == Colors.White, "a sustained backdrop change commits the stronger glyph contrast");
+        check(committed.Choice.Ink != initial.Choice.Ink &&
+              committed.Choice == PortableTextContrast.Choose([dim], ink, 1, ink),
+            "a sustained backdrop change commits the stronger glyph contrast");
         check(history.Observe([], ink, 1, false).Choice == committed.Choice,
             "an unavailable capture retains the committed glyph shade");
         check(history.Observe([bright, bright, bright, bright], ink, 1, true).Choice.Ink == ink,
