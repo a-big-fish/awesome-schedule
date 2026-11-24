@@ -70,8 +70,8 @@ internal sealed partial class DesktopIntegration
                 portableClock.Text = time;
                 SchedulePortableContrast(resetCadence: false);
             }
-            var badge = (Border)portableClock.Parent;
-            Canvas.SetTop(badge, Math.Clamp(y - badge.Height / 2, 0, PortableDayHeight - badge.Height));
+            var slot = (Border)portableClock.Parent;
+            Canvas.SetTop(slot, Math.Clamp(y - slot.Height / 2, 0, PortableDayHeight - slot.Height));
             int hide = PortableTimelineLayout.NearestHourToHide(now.TimeOfDay);
             if (hide != portableHiddenHour)
             {
@@ -303,16 +303,12 @@ internal sealed partial class DesktopIntegration
         portableNowLine = nowLine;
         var clock = new TextBlock
         {
-            Foreground = nowInk, FontSize = 12, FontWeight = FontWeights.SemiBold,
+            Foreground = nowInk, FontSize = 15, FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
         };
-        var clockBadge = new Border
-        {
-            Child = clock, Width = 54, Height = 19, CornerRadius = new(5), BorderThickness = new(1),
-            BorderBrush = nowInk, Background = Brush("#F5FFF3F4"), IsHitTestVisible = false
-        };
-        Canvas.SetLeft(clockBadge, 4);
-        timeline.Children.Add(clockBadge);
+        var clockSlot = new Border { Child = clock, Width = 54, Height = 22, IsHitTestVisible = false };
+        Canvas.SetLeft(clockSlot, 4);
+        timeline.Children.Add(clockSlot);
         portableClock = clock;
         UpdatePortableClock();
 
