@@ -44,7 +44,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Awesome Interview · Windows 1.6.0-W Preview 12";
+        Title = "Awesome Interview · Windows 1.6.0-W Preview 13";
         Width = 1280; Height = 850; MinWidth = 940; MinHeight = 640;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
