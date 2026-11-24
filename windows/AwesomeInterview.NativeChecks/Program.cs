@@ -355,6 +355,7 @@ await RememberedLoginChecks.Run(Check);
 PortableHoverChecks.Run(Check);
 PortableContrastChecks.Run(Check);
 PortableContrastStabilityChecks.Run(Check);
+PortableTimelineLayoutChecks.Run(Check);
 PortableGlyphChecks.Run(Check);
 DesktopWindowBoundsChecks.Run(Check);
 PortableAppearancePresetChecks.Run(Check);

@@ -16,12 +16,15 @@ internal sealed partial class DesktopIntegration
     const double PortableHourHeight = 30;
     const double PortableTimeGutter = 64;
     const double PortableDayHeight = 24 * PortableHourHeight;
+    const string PortableNowAccent = "#C62F3D";
     bool portableShowCompleted, portableShowingTasks;
     double? portableTimeOffset;
     double portableTaskOffset;
     DateTime portableRenderedDay;
     PortablePresentation? portableRenderedPresentation;
     IReadOnlyList<PortableTask> portableRenderedTasks = [];
+    TextBlock[] portableHourLabels = [];
+    int portableHiddenHour = -1;
 
     readonly record struct PortablePresentation(DateTime Day, bool SignedIn, bool Online,
         bool ShowingTasks, bool ShowCompleted, bool TaskActionsBusy);
@@ -67,7 +70,15 @@ internal sealed partial class DesktopIntegration
                 portableClock.Text = time;
                 SchedulePortableContrast(resetCadence: false);
             }
-            Canvas.SetTop((Border)portableClock.Parent, Math.Clamp(y - 8, 0, PortableDayHeight - 15));
+            var badge = (Border)portableClock.Parent;
+            Canvas.SetTop(badge, Math.Clamp(y - badge.Height / 2, 0, PortableDayHeight - badge.Height));
+            int hide = PortableTimelineLayout.NearestHourToHide(now.TimeOfDay);
+            if (hide != portableHiddenHour)
+            {
+                if (portableHiddenHour >= 0) portableHourLabels[portableHiddenHour].Visibility = Visibility.Visible;
+                if (hide >= 0) portableHourLabels[hide].Visibility = Visibility.Hidden;
+                portableHiddenHour = hide;
+            }
         }
     }
 
@@ -117,6 +128,8 @@ internal sealed partial class DesktopIntegration
         portableTaskScroll = null;
         portableNowLine = null;
         portableClock = null;
+        portableHourLabels = [];
+        portableHiddenHour = -1;
         int completeCount = tasksForToday.Count(item => item.Completed);
         var visible = tasksForToday.Where(item => portableShowCompleted || !item.Completed).ToList();
 
@@ -207,12 +220,14 @@ internal sealed partial class DesktopIntegration
     {
         var timeline = new Canvas { Height = PortableDayHeight, Background = Brushes.Transparent, ClipToBounds = true };
         var hourRules = new Border[24];
+        portableHourLabels = new TextBlock[24];
         for (int hour = 0; hour < 24; hour++)
         {
             var label = PortableText($"{hour:00}:00", 10, "#52647D");
-            Canvas.SetTop(label, hour * PortableHourHeight + 2);
+            Canvas.SetTop(label, Math.Max(0, hour * PortableHourHeight - 6));
             Canvas.SetLeft(label, 5);
             timeline.Children.Add(label);
+            portableHourLabels[hour] = label;
             var rule = new Border { Height = 1, Background = PortableOutline("#DFE7F1"), IsHitTestVisible = false };
             Canvas.SetTop(rule, hour * PortableHourHeight);
             Canvas.SetLeft(rule, PortableTimeGutter);
@@ -281,25 +296,48 @@ internal sealed partial class DesktopIntegration
             cards.Add((card, label, lane));
         }
 
-        var nowLine = new Border { Height = 1, Background = PortableInk("#E5484D"), IsHitTestVisible = false };
+        var nowInk = PortableInk(PortableNowAccent);
+        var nowLine = new Border { Height = 1.5, Background = nowInk, IsHitTestVisible = false };
         Canvas.SetLeft(nowLine, PortableTimeGutter);
         timeline.Children.Add(nowLine);
         portableNowLine = nowLine;
-        var clock = PortableText("", 10, "#BD2936");
-        var clockBadge = new Border { Child = clock, Background = PortableFill("#F8FAFC"), IsHitTestVisible = false };
-        Canvas.SetLeft(clockBadge, 33);
+        var clock = new TextBlock
+        {
+            Foreground = nowInk, FontSize = 12, FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+        };
+        var clockBadge = new Border
+        {
+            Child = clock, Width = 54, Height = 19, CornerRadius = new(5), BorderThickness = new(1),
+            BorderBrush = nowInk, Background = Brush("#F5FFF3F4"), IsHitTestVisible = false
+        };
+        Canvas.SetLeft(clockBadge, 4);
         timeline.Children.Add(clockBadge);
         portableClock = clock;
         UpdatePortableClock();
 
+        double previousAvailable = -1;
         void Fit()
         {
             const double gap = 3;
             double available = Math.Max(0, timeline.ActualWidth - PortableTimeGutter - 7);
             int visibleLanes = Math.Clamp((int)((available + gap) / 100), 1, Math.Max(1, laneEnds.Count));
             double width = Math.Min(180, Math.Max(0, (available - gap * (visibleLanes - 1)) / visibleLanes));
-            nowLine.Width = available;
-            foreach (var rule in hourRules) rule.Width = available;
+            if (available != previousAvailable)
+            {
+                previousAvailable = available;
+                double occupied = laneEnds.Count == 0 ? 0 : width * visibleLanes + gap * (visibleLanes - 1);
+                var extent = PortableTimelineLayout.Rule(available, occupied);
+                var mask = CreatePortableRuleFade(extent.SolidFraction);
+                foreach (var rule in hourRules)
+                {
+                    rule.Width = extent.Width;
+                    rule.OpacityMask = mask;
+                }
+                var marker = occupied > 0 ? extent : PortableTimelineLayout.Rule(available, Math.Min(16, available));
+                nowLine.Width = marker.Width;
+                nowLine.OpacityMask = occupied > 0 ? mask : CreatePortableRuleFade(marker.SolidFraction);
+            }
             int hidden = 0;
             foreach (var (card, label, lane) in cards)
             {
@@ -329,6 +367,18 @@ internal sealed partial class DesktopIntegration
         var section = PortableSection(body, new(4));
         section.Margin = new(0);
         return section;
+    }
+
+    static Brush? CreatePortableRuleFade(double solidFraction)
+    {
+        if (solidFraction >= 1) return null;
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new(0, .5), EndPoint = new(1, .5),
+            GradientStops = { new(Colors.White, 0), new(Colors.White, solidFraction), new(Colors.Transparent, 1) }
+        };
+        brush.Freeze();
+        return brush;
     }
 
     static void PositionPortableTimeline(QuietScrollViewer scroll, Canvas timeline, double currentY, double? savedOffset)

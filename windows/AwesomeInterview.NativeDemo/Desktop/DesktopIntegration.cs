@@ -148,6 +148,8 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableSurface = null;
             portableNowLine = null;
             portableClock = null;
+            portableHourLabels = [];
+            portableHiddenHour = -1;
             portableTaskScroll = null;
             portableTimelineScroll = null;
             portableLocked = false;
