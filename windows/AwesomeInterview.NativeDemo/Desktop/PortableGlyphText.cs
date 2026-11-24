@@ -1,7 +1,9 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace AwesomeInterview.NativeDemo;
 
@@ -9,34 +11,52 @@ internal sealed class PortableGlyphText : TextBlock
 {
     object originalForeground = DependencyProperty.UnsetValue;
     double glyphDpi;
+    bool layoutDirty;
     internal PortableGlyphLayout? GlyphLayout { get; private set; }
     internal SolidColorBrush? NativeInk { get; private set; }
 
     static PortableGlyphText() => TextProperty.OverrideMetadata(typeof(PortableGlyphText),
         new FrameworkPropertyMetadata("", (element, _) => ((PortableGlyphText)element).RestoreNativeInk()));
 
-    public PortableGlyphText() => SizeChanged += (_, _) => RestoreNativeInk();
+    public PortableGlyphText() => SizeChanged += (_, _) =>
+    {
+        if (GlyphLayout == null || layoutDirty) return;
+        layoutDirty = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            if (GlyphLayout != null && layoutDirty) PrepareGlyphs();
+        }));
+    };
 
     internal PortableGlyphLayout? PrepareGlyphs()
     {
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        if (GlyphLayout != null)
-        {
-            if (glyphDpi == dpi) return GlyphLayout;
-            RestoreNativeInk();
-        }
-        if (Background != null || Foreground is not SolidColorBrush ink ||
-            VisualTreeHelper.GetDrawing(this) is not { } drawing) return null;
+        var previous = GlyphLayout;
+        if (previous != null && !layoutDirty && glyphDpi == dpi) return previous;
+        if ((previous == null && Background != null) || (NativeInk ?? Foreground as SolidColorBrush) is not { } ink ||
+            VisualTreeHelper.GetDrawing(this) is not { } drawing) return previous;
 
         var layout = new PortableGlyphLayout(drawing, RenderSize, ink);
-        if (layout.Glyphs.Count == 0) return null;
-        originalForeground = ReadLocalValue(ForegroundProperty);
+        if (layout.Glyphs.Count == 0) return previous;
+        if (previous != null) layout.InheritColors(previous);
+        else
+        {
+            originalForeground = ReadLocalValue(ForegroundProperty);
+            Foreground = Brushes.Transparent;
+        }
         NativeInk = ink;
         glyphDpi = dpi;
+        layoutDirty = false;
         GlyphLayout = layout;
-        Foreground = Brushes.Transparent;
         Background = layout.Surface;
         return layout;
+    }
+
+    internal void UpdateNativeInk(SolidColorBrush ink)
+    {
+        if (GlyphLayout is not { } layout || ReferenceEquals(NativeInk, ink)) return;
+        NativeInk = ink;
+        layout.SetInkSource(ink);
     }
 
     internal void RestoreNativeInk()
@@ -44,6 +64,7 @@ internal sealed class PortableGlyphText : TextBlock
         if (GlyphLayout == null) return;
         GlyphLayout = null;
         NativeInk = null;
+        layoutDirty = false;
         ClearValue(BackgroundProperty);
         if (originalForeground == DependencyProperty.UnsetValue) ClearValue(ForegroundProperty);
         else SetValue(ForegroundProperty, originalForeground);

@@ -20,6 +20,11 @@ internal sealed partial class DesktopIntegration
     double? portableTimeOffset;
     double portableTaskOffset;
     DateTime portableRenderedDay;
+    PortablePresentation? portableRenderedPresentation;
+    IReadOnlyList<PortableTask> portableRenderedTasks = [];
+
+    readonly record struct PortablePresentation(DateTime Day, bool SignedIn, bool Online,
+        bool ShowingTasks, bool ShowCompleted, bool TaskActionsBusy);
 
     readonly record struct PortableTask(EventData Event, TimeSpan StartTime, TimeSpan EndTime)
     {
@@ -60,7 +65,7 @@ internal sealed partial class DesktopIntegration
             if (portableClock.Text != time)
             {
                 portableClock.Text = time;
-                SchedulePortableContrast();
+                SchedulePortableContrast(resetCadence: false);
             }
             Canvas.SetTop((Border)portableClock.Parent, Math.Clamp(y - 8, 0, PortableDayHeight - 15));
         }
@@ -70,6 +75,29 @@ internal sealed partial class DesktopIntegration
     {
         if (portableContent == null) return;
         var today = CalendarProjection.Now.Date;
+        bool signedIn = shell.Repository.Current != null;
+        var workStart = schedule.WorkTime(false);
+        var workEnd = schedule.WorkTime(true);
+        var tasksForToday = schedule.EventsFor(today).Where(item => item.CancelledAt == null).Select(item =>
+        {
+            var segment = CalendarProjection.Segment(item, today, workStart, workEnd)!.Value;
+            return new PortableTask(item, segment.Start - today, segment.End - today);
+        }).ToList();
+        var presentation = new PortablePresentation(today, signedIn, shell.Repository.Online,
+            portableShowingTasks, portableShowCompleted, portableShowingTasks && shell.Repository.Busy);
+        if (portableRenderedPresentation == presentation && portableRenderedTasks.SequenceEqual(tasksForToday))
+        {
+            if (centerCurrentTime)
+            {
+                portableTimeOffset = null;
+                if (portableTimelineScroll is { IsLoaded: true, Content: Canvas axis } timeline)
+                    PositionPortableTimeline(timeline, axis, CalendarProjection.Now.TimeOfDay.TotalHours * PortableHourHeight, null);
+            }
+            return;
+        }
+        portableRenderedPresentation = presentation;
+        portableRenderedTasks = tasksForToday;
+
         if (portableRenderedDay != today)
         {
             portableRenderedDay = today;
@@ -89,14 +117,6 @@ internal sealed partial class DesktopIntegration
         portableTaskScroll = null;
         portableNowLine = null;
         portableClock = null;
-        bool signedIn = shell.Repository.Current != null;
-        var workStart = schedule.WorkTime(false);
-        var workEnd = schedule.WorkTime(true);
-        var tasksForToday = schedule.EventsFor(today).Where(item => item.CancelledAt == null).Select(item =>
-        {
-            var segment = CalendarProjection.Segment(item, today, workStart, workEnd)!.Value;
-            return new PortableTask(item, segment.Start - today, segment.End - today);
-        }).ToList();
         int completeCount = tasksForToday.Count(item => item.Completed);
         var visible = tasksForToday.Where(item => portableShowCompleted || !item.Completed).ToList();
 

@@ -12,26 +12,27 @@ internal sealed class PortableGlyphLayout
     internal const int SamplesPerGlyph = 8;
     static readonly Pen SampleMargin = CreateSampleMargin();
     readonly List<Glyph> glyphs = new();
+    readonly DrawingGroup rendered;
     internal IReadOnlyList<Glyph> Glyphs => glyphs;
     internal Rect Bounds { get; private set; } = Rect.Empty;
     internal DrawingBrush Surface { get; }
 
-    internal sealed class Glyph(Geometry ink, SolidColorBrush fill, SolidColorBrush outline)
+    internal sealed class Glyph(GlyphRun run, Geometry ink, SolidColorBrush fill, SolidColorBrush outline)
     {
+        internal GlyphRun Run { get; } = run;
         internal Geometry Ink { get; } = ink;
         internal SolidColorBrush Fill { get; } = fill;
         internal SolidColorBrush Outline { get; } = outline;
         internal Point[] SamplePoints { get; set; } = [];
+        internal PortableGlyphContrastHistory Contrast { get; } = new();
     }
 
     internal PortableGlyphLayout(DrawingGroup nativeText, Size size, SolidColorBrush source)
     {
         var local = new Rect(size);
-        var rendered = CopyText(nativeText, Matrix.Identity, source.Color);
+        rendered = CopyText(nativeText, Matrix.Identity, source.Color);
         rendered.ClipGeometry = new RectangleGeometry(local);
-        // One opacity binding covers every glyph and its outline.
-        BindingOperations.SetBinding(rendered, DrawingGroup.OpacityProperty,
-            new Binding(nameof(Brush.Opacity)) { Source = source });
+        SetInkSource(source);
         Surface = new DrawingBrush(rendered)
         {
             ViewboxUnits = BrushMappingMode.Absolute, Viewbox = local,
@@ -39,6 +40,25 @@ internal sealed class PortableGlyphLayout
             Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top
         };
         foreach (var glyph in glyphs) glyph.SamplePoints = BuildSamples(glyph);
+    }
+
+    internal void SetInkSource(SolidColorBrush source) =>
+        BindingOperations.SetBinding(rendered, DrawingGroup.OpacityProperty,
+            new Binding(nameof(Brush.Opacity)) { Source = source });
+
+    internal void InheritColors(PortableGlyphLayout previous)
+    {
+        for (int index = 0; index < Math.Min(glyphs.Count, previous.glyphs.Count); index++)
+        {
+            var old = previous.glyphs[index];
+            var glyph = glyphs[index];
+            if (glyph.Run.GlyphTypeface.FontUri != old.Run.GlyphTypeface.FontUri ||
+                !glyph.Run.GlyphIndices.SequenceEqual(old.Run.GlyphIndices)) continue;
+            glyph.Fill.Color = old.Fill.Color;
+            glyph.Outline.Color = old.Outline.Color;
+            glyph.Outline.Opacity = old.Outline.Opacity;
+            glyph.Contrast.Inherit(old.Contrast);
+        }
     }
 
     DrawingGroup CopyText(DrawingGroup nativeText, Matrix toLabel, Color original)
@@ -64,7 +84,7 @@ internal sealed class PortableGlyphLayout
                     var ink = shape;
                     if (!toLabel.IsIdentity)
                         ink = new GeometryGroup { Children = { shape }, Transform = new MatrixTransform(toLabel) };
-                    var glyph = new Glyph(ink, new SolidColorBrush(original), new SolidColorBrush(Colors.Black) { Opacity = 0 });
+                    var glyph = new Glyph(cluster, ink, new SolidColorBrush(original), new SolidColorBrush(Colors.Black) { Opacity = 0 });
                     glyphs.Add(glyph);
                     Bounds = Rect.Union(Bounds, ink.Bounds);
                     rendered.Children.Add(new GeometryDrawing(null, new Pen(glyph.Outline, .9) { LineJoin = PenLineJoin.Round }, shape));
@@ -108,22 +128,23 @@ internal sealed class PortableGlyphLayout
         double middle = bounds.Top + bounds.Height * .5;
         Point[] candidates =
         [
-            new(first, bounds.Top - 1.4), new(last, bounds.Bottom + 1.4),
-            new(last, bounds.Top - 1.4), new(first, bounds.Bottom + 1.4),
-            new(bounds.Left - 1.4, middle), new(bounds.Right + 1.4, middle),
-            new(first, middle), new(last, middle)
+            new(first, bounds.Top - 2.25), new(last, bounds.Bottom + 2.25),
+            new(last, bounds.Top - 2.25), new(first, bounds.Bottom + 2.25),
+            new(bounds.Left - 2.25, middle), new(bounds.Right + 2.25, middle),
+            new(bounds.Left + bounds.Width * .5, bounds.Top - 2.25),
+            new(bounds.Left + bounds.Width * .5, bounds.Bottom + 2.25)
         ];
         return candidates.Where(point => !glyphs.Any(other =>
         {
             var nearby = other.Ink.Bounds;
-            nearby.Inflate(1, 1);
+            nearby.Inflate(1.6, 1.6);
             return nearby.Contains(point) && (other.Ink.FillContains(point) || other.Ink.StrokeContains(SampleMargin, point));
         })).ToArray();
     }
 
     static Pen CreateSampleMargin()
     {
-        var margin = new Pen(Brushes.Black, 1.5);
+        var margin = new Pen(Brushes.Black, 3.2);
         margin.Freeze();
         return margin;
     }

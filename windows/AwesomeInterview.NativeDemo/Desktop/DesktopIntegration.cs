@@ -150,6 +150,8 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableLocked = false;
             portableShowCompleted = false;
             portableShowingTasks = false;
+            portableRenderedPresentation = null;
+            portableRenderedTasks = [];
             portableTimeOffset = null;
             portableTaskOffset = 0;
             if (unlockPortable != null) unlockPortable.Enabled = false;

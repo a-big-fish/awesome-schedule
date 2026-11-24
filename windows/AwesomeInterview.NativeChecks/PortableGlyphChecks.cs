@@ -20,6 +20,10 @@ internal static class PortableGlyphChecks
                 layout.Glyphs[0].Fill.Color = Colors.Red;
                 layout.Glyphs[1].Fill.Color = Colors.Lime;
                 check(ContainsRedAndGreen(Render(title)), "two characters in the same portable label render different colors");
+                title.Arrange(new Rect(0, 0, 200, title.ActualHeight));
+                var resized = Render(title);
+                check(title.GlyphLayout != layout && ContainsRedAndGreen(resized),
+                    "resizing a portable label keeps the displayed colors through its new layout");
                 title.Text = "时间";
                 check(title.GlyphLayout == null && title.Background == null, "new portable label text clears old glyph drawings immediately");
 

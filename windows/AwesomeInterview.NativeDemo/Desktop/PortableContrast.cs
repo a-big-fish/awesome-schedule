@@ -17,13 +17,14 @@ namespace AwesomeInterview.NativeDemo;
 internal sealed partial class DesktopIntegration
 {
     static readonly TimeSpan PortableSettleTime = TimeSpan.FromMilliseconds(450);
-    static readonly TimeSpan PortableContrastRefresh = TimeSpan.FromSeconds(2);
-    static readonly Duration PortableInkTransition = new(TimeSpan.FromMilliseconds(180));
+    static readonly Duration PortableInkTransition = new(TimeSpan.FromMilliseconds(280));
+    static readonly SineEase PortableInkEase = CreatePortableInkEase();
+    readonly PortableContrastCadence portableContrastCadence = new();
     readonly List<PortableGlyphText> displayedPortableText = new();
     DispatcherTimer? portableContrastTimer;
     HwndSource? portableContrastSource;
     long portableContrastRevision;
-    bool portableMoving, portableSampling, portableSessionLocked;
+    bool portableMoving, portableSampling, portableSessionLocked, portableContrastUrgent;
 
     [DllImport("wtsapi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -99,9 +100,14 @@ internal sealed partial class DesktopIntegration
         value.SetValue(property, shown);
     }
 
-    void SchedulePortableContrast()
+    void SchedulePortableContrast(bool resetCadence = true)
     {
         if (portableContrastTimer == null) return;
+        if (resetCadence)
+        {
+            portableContrastCadence.Reset();
+            portableContrastUrgent = true;
+        }
         portableContrastRevision++;
         portableContrastTimer.Stop();
         if (portable is not { IsVisible: true } || portableMoving || portableSessionLocked) return;
@@ -122,6 +128,7 @@ internal sealed partial class DesktopIntegration
         portableContrastSource = null;
         portableMoving = false;
         portableSessionLocked = false;
+        portableContrastUrgent = false;
         displayedPortableText.Clear();
     }
 
@@ -130,7 +137,7 @@ internal sealed partial class DesktopIntegration
         if (sender is not DispatcherTimer timer || timer != portableContrastTimer ||
             portable is not { IsVisible: true } || portableMoving || portableSessionLocked) return;
         if (portableSampling) return;
-        timer.Interval = PortableContrastRefresh;
+        bool urgent = portableContrastUrgent;
         long revision = portableContrastRevision;
 
         var labels = new List<PortableLabelSample>();
@@ -146,10 +153,18 @@ internal sealed partial class DesktopIntegration
             foreach (var label in labels)
                 foreach (var glyph in label.Layout.Glyphs)
                     PaintPortableGlyph(glyph, new(SystemColors.WindowTextColor, null), false);
+            portableContrastUrgent = false;
+            timer.Interval = portableContrastCadence.AfterSample(false);
             return;
         }
 
-        var samples = labels.Select(label => PortableSamplePoints(label, labels)).ToArray();
+        Rect clockLine = Rect.Empty;
+        if (portableNowLine is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } line)
+        {
+            clockLine = ScreenBounds(line);
+            clockLine.Inflate(1, 1);
+        }
+        var samples = labels.Select(label => PortableSamplePoints(label, labels, clockLine)).ToArray();
         var locations = samples.SelectMany(label => label).SelectMany(glyph => glyph.Points).Distinct().ToArray();
         var sampler = readBackdrop ?? PortableBackdropSamples.Read;
         portableSampling = true;
@@ -159,6 +174,7 @@ internal sealed partial class DesktopIntegration
             if (revision != portableContrastRevision) return;
             var backdrop = new Color[PortableGlyphLayout.SamplesPerGlyph];
             bool animate = SystemParameters.ClientAreaAnimation;
+            bool backgroundChanged = false;
             for (int index = 0; index < labels.Count; index++)
             {
                 var label = labels[index];
@@ -168,11 +184,14 @@ internal sealed partial class DesktopIntegration
                     int count = 0;
                     foreach (var point in points)
                         if (colors.TryGetValue(point, out var color)) backdrop[count++] = color;
-                    var choice = PortableTextContrast.Choose(backdrop.AsSpan(0, count), source.Color,
-                        source.Opacity * label.Opacity, glyph.Fill.Color);
+                    var (choice, changed) = glyph.Contrast.Observe(backdrop.AsSpan(0, count), source.Color,
+                        source.Opacity * label.Opacity, urgent);
+                    backgroundChanged |= changed;
                     PaintPortableGlyph(glyph, choice, animate);
                 }
             }
+            portableContrastUrgent = false;
+            timer.Interval = portableContrastCadence.AfterSample(backgroundChanged || urgent);
         }
         finally { portableSampling = false; }
     }
@@ -226,7 +245,8 @@ internal sealed partial class DesktopIntegration
         return new Matrix(horizontal.X, horizontal.Y, vertical.X, vertical.Y, origin.X, origin.Y);
     }
 
-    static PortableGlyphSample[] PortableSamplePoints(PortableLabelSample label, IReadOnlyList<PortableLabelSample> labels)
+    static PortableGlyphSample[] PortableSamplePoints(PortableLabelSample label, IReadOnlyList<PortableLabelSample> labels,
+        Rect clockLine)
     {
         var transform = new MatrixTransform(label.ToScreen);
         var result = new List<PortableGlyphSample>(label.Layout.Glyphs.Count);
@@ -238,47 +258,65 @@ internal sealed partial class DesktopIntegration
                 .Distinct().Where(pixel =>
                 {
                     var point = new Point(pixel.X, pixel.Y);
-                    return label.Viewport.Contains(point) && !labels.Any(other =>
-                        other.Label != label.Label && other.InkBounds.Contains(point));
+                    return label.Viewport.Contains(point) && !clockLine.Contains(point) && !labels.Any(other =>
+                    {
+                        if (other.Label == label.Label) return false;
+                        var ink = other.InkBounds;
+                        ink.Inflate(1, 1);
+                        return ink.Contains(point);
+                    });
                 }).ToArray();
             result.Add(new(glyph, points));
         }
         return result.ToArray();
     }
 
-    void RestorePortableToolInk(Button button)
+    void UpdatePortableToolInk(Button button)
     {
+        if (button.Foreground is not SolidColorBrush ink) return;
         foreach (var label in displayedPortableText)
-            if (button.IsAncestorOf(label) && !ReferenceEquals(label.NativeInk, button.Foreground))
-                label.RestoreNativeInk();
+            if (button.IsAncestorOf(label)) label.UpdateNativeInk(ink);
     }
 
     static void PaintPortableGlyph(PortableGlyphLayout.Glyph glyph, PortableTextContrast.Choice choice, bool animate)
     {
         if (choice.Outline is Color outline)
-            ChangeColor(glyph.Outline, SolidColorBrush.ColorProperty, outline, animate);
+            ChangeColor(glyph.Outline, SolidColorBrush.ColorProperty, outline, animate && glyph.Outline.Opacity > 0);
         ChangeOpacity(glyph.Outline, choice.Outline != null ? .95 : 0, animate);
         ChangeColor(glyph.Fill, SolidColorBrush.ColorProperty, choice.Ink, animate);
     }
 
     static void ChangeColor(Animatable owner, DependencyProperty property, Color next, bool animate)
     {
+        if ((Color)owner.GetAnimationBaseValue(property) == next) return;
         var previous = (Color)owner.GetValue(property);
-        if (previous == next && (Color)owner.GetAnimationBaseValue(property) == next) return;
-        owner.BeginAnimation(property, null);
         owner.SetValue(property, next);
         if (animate && previous != next)
-            owner.BeginAnimation(property, new ColorAnimation(previous, next, PortableInkTransition) { FillBehavior = FillBehavior.Stop });
+            owner.BeginAnimation(property, new ColorAnimation(previous, next, PortableInkTransition)
+            {
+                FillBehavior = FillBehavior.Stop, EasingFunction = PortableInkEase
+            });
+        else owner.BeginAnimation(property, null);
     }
 
     static void ChangeOpacity(SolidColorBrush edge, double next, bool animate)
     {
+        if ((double)edge.GetAnimationBaseValue(Brush.OpacityProperty) == next) return;
         double previous = edge.Opacity;
-        if (previous == next && (double)edge.GetAnimationBaseValue(Brush.OpacityProperty) == next) return;
-        edge.BeginAnimation(Brush.OpacityProperty, null);
         edge.Opacity = next;
         if (animate && previous != next)
             edge.BeginAnimation(Brush.OpacityProperty,
-                new DoubleAnimation(previous, next, PortableInkTransition) { FillBehavior = FillBehavior.Stop });
+                new DoubleAnimation(previous, next, PortableInkTransition)
+                {
+                    FillBehavior = FillBehavior.Stop, EasingFunction = PortableInkEase
+                });
+        else edge.BeginAnimation(Brush.OpacityProperty, null);
+    }
+
+    static SineEase CreatePortableInkEase()
+    {
+        var easing = new SineEase { EasingMode = EasingMode.EaseInOut };
+        easing.Freeze();
+        return easing;
     }
 }

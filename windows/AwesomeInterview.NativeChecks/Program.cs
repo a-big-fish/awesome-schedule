@@ -354,6 +354,7 @@ ScrollPresentationChecks.Run(Check);
 await RememberedLoginChecks.Run(Check);
 PortableHoverChecks.Run(Check);
 PortableContrastChecks.Run(Check);
+PortableContrastStabilityChecks.Run(Check);
 PortableGlyphChecks.Run(Check);
 PortableAppearancePresetChecks.Run(Check);
 

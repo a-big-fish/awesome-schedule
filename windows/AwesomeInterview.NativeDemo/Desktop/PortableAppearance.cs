@@ -59,7 +59,7 @@ internal sealed partial class DesktopIntegration
         string ink = pinned ? "#2357CE" : "#192C46";
         button.Background = active ? Brush(fill) : PortableFill(fill);
         button.Foreground = active ? Brush(ink) : PortableInk(ink);
-        RestorePortableToolInk(button);
+        UpdatePortableToolInk(button);
         SchedulePortableContrast();
     }
 
@@ -368,7 +368,7 @@ internal sealed partial class DesktopIntegration
         unlock.Background = active ? Brush("#F6F9FF") : Brushes.Transparent;
         unlock.BorderBrush = active ? Brush("#ABBAD0") : Brush("#26657A98");
         unlock.Foreground = Brush("#192C46");
-        RestorePortableToolInk(unlock);
+        UpdatePortableToolInk(unlock);
         SchedulePortableContrast();
     }
 
