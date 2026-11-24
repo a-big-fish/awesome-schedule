@@ -23,6 +23,7 @@ internal sealed partial class DesktopIntegration
     readonly List<PortableGlyphText> displayedPortableText = new();
     DispatcherTimer? portableContrastTimer;
     HwndSource? portableContrastSource;
+    PortableForegroundWatcher? portableForegroundWatcher;
     long portableContrastRevision;
     bool portableMoving, portableSampling, portableSessionLocked, portableContrastUrgent;
 
@@ -49,6 +50,7 @@ internal sealed partial class DesktopIntegration
             {
                 source.AddHook(PortableContrastWindowMessage);
                 WTSRegisterSessionNotification(source.Handle, 0);
+                portableForegroundWatcher = new PortableForegroundWatcher(() => SchedulePortableContrast());
             }
         };
         window.IsVisibleChanged += (_, _) => SchedulePortableContrast();
@@ -120,6 +122,8 @@ internal sealed partial class DesktopIntegration
         portableContrastRevision++;
         portableContrastTimer?.Stop();
         portableContrastTimer = null;
+        portableForegroundWatcher?.Dispose();
+        portableForegroundWatcher = null;
         if (portableContrastSource is { IsDisposed: false } source)
         {
             WTSUnRegisterSessionNotification(source.Handle);
@@ -158,13 +162,15 @@ internal sealed partial class DesktopIntegration
             return;
         }
 
-        Rect clockLine = Rect.Empty;
-        if (portableNowLine is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } line)
+        var clockInk = new List<Rect>(2);
+        foreach (var element in new[] { portableNowLine, portableClock?.Parent as Border })
         {
-            clockLine = ScreenBounds(line);
-            clockLine.Inflate(1, 1);
+            if (element is not { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 }) continue;
+            var area = ScreenBounds(element);
+            area.Inflate(1, 1);
+            clockInk.Add(area);
         }
-        var samples = labels.Select(label => PortableSamplePoints(label, labels, clockLine)).ToArray();
+        var samples = labels.Select(label => PortableSamplePoints(label, labels, clockInk)).ToArray();
         var locations = samples.SelectMany(label => label).SelectMany(glyph => glyph.Points).Distinct().ToArray();
         var sampler = readBackdrop ?? PortableBackdropSamples.Read;
         portableSampling = true;
@@ -246,7 +252,7 @@ internal sealed partial class DesktopIntegration
     }
 
     static PortableGlyphSample[] PortableSamplePoints(PortableLabelSample label, IReadOnlyList<PortableLabelSample> labels,
-        Rect clockLine)
+        IReadOnlyList<Rect> clockInk)
     {
         var transform = new MatrixTransform(label.ToScreen);
         var result = new List<PortableGlyphSample>(label.Layout.Glyphs.Count);
@@ -258,7 +264,7 @@ internal sealed partial class DesktopIntegration
                 .Distinct().Where(pixel =>
                 {
                     var point = new Point(pixel.X, pixel.Y);
-                    return label.Viewport.Contains(point) && !clockLine.Contains(point) && !labels.Any(other =>
+                    return label.Viewport.Contains(point) && !clockInk.Any(area => area.Contains(point)) && !labels.Any(other =>
                     {
                         if (other.Label == label.Label) return false;
                         var ink = other.InkBounds;

@@ -6,7 +6,7 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed class PortableContrastCadence
 {
-    const int FastSeconds = 2, SlowSeconds = 30;
+    const int FastSeconds = 1, SlowSeconds = 2;
     int seconds = FastSeconds;
 
     internal TimeSpan AfterSample(bool changed)

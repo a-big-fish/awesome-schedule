@@ -8,12 +8,12 @@ internal static class PortableContrastStabilityChecks
         var cadence = new PortableContrastCadence();
         double[] intervals = [cadence.AfterSample(true).TotalSeconds,
             .. Enumerable.Range(0, 5).Select(_ => cadence.AfterSample(false).TotalSeconds)];
-        check(intervals.SequenceEqual(new double[] { 2, 4, 8, 16, 30, 30 }),
-            "unchanged portable backdrop progressively backs off sampling");
-        check(cadence.AfterSample(true) == TimeSpan.FromSeconds(2), "a changed backdrop restores the fast interval");
+        check(intervals.SequenceEqual(new double[] { 1, 2, 2, 2, 2, 2 }),
+            "the parked widget keeps polling for changes inside the same app");
+        check(cadence.AfterSample(true) == TimeSpan.FromSeconds(1), "a changed backdrop restores the fast interval");
         cadence.AfterSample(false);
         cadence.Reset();
-        check(cadence.AfterSample(false) == TimeSpan.FromSeconds(4), "widget activity resets the sampling backoff");
+        check(cadence.AfterSample(false) == TimeSpan.FromSeconds(2), "widget activity resets the sampling backoff");
 
         var ink = Color.FromRgb(25, 44, 70);
         var bright = Color.FromRgb(220, 218, 215);
