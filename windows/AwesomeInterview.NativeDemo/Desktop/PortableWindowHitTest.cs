@@ -21,10 +21,7 @@ internal static class PortableWindowHitTest
 
     public static bool CoversPoint(nint window, ScreenPoint point)
     {
-        if (!GetWindowRect(window, out var bounds) ||
-            point.X < bounds.Left || point.X >= bounds.Right ||
-            point.Y < bounds.Top || point.Y >= bounds.Bottom)
-            return false;
+        if (!ContainsPoint(window, point)) return false;
 
         var hit = WindowFromPoint(point);
         if (hit == 0) return false;
@@ -39,6 +36,10 @@ internal static class PortableWindowHitTest
     }
 
     internal static bool TryGetBounds(nint window, out DesktopRect bounds) => GetWindowRect(window, out bounds);
+
+    internal static bool ContainsPoint(nint window, ScreenPoint point) =>
+        TryGetBounds(window, out var bounds) && point.X >= bounds.Left && point.X < bounds.Right &&
+        point.Y >= bounds.Top && point.Y < bounds.Bottom;
 
     [DllImport("user32.dll")]
     static extern bool GetCursorPos(out ScreenPoint point);
