@@ -356,6 +356,7 @@ PortableHoverChecks.Run(Check);
 PortableContrastChecks.Run(Check);
 PortableContrastStabilityChecks.Run(Check);
 PortableGlyphChecks.Run(Check);
+DesktopWindowBoundsChecks.Run(Check);
 PortableAppearancePresetChecks.Run(Check);
 
 var monthBase = new EventData{Id="same",OwnerId="fixture",Type="personal",Title="跨天任务",

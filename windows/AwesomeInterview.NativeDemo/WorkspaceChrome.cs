@@ -61,6 +61,7 @@ public sealed partial class MainWindow
     {
         Show();
         WindowState = WindowState.Normal;
+        windowPlacement.FitNormal();
         Activate();
     }
 }

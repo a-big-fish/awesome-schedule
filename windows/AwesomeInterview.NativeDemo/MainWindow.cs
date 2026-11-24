@@ -41,6 +41,7 @@ public sealed partial class MainWindow : Window
     readonly InterviewWorkspace interviews;
     readonly SettingsPage settings;
     readonly DesktopIntegration desktop;
+    readonly NativeWindowPlacement windowPlacement;
 
     public MainWindow()
     {
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
         TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        windowPlacement = new NativeWindowPlacement(this);
         Background = Brush("#F6F8FC");
         Foreground = Brush("#192C46");
         FontFamily = new("Microsoft YaHei UI");

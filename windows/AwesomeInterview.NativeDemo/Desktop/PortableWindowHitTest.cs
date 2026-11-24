@@ -38,11 +38,7 @@ internal static class PortableWindowHitTest
         return false;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    struct ScreenRect
-    {
-        public int Left, Top, Right, Bottom;
-    }
+    internal static bool TryGetBounds(nint window, out DesktopRect bounds) => GetWindowRect(window, out bounds);
 
     [DllImport("user32.dll")]
     static extern bool GetCursorPos(out ScreenPoint point);
@@ -51,7 +47,7 @@ internal static class PortableWindowHitTest
     static extern short GetAsyncKeyState(int key);
 
     [DllImport("user32.dll")]
-    static extern bool GetWindowRect(nint window, out ScreenRect bounds);
+    static extern bool GetWindowRect(nint window, out DesktopRect bounds);
 
     [DllImport("user32.dll")]
     static extern nint WindowFromPoint(ScreenPoint point);

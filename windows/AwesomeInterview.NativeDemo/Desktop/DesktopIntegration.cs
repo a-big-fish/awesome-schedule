@@ -22,6 +22,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     Forms.ToolStripMenuItem? portableMenu;
     Window? portable;
     DockPanel? portableContent;
+    NativeWindowPlacement? portablePlacement;
     readonly DispatcherTimer dayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     DateTime portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
     bool exiting;
@@ -98,10 +99,11 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         portable = new Window
         {
             Title = "随身日程", Width = 620, Height = 540, MinWidth = 420, MinHeight = 320,
-            WindowStyle = WindowStyle.None, AllowsTransparency = true, ResizeMode = ResizeMode.CanResizeWithGrip,
-            ShowInTaskbar = false, Background = Brushes.Transparent, FontFamily = shell.FontFamily, FontSize = 12,
+            WindowStyle = WindowStyle.None, AllowsTransparency = true, ResizeMode = ResizeMode.CanResize,
+            ShowInTaskbar = false, Background = Brush("#01FFFFFF"), FontFamily = shell.FontFamily, FontSize = 12,
             UseLayoutRounding = true, SnapsToDevicePixels = true
         };
+        portablePlacement = new NativeWindowPlacement(portable, () => !PortablePassThrough);
 
         var dock = new DockPanel();
         dock.Children.Add(BuildPortableHeader());
@@ -141,6 +143,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableLockTool = null;
             portablePinTool = null;
             portable = null;
+            portablePlacement = null;
             portableContent = null;
             portableSurface = null;
             portableNowLine = null;
@@ -181,15 +184,33 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         var title = PortableLabel("随身日程", 13);
         title.FontWeight = FontWeights.SemiBold;
         title.VerticalAlignment = VerticalAlignment.Center;
+        title.ToolTip = "拖动移动，双击铺满或还原";
         controls.Children.Add(title);
         var header = new Border { Padding = new(10, 6, 8, 6), CornerRadius = new(13, 13, 0, 0), Child = controls };
         // ButtonBase handles its own mouse down. This handler covers the label, gaps and padding.
+        Point? dragOrigin = null;
         header.MouseLeftButtonDown += (_, e) =>
         {
-            if (portable is { IsVisible: true } window && !PortablePassThrough &&
-                e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
-                window.DragMove();
+            if (portable is not { IsVisible: true } window || PortablePassThrough ||
+                e.ButtonState != System.Windows.Input.MouseButtonState.Pressed) return;
+            e.Handled = true;
+            if (e.ClickCount == 2) { portablePlacement?.TogglePortableFill(); return; }
+            if (header.CaptureMouse()) dragOrigin = e.GetPosition(window);
         };
+        header.MouseMove += (_, e) =>
+        {
+            if (dragOrigin is not { } origin || portable is not { IsVisible: true } window ||
+                PortablePassThrough || e.LeftButton != System.Windows.Input.MouseButtonState.Pressed) return;
+            var pointer = e.GetPosition(window);
+            if (Math.Abs(pointer.X - origin.X) < SystemParameters.MinimumHorizontalDragDistance &&
+                Math.Abs(pointer.Y - origin.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+            header.ReleaseMouseCapture();
+            portablePlacement?.RestorePortableForDrag(window.PointToScreen(pointer));
+            window.DragMove();
+        };
+        header.MouseLeftButtonUp += (_, _) => { if (header.IsMouseCaptured) header.ReleaseMouseCapture(); };
+        header.LostMouseCapture += (_, _) => dragOrigin = null;
         header.SizeChanged += (_, _) => PositionPortableUnlock();
         DockPanel.SetDock(header, Dock.Top);
         portableHeader = header;
