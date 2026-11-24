@@ -9,9 +9,16 @@ internal sealed class PortableHoverGesture
     int anchorX, anchorY;
     long? hoveredSince;
     bool interactive;
+    (int X, int Y)? lockedPosition;
 
     public bool Update(bool overWindow, bool mouseBusy, int x, int y, long now)
     {
+        if (lockedPosition is { } position)
+        {
+            if (overWindow && Math.Abs(x - position.X) <= MovementTolerance && Math.Abs(y - position.Y) <= MovementTolerance)
+                return false;
+            lockedPosition = null;
+        }
         if (interactive)
         {
             if (!overWindow && !mouseBusy) Reset();
@@ -36,5 +43,8 @@ internal sealed class PortableHoverGesture
     {
         hoveredSince = null;
         interactive = false;
+        lockedPosition = null;
     }
+
+    public void WaitForMovement(int x, int y) => lockedPosition = (x, y);
 }

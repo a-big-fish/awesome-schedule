@@ -15,5 +15,11 @@ static class PortableHoverChecks
             "movement resets the dwell time");
         check(!hover.Update(true, true, 17, 10, 2700) && !hover.Update(true, false, 17, 10, 3000),
             "pressed mouse buttons cannot trigger dwell");
+        hover.Reset();
+        hover.WaitForMovement(17, 10);
+        check(!hover.Update(true, false, 17, 10, 3100) && !hover.Update(true, false, 18, 10, 5100),
+            "the pointer left in place at lock cannot trigger hover unlock");
+        check(!hover.Update(true, false, 24, 10, 5200) && hover.Update(true, false, 24, 10, 6000),
+            "deliberate movement can start a new hover dwell");
     }
 }

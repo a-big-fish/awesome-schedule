@@ -14,7 +14,8 @@ using AwesomeInterview.NativeDemo.Data;
 namespace AwesomeInterview.NativeDemo;
 
 internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages schedule,
-    Func<IReadOnlyCollection<System.Drawing.Point>, IReadOnlyDictionary<System.Drawing.Point, Color>>? readBackdrop = null)
+    Func<IReadOnlyCollection<System.Drawing.Point>, IReadOnlyDictionary<System.Drawing.Point, Color>>? readBackdrop = null,
+    string? preferencesPath = null)
 {
     DesktopPreferences preferences = new();
     Forms.NotifyIcon? tray;
@@ -24,7 +25,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     readonly DispatcherTimer dayTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     DateTime portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date;
     bool exiting;
-    string PreferencesPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AwesomeInterviewNativeDemo", "desktop-settings.json");
+    string PreferencesPath => preferencesPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AwesomeInterviewNativeDemo", "desktop-settings.json");
 
     internal void Initialize(Action showSettings)
     {
@@ -81,7 +82,13 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
 
     void ShowTaskDetail(PortableTask task)
     {
-        schedule.ShowEventDetail(task.Event, portable);
+        portableDetailOpen = true;
+        try { schedule.ShowEventDetail(task.Event, portable); }
+        finally
+        {
+            portableDetailOpen = false;
+            RestartPortableIdleTimer();
+        }
     }
 
     void TogglePortable()
@@ -109,6 +116,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         portable.Content = portableSurface;
         AttachPortableFocusReset(portable);
         AttachPortableContrast(portable);
+        AttachPortableIdleLock(portable);
         UpdatePortableTools();
         ApplyPortableAppearance();
         TextOptions.SetTextFormattingMode(portable, TextFormattingMode.Display);
@@ -124,6 +132,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         {
             StopPortableInput();
             StopPortableFocusReset();
+            StopPortableIdleTimer();
             portableHoverActive = false;
             portableUnlock = null;
             portableAppearancePanel = null;
@@ -179,6 +188,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
                 e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
                 window.DragMove();
         };
+        header.SizeChanged += (_, _) => PositionPortableUnlock();
         DockPanel.SetDock(header, Dock.Top);
         portableHeader = header;
         return header;

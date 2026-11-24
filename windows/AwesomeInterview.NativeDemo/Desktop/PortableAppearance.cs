@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Windows.Automation;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Forms=System.Windows.Forms;
@@ -39,11 +39,11 @@ internal sealed partial class DesktopIntegration
     Border? portableAppearancePanel;
     readonly System.Collections.Generic.List<Button> portableToolbarButtons=new();
 
-    Button PortableTool(string label, Action action, bool toolbar = true)
+    Button PortableTool(string label, Action action)
     {
         var button = PortableButton(label, action);
         button.Margin = new(4, 0, 0, 0);
-        if (toolbar) portableToolbarButtons.Add(button);
+        portableToolbarButtons.Add(button);
         button.MouseEnter+=(_,_)=>PaintPortableTool(button);
         button.MouseLeave+=(_,_)=>PaintPortableTool(button);
         button.IsKeyboardFocusedChanged+=(_,_)=>PaintPortableTool(button);
@@ -151,51 +151,13 @@ internal sealed partial class DesktopIntegration
         ApplyPortableAppearance();
     }
 
-    void AddPortableTransparencyControls(Panel body)
+    void PositionPortableUnlock()
     {
-        AddTransparencySlider(body, "整体透明度", PortableOverallOpacity, .9,
-            opacity => preferences = preferences with { PortableOverallOpacity = opacity });
-        AddTransparencySlider(body, "底色透明度", PortableBackgroundOpacity, 1,
-            opacity => preferences = preferences with { PortableOpacity = opacity });
-        AddTransparencySlider(body, "边框透明度", PortableBorderOpacity, 1,
-            opacity => preferences = preferences with { PortableBorderOpacity = opacity });
-        AddTransparencySlider(body, "字体透明度", PortableTextOpacity, .9,
-            opacity => preferences = preferences with { PortableTextOpacity = opacity });
+        if (portableUnlock is not { } unlock || portable is not { } window || portableHeader is not { } header) return;
+        unlock.Left = window.Left + (window.ActualWidth - unlock.Width) / 2;
+        unlock.Top = window.Top + (header.ActualHeight - unlock.Height) / 2 + (portableSurface?.BorderThickness.Top ?? 0);
     }
 
-    void AddTransparencySlider(Panel body, string name, double opacity, double maxTransparency, Action<double> change)
-    {
-        var row = new Grid { Margin = new(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new() { Width = new(74) });
-        row.ColumnDefinitions.Add(new());
-        row.ColumnDefinitions.Add(new() { Width = new(40) });
-        var title = Text(name, 11);
-        title.VerticalAlignment = VerticalAlignment.Center;
-        row.Children.Add(title);
-        var slider = new Slider
-        {
-            Minimum = 0, Maximum = maxTransparency, Value = Math.Clamp(1 - opacity, 0, maxTransparency),
-            SmallChange = .01, LargeChange = .1, VerticalAlignment = VerticalAlignment.Center,
-            Margin = new(2, 0, 3, 0)
-        };
-        AutomationProperties.SetName(slider, name);
-        Grid.SetColumn(slider, 1);
-        row.Children.Add(slider);
-        var value = Text(slider.Value.ToString("P0"), 11, "#52647D");
-        value.HorizontalAlignment = HorizontalAlignment.Right;
-        value.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(value, 2);
-        row.Children.Add(value);
-        slider.ValueChanged += (_, e) =>
-        {
-            value.Text = e.NewValue.ToString("P0");
-            change(1 - e.NewValue);
-            ApplyPortableAppearance();
-        };
-        body.Children.Add(row);
-    }
-
-    void PositionPortableUnlock(){if(portableUnlock!=null&&portable!=null){portableUnlock.Left=portable.Left+portable.ActualWidth-portableUnlock.Width-9;portableUnlock.Top=portable.Top+7;}}
     void ShowPortableUnlock()
     {
         if (portable == null) return;
@@ -204,17 +166,21 @@ internal sealed partial class DesktopIntegration
         {
             portableUnlock = new Window
             {
-                Owner = portable, Title = "恢复随身日程交互", Width = 90, Height = 27,
+                Owner = portable, Title = "恢复随身日程交互", Width = 100, Height = 33,
                 WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
                 Background = Brush("#01FFFFFF"), ShowInTaskbar = false, ShowActivated = false,
                 Topmost = portable.Topmost, FontFamily = shell.FontFamily
             };
-            var unlock = PortableTool("解锁交互", () => SetPortableLocked(false), toolbar: false);
-            unlock.Margin = new(0);
+            var unlock = CompactPortableButton("解锁交互", () => SetPortableLocked(false));
+            unlock.Margin = new(3);
             unlock.ToolTip = "关闭鼠标穿透，恢复完整交互";
+            unlock.Effect = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 3, Opacity = .22 };
+            unlock.MouseEnter += (_, _) => PaintPortableUnlock(unlock);
+            unlock.MouseLeave += (_, _) => PaintPortableUnlock(unlock);
+            unlock.IsKeyboardFocusedChanged += (_, _) => PaintPortableUnlock(unlock);
             portableUnlock.Content = unlock;
         }
-        ApplyPortableUnlockOpacity();
+        ApplyPortableUnlockAppearance();
         PositionPortableUnlock();
         if (!portableUnlock.IsVisible) portableUnlock.Show();
         SchedulePortableContrast();
@@ -249,6 +215,8 @@ internal sealed partial class DesktopIntegration
         portableHover.Reset();
         if (locked)
         {
+            if (PortableWindowHitTest.TryGetCursor(out var cursor))
+                portableHover.WaitForMovement(cursor.X, cursor.Y);
             ClosePortableAppearance();
             Keyboard.ClearFocus();
             SchedulePortableFocusReset();
@@ -270,6 +238,7 @@ internal sealed partial class DesktopIntegration
         }
 
         UpdatePortableTools();
+        RestartPortableIdleTimer();
         if (unlockPortable != null) unlockPortable.Enabled = locked;
         if (!locked) portable.Activate();
     }
@@ -286,6 +255,9 @@ internal sealed partial class DesktopIntegration
     {
         if (!portableLocked || portable is not { IsVisible: true } window) return;
         bool over = PortableWindowHitTest.TryGetCursor(out var point) && PortableWindowHitTest.CoversPoint(hwnd, point);
+        if (over && portableUnlock is { IsVisible: true } unlock &&
+            PortableWindowHitTest.CoversPoint(new WindowInteropHelper(unlock).Handle, point))
+            over = false;
         bool mouseBusy = PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
         bool interactive = portableHover.Update(over, mouseBusy, point.X, point.Y, Environment.TickCount64);
         if (interactive == portableHoverActive || !ApplyPortableInputStyle(hwnd, !interactive)) return;
@@ -303,13 +275,12 @@ internal sealed partial class DesktopIntegration
 
     void UpdatePortableTools()
     {
-        foreach (var tool in portableToolbarButtons)
-            tool.Visibility = PortablePassThrough ? Visibility.Hidden : Visibility.Visible;
+        ApplyPortableFrame();
         if (portableLockTool != null)
         {
             portableLockTool.Content = portableHoverActive ? "解除穿透" : "鼠标穿透";
             portableLockTool.ToolTip = portableHoverActive ? "关闭穿透，移开鼠标后仍可交互"
-                : "穿透后可滚动。悬停可临时操作，右上角可完全恢复。";
+                : "穿透后可滚动。悬停可临时操作，点击顶部的「解锁交互」可完全恢复。";
         }
         if (PortablePassThrough) ShowPortableUnlock();
         else portableUnlock?.Hide();
@@ -344,13 +315,12 @@ internal sealed partial class DesktopIntegration
             _ => Color.FromRgb(248, 250, 252)
         };
         portableSectionTint.Opacity = background;
+        portableAppearanceChanged?.Invoke();
 
         if (portable == null || portableSurface == null) return;
         // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.
         portableSurface.Background = Brush("#01FFFFFF");
-        var outline = Brush("#AABAD1");
-        outline.Opacity = overall * border;
-        portableSurface.BorderBrush = outline;
+        ApplyPortableFrame();
         if (portableHeader != null)
         {
             portableHeader.Background = portableSectionTint;
@@ -364,19 +334,39 @@ internal sealed partial class DesktopIntegration
             portablePinTool.ToolTip = preferences.PortableTopmost ? "取消随身日程置顶" : "保持随身日程置顶";
         }
         foreach (var button in portableToolbarButtons) PaintPortableTool(button);
-        ApplyPortableUnlockOpacity();
+        ApplyPortableUnlockAppearance();
         SchedulePortableContrast();
     }
 
-    void ApplyPortableUnlockOpacity()
+    void ApplyPortableFrame()
+    {
+        if (portableHeader != null)
+            portableHeader.Visibility = PortablePassThrough ? Visibility.Hidden : Visibility.Visible;
+        if (portableSurface == null) return;
+        if (PortablePassThrough) portableSurface.BorderBrush = Brushes.Transparent;
+        else
+        {
+            var outline = Brush("#AABAD1");
+            outline.Opacity = PortableOverallOpacity * PortableBorderOpacity;
+            portableSurface.BorderBrush = outline;
+        }
+    }
+
+    void ApplyPortableUnlockAppearance()
     {
         if (portableUnlock == null) return;
         portableUnlock.Topmost = preferences.PortableTopmost;
-        if (portableUnlock.Content is Button unlock)
-        {
-            unlock.Opacity = PortableOverallOpacity;
-            PaintPortableTool(unlock);
-        }
+        if (portableUnlock.Content is Button unlock) PaintPortableUnlock(unlock);
+    }
+
+    void PaintPortableUnlock(Button unlock)
+    {
+        bool active = unlock.IsMouseOver || unlock.IsKeyboardFocused || SystemParameters.HighContrast;
+        unlock.Background = active ? Brush("#F6F9FF") : Brushes.Transparent;
+        unlock.BorderBrush = active ? Brush("#ABBAD0") : Brush("#26657A98");
+        unlock.Foreground = Brush("#192C46");
+        if (active) RestorePortableToolInk(unlock);
+        SchedulePortableContrast();
     }
 
     void AddPortablePreferences(StackPanel body)
@@ -405,6 +395,7 @@ internal sealed partial class DesktopIntegration
             ApplyPortableAppearance();
         };
         body.Children.Add(topmost);
+        AddPortableIdleSetting(body);
         var feedback = Text("穿透时可用滚轮浏览。鼠标停稳约 0.8 秒可临时操作，移开后恢复穿透。", 13, "#64748B");
         body.Children.Add(feedback);
         body.Children.Add(Button("保存随身日程外观", () =>

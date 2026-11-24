@@ -5,6 +5,11 @@
   <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableHoverGesture.cs" Link="UI/PortableHoverGesture.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableTextContrast.cs" Link="UI/PortableTextContrast.cs" /></ItemGroup>
   <ItemGroup>
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/DesktopPreferences.cs" Link="UI/DesktopPreferences.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableAppearancePreset.cs" Link="UI/PortableAppearancePreset.cs" />
+    <None Include="../AwesomeInterview.NativeDemo/Presets/*.json" Link="Presets/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="../../tests/fixtures/calendar_projection_v1.json" Link="calendar_projection_v1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

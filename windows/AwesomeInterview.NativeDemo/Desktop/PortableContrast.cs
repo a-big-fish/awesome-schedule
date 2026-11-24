@@ -93,6 +93,7 @@ internal sealed partial class DesktopIntegration
         {
             portableMoving = false;
             SchedulePortableContrast();
+            RestartPortableIdleTimer();
         }
         return 0;
     }
