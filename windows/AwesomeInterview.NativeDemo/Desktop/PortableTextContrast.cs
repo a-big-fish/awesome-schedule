@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Windows.Media;
 
 namespace AwesomeInterview.NativeDemo;
@@ -11,9 +10,9 @@ internal static class PortableTextContrast
     static readonly Color Light = Colors.White;
     internal readonly record struct Choice(Color Ink, Color? Outline);
 
-    internal static Choice Choose(IReadOnlyList<Color> backdrop, Color original, double opacity, Color previous)
+    internal static Choice Choose(ReadOnlySpan<Color> backdrop, Color original, double opacity, Color previous)
     {
-        if (backdrop.Count == 0) return new(original, Colors.White);
+        if (backdrop.IsEmpty) return new(original, Colors.White);
         var originalScore = Score(backdrop, original, opacity);
         if (originalScore.Minimum >= MinimumContrast + (previous == original ? 0 : .25))
             return new(original, null);
@@ -30,7 +29,7 @@ internal static class PortableTextContrast
         return preferLight ? new(Light, Dark) : new(Dark, Light);
     }
 
-    static (double Minimum, double Mean) Score(IReadOnlyList<Color> backdrop, Color ink, double opacity)
+    static (double Minimum, double Mean) Score(ReadOnlySpan<Color> backdrop, Color ink, double opacity)
     {
         double minimum = double.PositiveInfinity, total = 0;
         foreach (var background in backdrop)
@@ -44,7 +43,7 @@ internal static class PortableTextContrast
             minimum = Math.Min(minimum, contrast);
             total += contrast;
         }
-        return (minimum, total / backdrop.Count);
+        return (minimum, total / backdrop.Length);
     }
 
     static double Luminance(double red, double green, double blue) =>

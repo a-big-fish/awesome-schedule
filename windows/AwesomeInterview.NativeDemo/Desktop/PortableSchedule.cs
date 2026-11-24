@@ -42,6 +42,7 @@ internal sealed partial class DesktopIntegration
     Button PortableButton(string label, Action action)
     {
         var button = CompactPortableButton(label, action);
+        button.ContentTemplateSelector = PortableGlyphTemplateSelector.Instance;
         button.Background = PortableFill("#FFFFFF");
         button.BorderBrush = PortableOutline("#ABBAD0");
         button.Foreground = PortableInk("#263650");
@@ -230,7 +231,7 @@ internal sealed partial class DesktopIntegration
             else laneEnds[lane] = top + height;
 
             var label = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            label.Children.Add(new TextBlock
+            label.Children.Add(new PortableGlyphText
             {
                 Text = task.Title, FontSize = 11, FontWeight = FontWeights.SemiBold,
                 TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center,
@@ -346,7 +347,7 @@ internal sealed partial class DesktopIntegration
                 hours.VerticalAlignment = VerticalAlignment.Center;
                 DockPanel.SetDock(hours, Dock.Right);
                 label.Children.Add(hours);
-                label.Children.Add(new TextBlock { Text = task.Title, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = PortableInk("#263650") });
+                label.Children.Add(new PortableGlyphText { Text = task.Title, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = PortableInk("#263650") });
                 detail.Content = label;
                 detail.HorizontalContentAlignment = HorizontalAlignment.Stretch;
                 detail.ToolTip = task.Title;

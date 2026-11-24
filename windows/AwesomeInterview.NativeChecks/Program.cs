@@ -354,6 +354,7 @@ ScrollPresentationChecks.Run(Check);
 await RememberedLoginChecks.Run(Check);
 PortableHoverChecks.Run(Check);
 PortableContrastChecks.Run(Check);
+PortableGlyphChecks.Run(Check);
 PortableAppearancePresetChecks.Run(Check);
 
 var monthBase = new EventData{Id="same",OwnerId="fixture",Type="personal",Title="跨天任务",

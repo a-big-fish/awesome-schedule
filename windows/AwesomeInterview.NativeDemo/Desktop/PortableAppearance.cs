@@ -59,7 +59,7 @@ internal sealed partial class DesktopIntegration
         string ink = pinned ? "#2357CE" : "#192C46";
         button.Background = active ? Brush(fill) : PortableFill(fill);
         button.Foreground = active ? Brush(ink) : PortableInk(ink);
-        if (active) RestorePortableToolInk(button);
+        RestorePortableToolInk(button);
         SchedulePortableContrast();
     }
 
@@ -78,9 +78,11 @@ internal sealed partial class DesktopIntegration
 
     TextBlock PortableText(string label, double size, string color, Thickness? margin = null)
     {
-        var text = Text(label, size, color, margin);
-        text.Foreground = PortableInk(color);
-        return text;
+        return new PortableGlyphText
+        {
+            Text = label, FontSize = size, Foreground = PortableInk(color),
+            TextWrapping = TextWrapping.Wrap, Margin = margin ?? new Thickness(0)
+        };
     }
 
     TextBlock PortableLabel(string label, double size = 13, Thickness? margin = null) =>
@@ -172,6 +174,7 @@ internal sealed partial class DesktopIntegration
                 Topmost = portable.Topmost, FontFamily = shell.FontFamily
             };
             var unlock = CompactPortableButton("解锁交互", () => SetPortableLocked(false));
+            unlock.ContentTemplateSelector = PortableGlyphTemplateSelector.Instance;
             unlock.Margin = new(3);
             unlock.ToolTip = "关闭鼠标穿透，恢复完整交互";
             unlock.Effect = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 3, Opacity = .22 };
@@ -365,7 +368,7 @@ internal sealed partial class DesktopIntegration
         unlock.Background = active ? Brush("#F6F9FF") : Brushes.Transparent;
         unlock.BorderBrush = active ? Brush("#ABBAD0") : Brush("#26657A98");
         unlock.Foreground = Brush("#192C46");
-        if (active) RestorePortableToolInk(unlock);
+        RestorePortableToolInk(unlock);
         SchedulePortableContrast();
     }
 
