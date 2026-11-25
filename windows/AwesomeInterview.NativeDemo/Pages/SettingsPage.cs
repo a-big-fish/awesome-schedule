@@ -46,7 +46,7 @@ internal sealed class SettingsPage(MainWindow shell, WorkspaceProfile accountPro
                 break;
             default:
                 body.Children.Add(Text("Awesome Interview", 22));
-                body.Children.Add(Text("Windows 1.6.0-W Preview 21 · WPF / .NET 10", 14, "#64748B", new(0, 12, 0, 0)));
+                body.Children.Add(Text("Windows 1.6.0-W Preview 22 · WPF / .NET 10", 14, "#64748B", new(0, 12, 0, 0)));
                 break;
         }
         Content.Children.Add(Surface(layout, new(26)));
