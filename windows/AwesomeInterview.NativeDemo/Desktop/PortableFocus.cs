@@ -15,7 +15,7 @@ internal sealed partial class DesktopIntegration
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (portable != window || !window.IsVisible || (window.IsActive && !PortablePassThrough))
+            if (portableDetailOpen || portable != window || !window.IsVisible || (window.IsActive && !PortablePassThrough))
                 return;
 
             ClosePortableAppearance();

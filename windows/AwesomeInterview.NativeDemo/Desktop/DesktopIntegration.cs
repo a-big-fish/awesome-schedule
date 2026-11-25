@@ -30,8 +30,30 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
 
     internal void Initialize(Action showSettings)
     {
-        try { if (File.Exists(PreferencesPath)) preferences = JsonSerializer.Deserialize<DesktopPreferences>(File.ReadAllText(PreferencesPath)) ?? new(); }
-        catch { shell.Status.Text = "窗口设置读取失败，使用默认值。"; }
+        try
+        {
+            if (File.Exists(PreferencesPath))
+            {
+                // Settings written before styles were introduced used the clear-outline defaults.
+                using var saved = JsonDocument.Parse(File.ReadAllText(PreferencesPath));
+                preferences = saved.RootElement.Deserialize<DesktopPreferences>() ?? new();
+                if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableOverallOpacity), out _))
+                    preferences = preferences with { PortableOverallOpacity = 1 };
+                if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableTextOpacity), out _))
+                    preferences = preferences with { PortableTextOpacity = 1 };
+                if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableBorderOpacity), out _))
+                    preferences = preferences with { PortableBorderOpacity = 1 };
+            }
+            else if (PortableAppearancePreset.TryRead(Path.Combine(EnsurePortableStyleFolder(),
+                PortableAppearancePreset.DefaultFile)) is { } style)
+            {
+                preferences = style.Apply(preferences);
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            shell.Status.Text = "窗口设置读取失败，使用默认值。";
+        }
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("打开主窗口", null, (_, _) => shell.Dispatcher.Invoke(shell.RestoreMain));
         portableMenu = new Forms.ToolStripMenuItem("开启随身日程");

@@ -1,5 +1,9 @@
+using System.IO;
 using System.Text.Json;
+using System.Windows;
+using System.Windows.Media;
 using AwesomeInterview.NativeDemo;
+using Pixel = System.Drawing.Point;
 
 internal static class PortableAppearancePresetChecks
 {
@@ -11,21 +15,70 @@ internal static class PortableAppearancePresetChecks
         if (presets.Count != 2) return;
 
         var clear = presets.Single(preset => preset.Name == "清透描边");
-        var soft = presets.Single(preset => preset.Name == "轻透淡影");
-        check(clear is { OverallTransparency: 0, BackgroundTransparency: 100, BorderTransparency: 0, TextTransparency: 0 }
-            && clear.Apply(defaults) == defaults && defaults.PortableAutoLockSeconds == 10,
-            "the second screenshot supplies fresh appearance defaults and idle lock defaults to ten seconds");
-        check(soft is { OverallTransparency: 64, BackgroundTransparency: 100, BorderTransparency: 64, TextTransparency: 6 },
-            "the first screenshot is preserved as the soft preset");
+        var soft = presets.Single(preset => preset.Name == "清透淡影");
+        check(clear is { OverallTransparency: 0, BackgroundTransparency: 100, BorderTransparency: 0, TextTransparency: 0 },
+            "the clear outline preset retains its appearance");
+        check(soft is { OverallTransparency: 50, BackgroundTransparency: 100, BorderTransparency: 100, TextTransparency: 30 }
+            && (soft.Apply(defaults) with { PortableStyle = null, PortableStyleFile = null }) == defaults &&
+            defaults.PortableAutoLockSeconds == 10, "the new screenshot is the fresh installation default");
 
         var existing = JsonSerializer.Deserialize<DesktopPreferences>(
             """{"PortableOpacity":0.73,"PortableTextOpacity":0.89,"PortableColor":"warm","PortableTopmost":false}""")!;
         check(existing is { PortableOpacity: .73, PortableTextOpacity: .89, PortableAutoLockSeconds: 10 },
-            "legacy saved appearance is preserved when the idle setting is added");
+            "stored opacity settings survive introducing style files");
         var applied = soft.Apply(existing with { PortableAutoLockSeconds = 30 });
-        check(applied is { PortableColor: "warm", PortableTopmost: false, PortableAutoLockSeconds: 30, PortableOpacity: 0, PortableTextOpacity: .94 }
-            && Math.Abs(applied.PortableOverallOpacity - .36) < .00001
-            && Math.Abs(applied.PortableBorderOpacity - .36) < .00001,
-            "selecting a preset updates only the four appearance sliders");
+        check(applied is { PortableColor: "warm", PortableTopmost: false, PortableAutoLockSeconds: 30,
+            PortableOpacity: 0, PortableTextOpacity: .70, PortableOverallOpacity: .50, PortableBorderOpacity: 0 },
+            "applying a style leaves interaction preferences intact");
+
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            var local = PortableAppearancePreset.EnsureFolder(Path.Combine(root.FullName, "PortableStyles"));
+            string file = Path.Combine(root.FullName, "custom.json");
+            File.WriteAllText(file, """
+                {
+                  // Copy this file into the styles directory or import it.
+                  "Version": 1,
+                  "Name": "自定义",
+                  "OverallTransparency": 12,
+                  "BackgroundTransparency": 70,
+                  "BorderTransparency": 25,
+                  "TextTransparency": 10,
+                  "Style": { "TextColor": "#DDEEFF", "GlassStrength": 0, "GlassRadius": 11, },
+                }
+                """);
+            var imported = PortableAppearancePreset.Import(file, local);
+            var duplicate = PortableAppearancePreset.Import(file, local);
+            check(imported.FileName == "custom.json" && duplicate.FileName == "custom-2.json" &&
+                  PortableAppearancePreset.ReadFolder(local).Contains(imported) &&
+                  imported.Apply(defaults).PortableStyle is { TextColor: "#DDEEFF", GlassStrength: 0, GlassRadius: 11 },
+                "commented JSON imports without overwriting an existing style and persists custom tokens");
+
+            string edited = Path.Combine(local, PortableAppearancePreset.DefaultFile);
+            string source = File.ReadAllText(edited);
+            File.WriteAllText(edited, source.Replace("\"GlassStrength\": 42", "\"GlassStrength\": 21"));
+            PortableAppearancePreset.EnsureFolder(local);
+            check(PortableAppearancePreset.ReadFolder(local).Single(style => style.FileName == PortableAppearancePreset.DefaultFile)
+                      .Style?.GlassStrength == 21, "user edits survive reseeding built-in styles and are read from disk");
+
+            File.WriteAllText(file, source.Replace("\"Version\": 1", "\"Version\": 2"));
+            try { PortableAppearancePreset.Import(file, local); check(false, "unsupported styles are rejected"); }
+            catch (JsonException) { check(PortableAppearancePreset.ReadFolder(local).Count == 4, "unsupported styles leave the saved directory unchanged"); }
+        }
+        finally { root.Delete(recursive: true); }
+
+        var glass = new PortableGlass(new Rect(0, 0, 240, 24), new Rect(83, 41, 240, 24), PortableStyle.Default);
+        var capture = glass.SamplePoints.Distinct().ToDictionary(point => point, point => point.X % 8 < 4 ? Colors.White : Colors.Black);
+        var pixels = glass.Render(capture)!;
+        var bitmap = glass.Image(pixels);
+        int stride = bitmap.PixelWidth * 4;
+        int middle = (bitmap.PixelHeight / 2) * stride;
+        check(pixels[middle + 3] == 0 && pixels[middle + stride - 1] == 0 &&
+              pixels[middle + 7] > 0 && pixels[middle + 7] < pixels[middle + stride / 2 + 3] &&
+              pixels[middle + stride / 2] is > 0 and < 255,
+            "frosted strip blurs sampled detail and feathers both ends to fully transparent");
+        capture.Clear();
+        check(glass.Render(capture) == null, "unavailable background cannot produce a stale or black glass strip");
     }
 }

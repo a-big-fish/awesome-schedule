@@ -32,6 +32,7 @@ internal sealed partial class DesktopIntegration
     double PortableBackgroundOpacity => Math.Clamp(preferences.PortableOpacity, 0, 1);
     double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
     double PortableBorderOpacity => Math.Clamp(preferences.PortableBorderOpacity, 0, 1);
+    PortableStyle ActivePortableStyle => preferences.PortableStyle is { IsValid: true } style ? style : PortableStyle.Default;
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
     TextBlock? portableClock;
@@ -59,23 +60,32 @@ internal sealed partial class DesktopIntegration
         string fill = pinned ? "#EBF2FF" : "#F6F9FF";
         string ink = pinned ? "#2357CE" : "#192C46";
         button.Background = active ? Brush(fill) : PortableFill(fill);
-        button.Foreground = active ? Brush(ink) : PortableInk(ink);
+        button.Foreground = active ? Brush(PortableInkColor(ink)) : PortableInk(ink);
         UpdatePortableToolInk(button);
         SchedulePortableContrast();
     }
 
-    static SolidColorBrush OpacityBrush(Dictionary<string, SolidColorBrush> brushes, string color, double opacity)
+    static SolidColorBrush OpacityBrush(Dictionary<string, SolidColorBrush> brushes, string color, double opacity, string? configured)
     {
         if (brushes.TryGetValue(color, out var existing)) return existing;
-        var brush = Brush(color);
+        var brush = Brush(configured ?? color);
         brush.Opacity = opacity;
         brushes.Add(color, brush);
         return brush;
     }
 
-    SolidColorBrush PortableFill(string color) => OpacityBrush(portableFillBrushes, color, PortableBackgroundOpacity);
-    SolidColorBrush PortableInk(string color) => OpacityBrush(portableInkBrushes, color, PortableTextOpacity);
-    SolidColorBrush PortableOutline(string color) => OpacityBrush(portableOutlineBrushes, color, PortableBorderOpacity);
+    SolidColorBrush PortableFill(string color) => OpacityBrush(portableFillBrushes, color, PortableBackgroundOpacity, PortableFillColor(color));
+    SolidColorBrush PortableInk(string color) => OpacityBrush(portableInkBrushes, color, PortableTextOpacity, PortableInkColor(color));
+    SolidColorBrush PortableOutline(string color) => OpacityBrush(portableOutlineBrushes, color, PortableBorderOpacity, ActivePortableStyle.OutlineColor);
+
+    string PortableFillColor(string color) => color == "#EDF3FF" ? ActivePortableStyle.EventColor ?? color : color;
+    string PortableInkColor(string color) => color switch
+    {
+        "#192C46" or "#263650" => ActivePortableStyle.TextColor ?? color,
+        "#52647D" => ActivePortableStyle.MutedTextColor ?? color,
+        PortableNowAccent or "#2357CE" => ActivePortableStyle.AccentColor ?? color,
+        _ => color
+    };
 
     TextBlock PortableText(string label, double size, string color, Thickness? margin = null)
     {
@@ -127,7 +137,7 @@ internal sealed partial class DesktopIntegration
         {
             var choice = CompactPortableButton(label, () =>
             {
-                preferences = preferences with { PortableColor = color };
+                preferences = preferences with { PortableColor = color, PortableStyle = ActivePortableStyle with { SectionColor = null } };
                 ApplyPortableAppearance();
             });
             choice.Margin = new(0, 0, 5, 0);
@@ -320,11 +330,24 @@ internal sealed partial class DesktopIntegration
     void ApplyPortableAppearance()
     {
         double overall = PortableOverallOpacity, background = PortableBackgroundOpacity, ink = PortableTextOpacity;
-        foreach (var brush in portableFillBrushes.Values) brush.Opacity = background;
-        foreach (var brush in portableInkBrushes.Values) brush.Opacity = ink;
+        foreach (var (color, brush) in portableFillBrushes)
+        {
+            brush.Color = Brush(PortableFillColor(color)).Color;
+            brush.Opacity = background;
+        }
+        foreach (var (color, brush) in portableInkBrushes)
+        {
+            brush.Color = Brush(PortableInkColor(color)).Color;
+            brush.Opacity = ink;
+        }
         double border = PortableBorderOpacity;
-        foreach (var brush in portableOutlineBrushes.Values) brush.Opacity = border;
-        portableSectionTint.Color = preferences.PortableColor switch
+        foreach (var (color, brush) in portableOutlineBrushes)
+        {
+            brush.Color = Brush(ActivePortableStyle.OutlineColor ?? color).Color;
+            brush.Opacity = border;
+        }
+        portableSectionTint.Color = ActivePortableStyle.SectionColor is { } sectionColor ? Brush(sectionColor).Color :
+            preferences.PortableColor switch
         {
             "blue" => Color.FromRgb(236, 243, 253),
             "warm" => Color.FromRgb(250, 246, 237),
@@ -332,6 +355,7 @@ internal sealed partial class DesktopIntegration
         };
         portableSectionTint.Opacity = background;
         portableAppearanceChanged?.Invoke();
+        if (ActivePortableStyle.GlassStrength == 0) ClearPortableGlass();
 
         if (portable == null || portableSurface == null) return;
         // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.
@@ -398,7 +422,7 @@ internal sealed partial class DesktopIntegration
         palette.SelectionChanged += (_, _) =>
         {
             preferences = preferences with { PortableColor = palette.SelectedIndex == 1 ? "blue"
-                : palette.SelectedIndex == 2 ? "warm" : "white" };
+                : palette.SelectedIndex == 2 ? "warm" : "white", PortableStyle = ActivePortableStyle with { SectionColor = null } };
             ApplyPortableAppearance();
         };
         body.Children.Add(palette);

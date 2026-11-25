@@ -54,12 +54,12 @@ internal sealed partial class DesktopIntegration
             }
         };
         window.IsVisibleChanged += (_, _) => SchedulePortableContrast();
-        window.LocationChanged += (_, _) => SchedulePortableContrast();
-        window.SizeChanged += (_, _) => SchedulePortableContrast();
-        window.DpiChanged += (_, _) => SchedulePortableContrast();
+        window.LocationChanged += (_, _) => PortableGlassGeometryChanged();
+        window.SizeChanged += (_, _) => PortableGlassGeometryChanged();
+        window.DpiChanged += (_, _) => PortableGlassGeometryChanged();
         window.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, args) =>
         {
-            if (args.HorizontalChange != 0 || args.VerticalChange != 0) SchedulePortableContrast();
+            if (args.HorizontalChange != 0 || args.VerticalChange != 0) PortableGlassGeometryChanged();
         }), handledEventsToo: true);
     }
 
@@ -75,7 +75,7 @@ internal sealed partial class DesktopIntegration
         if (message == EnterSizeMove)
         {
             portableMoving = true;
-            SchedulePortableContrast();
+            PortableGlassGeometryChanged();
             foreach (var label in displayedPortableText)
                 if (label.GlyphLayout is { } layout)
                     foreach (var glyph in layout.Glyphs)
@@ -100,6 +100,18 @@ internal sealed partial class DesktopIntegration
         var shown = value.GetValue(property);
         value.BeginAnimation(property, null);
         value.SetValue(property, shown);
+    }
+
+    void ClearPortableGlass()
+    {
+        foreach (var label in displayedPortableText)
+            label.GlyphLayout?.SetGlass(null, null);
+    }
+
+    void PortableGlassGeometryChanged()
+    {
+        ClearPortableGlass();
+        SchedulePortableContrast();
     }
 
     void SchedulePortableContrast(bool resetCadence = true)
@@ -154,6 +166,7 @@ internal sealed partial class DesktopIntegration
 
         if (SystemParameters.HighContrast)
         {
+            ClearPortableGlass();
             foreach (var label in labels)
                 foreach (var glyph in label.Layout.Glyphs)
                     PaintPortableGlyph(glyph, new(SystemColors.WindowTextColor, null), false);
@@ -170,13 +183,30 @@ internal sealed partial class DesktopIntegration
             area.Inflate(1, 1);
             clockInk.Add(area);
         }
-        var samples = labels.Select(label => PortableSamplePoints(label, labels, clockInk)).ToArray();
-        var locations = samples.SelectMany(label => label).SelectMany(glyph => glyph.Points).Distinct().ToArray();
+        var style = ActivePortableStyle;
+        var glass = labels.Select(label => PlanPortableGlass(label, style)).ToArray();
+        var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
+        var blocked = clockInk.Concat(glassBounds).ToArray();
+        var samples = labels.Select(label => PortableSamplePoints(label, labels, blocked)).ToArray();
+        var glassPoints = labels.Select((label, index) => glass[index]?.SamplePoints.Where(pixel =>
+        {
+            var point = new Point(pixel.X, pixel.Y);
+            return label.Viewport.Contains(point) && !blocked.Any(area => area.Contains(point)) &&
+                !labels.Any(other => other.InkBounds.Contains(point));
+        }).Distinct().ToArray() ?? []).ToArray();
+        var locations = samples.SelectMany(label => label).SelectMany(glyph => glyph.Points)
+            .Concat(glassPoints.SelectMany(points => points)).Distinct().ToArray();
         var sampler = readBackdrop ?? PortableBackdropSamples.Read;
         portableSampling = true;
         try
         {
-            var colors = await Task.Run(() => sampler(locations));
+            var (colors, glassPixels) = await Task.Run(() =>
+            {
+                var colors = sampler(locations);
+                var frames = glass.Select((patch, index) => patch?.Render(glassPoints[index]
+                    .Where(colors.ContainsKey).ToDictionary(point => point, point => colors[point]))).ToArray();
+                return (colors, frames);
+            });
             if (revision != portableContrastRevision) return;
             var backdrop = new Color[PortableGlyphLayout.SamplesPerGlyph];
             bool animate = SystemParameters.ClientAreaAnimation;
@@ -185,11 +215,23 @@ internal sealed partial class DesktopIntegration
             {
                 var label = labels[index];
                 if (label.Label.GlyphLayout != label.Layout || label.Label.NativeInk is not { } source) continue;
+                label.Layout.SetGlass(glass[index], glassPixels[index]);
                 foreach (var (glyph, points) in samples[index])
                 {
                     int count = 0;
                     foreach (var point in points)
                         if (colors.TryGetValue(point, out var color)) backdrop[count++] = color;
+                    if (count == 0 && glass[index] != null)
+                    {
+                        var anchor = label.ToScreen.Transform(glyph.Ink.Bounds.Location);
+                        var nearest = glassPoints[index].OrderBy(point =>
+                            Math.Abs(point.X - anchor.X) + Math.Abs(point.Y - anchor.Y));
+                        foreach (var point in nearest)
+                        {
+                            if (colors.TryGetValue(point, out var color)) backdrop[count++] = color;
+                            if (count == backdrop.Length) break;
+                        }
+                    }
                     var (choice, changed) = glyph.Contrast.Observe(backdrop.AsSpan(0, count), source.Color,
                         source.Opacity * label.Opacity, urgent);
                     backgroundChanged |= changed;
@@ -200,6 +242,23 @@ internal sealed partial class DesktopIntegration
             timer.Interval = portableContrastCadence.AfterSample(backgroundChanged || urgent);
         }
         finally { portableSampling = false; }
+    }
+
+    static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style)
+    {
+        if (style.GlassStrength == 0 || !label.ToScreen.HasInverse) return null;
+        var ink = label.Layout.Bounds;
+        ink.Inflate(style.GlassFeather, style.GlassFeather);
+        ink.Intersect(new Rect(label.Label.RenderSize));
+
+        var transform = new MatrixTransform(label.ToScreen);
+        var screen = transform.TransformBounds(ink);
+        screen.Intersect(label.Viewport);
+        if (screen.IsEmpty || screen.Width < 3 || screen.Height < 3) return null;
+        var inverse = label.ToScreen;
+        inverse.Invert();
+        var local = new MatrixTransform(inverse).TransformBounds(screen);
+        return new PortableGlass(local, screen, style);
     }
 
     static void CollectPortableLabels(FrameworkElement? root, List<PortableLabelSample> labels)

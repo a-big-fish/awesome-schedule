@@ -1,34 +1,111 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace AwesomeInterview.NativeDemo;
 
 internal sealed record PortableAppearancePreset(string Name, int OverallTransparency, int BackgroundTransparency,
-    int BorderTransparency, int TextTransparency)
+    int BorderTransparency, int TextTransparency, PortableStyle? Style = null, int Version = 1)
 {
-    internal static IReadOnlyList<PortableAppearancePreset> BuiltIn { get; } = ReadBuiltIn(AppContext.BaseDirectory);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FileName { get; init; }
+
+    internal const string DefaultFile = "soft-silhouette.json";
+    static readonly string[] Packaged = ["clear-outline.json", DefaultFile];
+    static readonly JsonSerializerOptions Options = new()
+    {
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
+    internal static IReadOnlyList<PortableAppearancePreset> BuiltIn => ReadBuiltIn(AppContext.BaseDirectory);
 
     internal static IReadOnlyList<PortableAppearancePreset> ReadBuiltIn(string appDirectory)
     {
-        var presets = new List<PortableAppearancePreset>(2);
-        foreach (string file in new[] { "clear-outline.json", "soft-silhouette.json" })
+        var folder = Path.Combine(appDirectory, "PortableStyles");
+        return Packaged.Select(file => TryRead(Path.Combine(folder, file))).OfType<PortableAppearancePreset>().ToArray();
+    }
+
+    internal static string EnsureFolder(string folder)
+    {
+        Directory.CreateDirectory(folder);
+        foreach (var file in Packaged.Append("README.md"))
         {
-            try
+            var destination = Path.Combine(folder, file);
+            if (!File.Exists(destination))
             {
-                string path = Path.Combine(appDirectory, "Presets", file);
-                var preset = JsonSerializer.Deserialize<PortableAppearancePreset>(File.ReadAllText(path));
-                if (preset is { Name.Length: > 0, OverallTransparency: >= 0 and <= 90,
-                    BackgroundTransparency: >= 0 and <= 100, BorderTransparency: >= 0 and <= 100,
-                    TextTransparency: >= 0 and <= 90 })
-                    presets.Add(preset);
+                var source = Path.Combine(AppContext.BaseDirectory, "PortableStyles", file);
+                if (File.Exists(source)) File.Copy(source, destination);
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            catch (JsonException) { }
+        }
+        return folder;
+    }
+
+    internal static IReadOnlyList<PortableAppearancePreset> ReadFolder(string folder)
+    {
+        var presets = new List<PortableAppearancePreset>();
+        foreach (var path in Directory.EnumerateFiles(folder, "*.json")
+            .OrderBy(path => Path.GetFileName(path) != "clear-outline.json")
+            .ThenBy(path => Path.GetFileName(path) != DefaultFile)
+            .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
+        {
+            if (TryRead(path) is { } preset) presets.Add(preset);
         }
         return presets;
+    }
+
+    internal static PortableAppearancePreset Import(string path, string folder)
+    {
+        var preset = Read(path);
+        string name = Path.GetFileName(path);
+        string destination = Path.Combine(folder, name);
+        if (string.Equals(Path.GetFullPath(path), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+            return preset;
+        for (int index = 2; File.Exists(destination); index++)
+            destination = Path.Combine(folder, $"{Path.GetFileNameWithoutExtension(name)}-{index}.json");
+
+        string temporary = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write))
+                JsonSerializer.Serialize(stream, preset, new JsonSerializerOptions { WriteIndented = true,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+            File.Move(temporary, destination);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+        return preset with { FileName = Path.GetFileName(destination) };
+    }
+
+    internal static PortableAppearancePreset? TryRead(string path)
+    {
+        try { return Read(path); }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+        catch (JsonException) { return null; }
+    }
+
+    static PortableAppearancePreset Read(string path)
+    {
+        using var stream = File.OpenRead(path);
+        if (stream.Length > 64 * 1024) throw new JsonException("样式文件过大。");
+        using var document = JsonDocument.Parse(stream, new JsonDocumentOptions
+        { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty(nameof(Name), out _) ||
+            !root.TryGetProperty(nameof(OverallTransparency), out _) || !root.TryGetProperty(nameof(BackgroundTransparency), out _) ||
+            !root.TryGetProperty(nameof(BorderTransparency), out _) || !root.TryGetProperty(nameof(TextTransparency), out _))
+            throw new JsonException("样式缺少名称或透明度字段。");
+
+        var preset = root.Deserialize<PortableAppearancePreset>(Options);
+        if (preset is not { Version: 1, Name.Length: > 0 and <= 40, OverallTransparency: >= 0 and <= 90,
+            BackgroundTransparency: >= 0 and <= 100, BorderTransparency: >= 0 and <= 100, TextTransparency: >= 0 and <= 90 } ||
+            string.IsNullOrWhiteSpace(preset.Name) || preset.Style?.IsValid == false)
+            throw new JsonException("样式版本、透明度、色值或磨砂参数超出范围。");
+        return preset with { FileName = Path.GetFileName(path) };
     }
 
     internal DesktopPreferences Apply(DesktopPreferences current) => current with
@@ -36,6 +113,8 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
         PortableOverallOpacity = 1 - OverallTransparency / 100d,
         PortableOpacity = 1 - BackgroundTransparency / 100d,
         PortableBorderOpacity = 1 - BorderTransparency / 100d,
-        PortableTextOpacity = 1 - TextTransparency / 100d
+        PortableTextOpacity = 1 - TextTransparency / 100d,
+        PortableStyle = Style ?? PortableStyle.Default,
+        PortableStyleFile = FileName
     };
 }

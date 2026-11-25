@@ -7,7 +7,9 @@ internal sealed record DesktopPreferences(
     double PortableOpacity = 0,
     string PortableColor = "white",
     bool PortableTopmost = true,
-    double PortableOverallOpacity = 1,
-    double PortableTextOpacity = 1,
-    double PortableBorderOpacity = 1,
-    int PortableAutoLockSeconds = 10);
+    double PortableOverallOpacity = .50,
+    double PortableTextOpacity = .70,
+    double PortableBorderOpacity = 0,
+    int PortableAutoLockSeconds = 10,
+    PortableStyle? PortableStyle = null,
+    string? PortableStyleFile = null);
