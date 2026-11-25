@@ -19,6 +19,7 @@
     <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableAppearancePreset.cs" Link="UI/PortableAppearancePreset.cs" />
     <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableStyle.cs" Link="UI/PortableStyle.cs" />
     <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlass.cs" Link="UI/PortableGlass.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlassOptics.cs" Link="UI/PortableGlassOptics.cs" />
     <None Include="../AwesomeInterview.NativeDemo/PortableStyles/*.json;../AwesomeInterview.NativeDemo/PortableStyles/README.md" Link="PortableStyles/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>

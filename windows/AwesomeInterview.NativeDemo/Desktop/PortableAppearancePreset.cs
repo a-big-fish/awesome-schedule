@@ -20,7 +20,8 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     static readonly PortableStyle[] PreviousFrostedStyles =
     [
         new(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16),
-        new(GlassStrength: 85, GlassRadius: 14, GlassFeather: 24)
+        new(GlassStrength: 85, GlassRadius: 14, GlassFeather: 24),
+        new(GlassStrength: 60, GlassRadius: 14, GlassFeather: 14, GlassTone: "light")
     ];
     static readonly JsonSerializerOptions Options = new()
     {
@@ -43,7 +44,7 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
             var destination = Path.Combine(folder, file);
             bool exists = File.Exists(destination);
             bool previous = exists && (file == "README.md"
-                ? !File.ReadAllText(destination).Contains("`Style.GlassTone`", StringComparison.Ordinal)
+                ? !File.ReadAllText(destination).Contains("`Style.GlassRefraction`", StringComparison.Ordinal)
                 : MatchesPreviousBundledPreset(TryRead(destination)));
             if (!exists || previous)
             {

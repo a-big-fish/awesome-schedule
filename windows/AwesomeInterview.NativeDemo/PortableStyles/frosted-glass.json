@@ -9,6 +9,7 @@
     "GlassStrength": 60,
     "GlassRadius": 14,
     "GlassFeather": 14,
-    "GlassTone": "light"
+    "GlassTone": "auto",
+    "GlassRefraction": 7
   }
 }

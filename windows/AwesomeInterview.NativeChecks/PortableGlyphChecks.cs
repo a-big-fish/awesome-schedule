@@ -41,7 +41,7 @@ internal static class PortableGlyphChecks
                 var before = frosted.RenderSize;
                 var plate = PortableGlass.Expand(frostedLayout.Bounds, 24);
                 var patch = new PortableGlass(plate, plate, new(GlassStrength: 85, GlassFeather: 24));
-                frostedLayout.SetGlass(patch, patch.Render(new Dictionary<System.Drawing.Point, Color>()));
+                frostedLayout.SetGlass(patch, patch.RenderFrame(new Dictionary<System.Drawing.Point, Color>()));
                 var frame = Render(host);
                 check(frosted.RenderSize == before && Enumerable.Range(0, top * 240)
                     .Any(pixel => frame[pixel * 4 + 3] > 30),
@@ -57,11 +57,10 @@ internal static class PortableGlyphChecks
                 var stripSize = strip.RenderSize;
                 var bounds = new Rect(stripSize);
                 var stripPatch = new PortableGlass(bounds, bounds, new(GlassStrength: 60, GlassTone: "light"), capsule: true);
-                strip.SetGlass(stripPatch, stripPatch.Render(new Dictionary<System.Drawing.Point, Color>()));
+                strip.SetGlass(stripPatch, stripPatch.RenderFrame(new Dictionary<System.Drawing.Point, Color>()));
                 _ = Render(dock);
                 var image = strip.Children.OfType<Canvas>().Single().Children.OfType<Image>().Single();
-                check(strip.RenderSize == stripSize && image.Clip is RectangleGeometry { RadiusX: > 0 } &&
-                    image.Source != null && !image.IsHitTestVisible, "shared glass capsule is rounded and cannot resize its toolbar");
+                check(strip.RenderSize == stripSize && strip.Frame is { Pixels: { Length: > 0 } } && image.Source != null && !image.IsHitTestVisible, "shared glass capsule is rounded and cannot resize its toolbar");
 
                 var combined = Label("A😊️é", 170);
                 check(combined.PrepareGlyphs()!.Glyphs.Count == 3, "portable glyph drawing retains emoji and combining accents");

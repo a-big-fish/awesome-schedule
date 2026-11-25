@@ -14,7 +14,7 @@ internal sealed class PortableGlyphLayout
     readonly List<Glyph> glyphs = new();
     readonly DrawingGroup rendered;
     internal DrawingGroup GlassLayer { get; } = new();
-    byte[]? glassPixels;
+    internal PortableGlassFrame? GlassFrame { get; private set; }
     Rect glassBounds;
     Rect[] glassExclusions = [];
     internal IReadOnlyList<Glyph> Glyphs => glyphs;
@@ -45,22 +45,24 @@ internal sealed class PortableGlyphLayout
         foreach (var glyph in glyphs) glyph.SamplePoints = BuildSamples(glyph);
     }
 
-    internal bool SetGlass(PortableGlass? glass, byte[]? pixels)
+    internal bool SetGlass(PortableGlass? glass, PortableGlassFrame? frame)
     {
-        if (glass == null || pixels == null)
+        if (glass == null || frame == null)
         {
-            if (glassPixels == null) return false;
+            if (GlassFrame == null) return false;
             GlassLayer.Children.Clear();
-            glassPixels = null;
+            GlassFrame = null;
             glassExclusions = [];
             GlassLayer.ClipGeometry = null;
             return true;
         }
 
-        if (glassBounds == glass.LocalBounds && pixels.AsSpan().SequenceEqual(glassPixels) &&
+        if (GlassFrame is { } previous && glassBounds == glass.LocalBounds &&
+            frame.Width == previous.Width && frame.Height == previous.Height && frame.Ink == previous.Ink &&
+            frame.Pixels.AsSpan().SequenceEqual(previous.Pixels) &&
             glass.ExcludedInk.AsSpan().SequenceEqual(glassExclusions)) return false;
         glassBounds = glass.LocalBounds;
-        glassPixels = pixels;
+        GlassFrame = frame;
         glassExclusions = glass.ExcludedInk;
         if (glassExclusions.Length == 0) GlassLayer.ClipGeometry = null;
         else
@@ -73,7 +75,7 @@ internal sealed class PortableGlyphLayout
             GlassLayer.ClipGeometry = clip;
         }
         GlassLayer.Children.Clear();
-        GlassLayer.Children.Add(new ImageDrawing(glass.Image(pixels), glassBounds));
+        GlassLayer.Children.Add(new ImageDrawing(glass.Image(frame.Pixels), glassBounds));
         return true;
     }
 

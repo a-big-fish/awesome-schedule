@@ -286,8 +286,8 @@ internal sealed partial class DesktopIntegration
 
             var labelGlass = new PortableGlassStrip(new Border
             {
-                Padding = new(5, 1, 5, 1), Child = label
-            })
+                Padding = new(6, 2, 6, 2), Child = label
+            }, roundedPanel: true)
             {
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
             };

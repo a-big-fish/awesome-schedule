@@ -6,57 +6,72 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Pixel = System.Drawing.Point;
+using static AwesomeInterview.NativeDemo.PortableGlassOptics;
 
 namespace AwesomeInterview.NativeDemo;
 
+internal sealed record PortableGlassFrame(int Width, int Height, byte[] Pixels, Color Ink)
+{
+    internal Color RecoverBackdrop(Color composite, double u, double v, double opacity)
+    {
+        double x = Math.Clamp(u * Width - .5, 0, Width - 1);
+        double y = Math.Clamp(v * Height - .5, 0, Height - 1);
+        int x0 = (int)x, y0 = (int)y, x1 = Math.Min(x0 + 1, Width - 1), y1 = Math.Min(y0 + 1, Height - 1);
+        double Mix(double a, double b, double amount) => a + (b - a) * amount;
+        double Channel(int channel, bool premultiply = false)
+        {
+            double At(int column, int row)
+            {
+                int i = (row * Width + column) * 4;
+                return premultiply ? Pixels[i + channel] * Pixels[i + 3] / 255d : Pixels[i + channel];
+            }
+            return Mix(Mix(At(x0, y0), At(x1, y0), x - x0), Mix(At(x0, y1), At(x1, y1), x - x0), y - y0);
+        }
+        double alpha = Channel(3) * opacity / 255;
+        byte Recover(byte value, int channel) => (byte)Math.Clamp(Math.Round((value - Channel(channel, premultiply: true) * opacity) / (1 - alpha)), 0, 255);
+        return Color.FromRgb(Recover(composite.R, 2), Recover(composite.G, 1), Recover(composite.B, 0));
+    }
+}
+
 internal sealed class PortableGlass
 {
-    static readonly Color DarkFrost = Color.FromRgb(30, 40, 53);
+    static readonly Color DarkFrost = Color.FromRgb(32, 42, 56);
     static readonly Color LightFrost = Color.FromRgb(247, 248, 249);
-    readonly Color tint;
-    readonly bool capsule;
-    readonly int columns, rows, blurRadius;
-    readonly double featherX, featherY, strength;
-    readonly Pixel[] top, bottom, sides;
+    const int Padding = 7;
+    readonly PortableStyle style;
+    readonly bool capsule, highlights, roundedPanel;
+    readonly int columns, rows, sampleWidth, sampleHeight;
+    readonly double dx, dy, strength;
+    readonly Pixel[] points;
+
     internal Rect ScreenBounds { get; }
     internal Rect LocalBounds { get; }
-    internal Color Ink { get; }
     internal Rect[] ExcludedInk { get; }
+    internal IReadOnlyList<Pixel> SamplePoints => points;
 
-    internal PortableGlass(Rect local, Rect screen, PortableStyle style, Rect[]? excludedInk = null, bool capsule = false)
+    internal PortableGlass(Rect local, Rect screen, PortableStyle style, Rect[]? excludedInk = null,
+        bool capsule = false, bool highlights = true, bool roundedPanel = false)
     {
-        this.capsule = capsule;
         LocalBounds = local;
         ScreenBounds = screen;
         ExcludedInk = excludedInk ?? [];
-        bool light = style.GlassTone == "light";
-        tint = light ? LightFrost : DarkFrost;
-        Ink = InkFor(style);
-        columns = Math.Clamp((int)Math.Ceiling(screen.Width / 4), 6, 96);
-        rows = Math.Clamp((int)Math.Ceiling(screen.Height / 3), 6, 22);
-        blurRadius = Math.Clamp((int)Math.Round(style.GlassRadius * columns / local.Width), 1, 8);
-        featherX = Math.Min(.45, style.GlassFeather / local.Width);
-        featherY = Math.Min(.28, style.GlassFeather / local.Height);
+        this.style = style;
+        this.capsule = capsule;
+        this.highlights = highlights;
+        this.roundedPanel = roundedPanel;
         strength = style.GlassStrength / 100d;
-        int above = (int)Math.Floor(screen.Top) - 2;
-        int below = (int)Math.Ceiling(screen.Bottom) + 2;
-        top = new Pixel[columns];
-        bottom = new Pixel[columns];
-        for (int index = 0; index < columns; index++)
-        {
-            int x = (int)Math.Floor(screen.X + (index + .5) * screen.Width / columns);
-            top[index] = new(x, above);
-            bottom[index] = new(x, below);
-        }
-        int middle = (int)Math.Round(screen.Top + screen.Height / 2);
-        sides = [new((int)Math.Floor(screen.Left) - 2, middle), new((int)Math.Ceiling(screen.Right) + 2, middle)];
+        columns = Math.Clamp((int)Math.Ceiling(screen.Width / 2.2), 8, 128);
+        rows = Math.Clamp((int)Math.Ceiling(screen.Height / 1.5), 8, 40);
+        sampleWidth = columns + 2 * Padding;
+        sampleHeight = rows + 2 * Padding;
+        dx = screen.Width / columns;
+        dy = screen.Height / rows;
+        points = new Pixel[sampleWidth * sampleHeight];
+        for (int y = 0; y < sampleHeight; y++)
+            for (int x = 0; x < sampleWidth; x++)
+                points[y * sampleWidth + x] = new((int)Math.Floor(screen.Left + (x + .5 - Padding) * dx),
+                    (int)Math.Floor(screen.Top + (y + .5 - Padding) * dy));
     }
-
-    // GDI captures the composited desktop. The guard in the caller removes other visible
-    // glass and ink footprints so neither the glass nor the text is fed back into the blur.
-    internal IEnumerable<Pixel> SamplePoints => top.Concat(bottom).Concat(sides);
-
-    internal static Color InkFor(PortableStyle style) => style.GlassTone == "light" ? Colors.Black : Colors.White;
 
     internal static Rect Expand(Rect ink, int feather)
     {
@@ -64,38 +79,121 @@ internal sealed class PortableGlass
         return ink;
     }
 
-    internal byte[] Render(IReadOnlyDictionary<Pixel, Color> backdrop)
-    {
-        var all = Average(top, 0, top.Length, backdrop, out int topCount);
-        var lower = Average(bottom, 0, bottom.Length, backdrop, out int bottomCount);
-        var side = Average(sides, 0, sides.Length, backdrop, out int sideCount);
-        var fallback = topCount > 0 && bottomCount > 0 ? Blend(all, lower, .5)
-            : topCount > 0 ? all : bottomCount > 0 ? lower : sideCount > 0 ? side : tint;
+    internal byte[] Render(IReadOnlyDictionary<Pixel, Color> backdrop) => RenderFrame(backdrop).Pixels;
 
-        var result = new byte[columns * rows * 4];
-        int edgeInset = capsule ? 0 : 1;
-        for (int x = edgeInset; x < columns - edgeInset; x++)
+    internal PortableGlassFrame RenderFrame(IReadOnlyDictionary<Pixel, Color> backdrop,
+        PortableGlassFrame? previous = null, double parentOpacity = 1, bool recover = true)
+    {
+        var samples = new Color?[points.Length];
+        double total = 0, interior = 0;
+        int count = 0, interiorCount = 0;
+        for (int i = 0; i < points.Length; i++)
         {
-            int start = Math.Max(0, x - blurRadius);
-            int end = Math.Min(columns, x + blurRadius + 1);
-            var upper = Average(top, start, end, backdrop, out int upperCount);
-            var beneath = Average(bottom, start, end, backdrop, out int beneathCount);
-            if (upperCount == 0) upper = beneathCount > 0 ? beneath : fallback;
-            if (beneathCount == 0) beneath = upper;
-            for (int y = edgeInset; y < rows - edgeInset; y++)
+            var point = points[i];
+            if (!backdrop.TryGetValue(point, out var color)) continue;
+            bool inside = ScreenBounds.Contains(point.X + .5, point.Y + .5);
+            if (recover && previous != null && inside)
+                color = previous.RecoverBackdrop(color, (point.X + .5 - ScreenBounds.X) / ScreenBounds.Width,
+                    (point.Y + .5 - ScreenBounds.Y) / ScreenBounds.Height, parentOpacity);
+            samples[i] = color;
+            double brightness = Brightness(color);
+            total += brightness;
+            count++;
+            if (inside)
             {
-                var backdropColor = Blend(upper, beneath, (double)y / (rows - 1));
-                // Limit the blurred backdrop's influence so the chosen ink stays readable.
-                var color = Blend(tint, backdropColor, capsule ? .18 : .10);
-                double edge = capsule ? 1 : Edge(x, columns, featherX) * Edge(y, rows, featherY);
-                int index = (y * columns + x) * 4;
-                result[index] = color.B;
-                result[index + 1] = color.G;
-                result[index + 2] = color.R;
-                result[index + 3] = (byte)Math.Round(strength * edge * 255);
+                interior += brightness;
+                interiorCount++;
             }
         }
-        return result;
+
+        var ink = style.GlassTone == "dark" ? Colors.White : Colors.Black;
+        if (style.GlassTone == "auto")
+        {
+            double threshold = previous?.Ink == Colors.White ? 143 : previous?.Ink == Colors.Black ? 112 : 126;
+            double brightness = interiorCount >= 4 ? interior / interiorCount : total / Math.Max(1, count);
+            ink = count == 0 ? previous?.Ink ?? Colors.Black : brightness < threshold ? Colors.White : Colors.Black;
+        }
+        var tint = ink == Colors.White ? DarkFrost : LightFrost;
+        CompleteTexture(samples, tint);
+        var pixels = Paint(samples, tint);
+        return new(columns, rows, pixels, ink);
+    }
+
+    byte[] Paint(Color?[] texture, Color tint)
+    {
+        var pixels = new byte[columns * rows * 4];
+        var size = LocalBounds.Size;
+        double xScale = size.Width / columns, yScale = size.Height / rows;
+        double bevel = Math.Clamp(Math.Min(size.Width, size.Height) * .29, 2, 8);
+        double blur = Math.Clamp(style.GlassRadius / 12d, .16, 1.7);
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < columns; x++)
+            {
+                var surface = At(new((x + .5) * xScale, (y + .5) * yScale), size, capsule && !roundedPanel);
+                double coverage = Ramp(.5 + surface.Depth / Math.Max(xScale, yScale));
+                if (!capsule) coverage *= Ramp(surface.Depth / Math.Min(5, style.GlassFeather / 2d));
+                if (coverage == 0) continue;
+
+                double slope = Ramp(1 - surface.Depth / bevel);
+                double bend = style.GlassRefraction * slope;
+                double sx = x + Padding + surface.Normal.X * bend / xScale;
+                double sy = y + Padding + surface.Normal.Y * bend / yScale;
+                var color = ReadTexture(texture, sx, sy);
+                var horizontal = Blend(ReadTexture(texture, sx - blur, sy), ReadTexture(texture, sx + blur, sy), .5);
+                var vertical = Blend(ReadTexture(texture, sx, sy - blur), ReadTexture(texture, sx, sy + blur), .5);
+                color = Blend(Blend(color, Blend(horizontal, vertical, .5), .38), tint,
+                    style.GlassTone == "auto" ? .18 : .85);
+
+                double facing = -.6 * surface.Normal.X - .8 * surface.Normal.Y;
+                double edgeLight = highlights ? slope * (.10 + .44 * Math.Max(0, facing)) : .08 * slope;
+                double edgeShade = highlights ? slope * .19 * Math.Max(0, -facing) : 0;
+                color = Blend(Blend(color, Colors.Black, edgeShade), Colors.White, edgeLight);
+                int index = (y * columns + x) * 4;
+                pixels[index] = color.B;
+                pixels[index + 1] = color.G;
+                pixels[index + 2] = color.R;
+                pixels[index + 3] = (byte)Math.Round(coverage * Math.Min(.9, strength + edgeLight * .33) * 255);
+            }
+        return pixels;
+    }
+
+    Color ReadTexture(Color?[] field, double x, double y)
+    {
+        x = Math.Clamp(x, 0, sampleWidth - 1);
+        y = Math.Clamp(y, 0, sampleHeight - 1);
+        int x0 = (int)x, y0 = (int)y, x1 = Math.Min(x0 + 1, sampleWidth - 1), y1 = Math.Min(y0 + 1, sampleHeight - 1);
+        Color At(int column, int row) => field[row * sampleWidth + column]!.Value;
+        return Blend(Blend(At(x0, y0), At(x1, y0), x - x0), Blend(At(x0, y1), At(x1, y1), x - x0), y - y0);
+    }
+
+    void CompleteTexture(Color?[] samples, Color fallback)
+    {
+        var original = (Color?[])samples.Clone();
+        for (int row = 0; row < sampleHeight; row++)
+            InterpolateLine(samples, row * sampleWidth, 1, sampleWidth);
+        for (int x = 0; x < sampleWidth; x++)
+            InterpolateLine(original, x, sampleWidth, sampleHeight);
+        for (int i = 0; i < samples.Length; i++)
+        {
+            if (samples[i] is { } h && original[i] is { } v) samples[i] = Blend(h, v, .5);
+            else samples[i] ??= original[i] ?? fallback;
+        }
+    }
+
+    static void InterpolateLine(Color?[] data, int start, int step, int length)
+    {
+        int previous = -1;
+        for (int i = 0; i < length; i++)
+        {
+            if (data[start + i * step] is not { } next) continue;
+            for (int j = previous + 1; j < i; j++)
+                data[start + j * step] = previous < 0 ? next :
+                    Blend(data[start + previous * step]!.Value, next, (double)(j - previous) / (i - previous));
+            previous = i;
+        }
+        if (previous >= 0)
+            for (int j = previous + 1; j < length; j++)
+                data[start + j * step] = data[start + previous * step];
     }
 
     internal BitmapSource Image(byte[] pixels)
@@ -104,81 +202,43 @@ internal sealed class PortableGlass
         bitmap.Freeze();
         return bitmap;
     }
-
-    static Color Average(Pixel[] points, int start, int end, IReadOnlyDictionary<Pixel, Color> samples, out int count)
-    {
-        int red = 0, green = 0, blue = 0;
-        count = 0;
-        for (int i = start; i < end; i++)
-        {
-            if (!samples.TryGetValue(points[i], out var color)) continue;
-            red += color.R;
-            green += color.G;
-            blue += color.B;
-            count++;
-        }
-        int divisor = Math.Max(1, count);
-        return Color.FromRgb((byte)(red / divisor), (byte)(green / divisor), (byte)(blue / divisor));
-    }
-
-    static Color Blend(Color upper, Color lower, double fraction)
-    {
-        byte Channel(byte a, byte b) => (byte)Math.Round(a + (b - a) * fraction);
-        return Color.FromRgb(Channel(upper.R, lower.R), Channel(upper.G, lower.G), Channel(upper.B, lower.B));
-    }
-
-    static double Edge(int index, int length, double feather)
-    {
-        double distance = (double)Math.Min(index, length - 1 - index) / (length - 1);
-        double t = Math.Min(1, distance / feather);
-        return t * t * (3 - 2 * t);
-    }
 }
 
 internal sealed class PortableGlassStrip : Grid
 {
-    readonly bool showRim;
     readonly Image backdrop = new() { IsHitTestVisible = false, Stretch = Stretch.Fill };
-    readonly Border rim = new()
-    {
-        IsHitTestVisible = false, BorderThickness = new Thickness(1), Visibility = Visibility.Collapsed,
-        BorderBrush = new LinearGradientBrush(Color.FromArgb(150, 255, 255, 255),
-            Color.FromArgb(55, 255, 255, 255), 90)
-    };
-    byte[]? pixels;
+    internal PortableGlassFrame? Frame { get; private set; }
+    internal bool Highlights { get; }
+    internal bool RoundedPanel { get; }
 
-    internal PortableGlassStrip(FrameworkElement content, bool showRim = true)
+    internal PortableGlassStrip(FrameworkElement content, bool showRim = true, bool roundedPanel = false)
     {
-        this.showRim = showRim;
+        Highlights = showRim;
+        RoundedPanel = roundedPanel;
         var material = new Canvas { IsHitTestVisible = false };
         material.Children.Add(backdrop);
-        material.Children.Add(rim);
         Children.Add(material);
         Children.Add(content);
         SizeChanged += (_, _) =>
         {
-            backdrop.Width = rim.Width = ActualWidth;
-            backdrop.Height = rim.Height = ActualHeight;
-            double radius = ActualHeight / 2;
-            backdrop.Clip = new RectangleGeometry(new Rect(RenderSize), radius, radius);
-            rim.CornerRadius = new CornerRadius(radius);
+            backdrop.Width = ActualWidth;
+            backdrop.Height = ActualHeight;
         };
     }
 
-    internal bool SetGlass(PortableGlass? glass, byte[]? frame)
+    internal bool SetGlass(PortableGlass? glass, PortableGlassFrame? frame)
     {
         if (glass == null || frame == null)
         {
-            if (pixels == null) return false;
-            pixels = null;
+            if (Frame == null) return false;
+            Frame = null;
             backdrop.Source = null;
-            rim.Visibility = Visibility.Collapsed;
             return true;
         }
-        if (frame.AsSpan().SequenceEqual(pixels)) return false;
-        pixels = frame;
-        backdrop.Source = glass.Image(frame);
-        if (showRim) rim.Visibility = Visibility.Visible;
+        if (Frame is { } previous && frame.Width == previous.Width && frame.Height == previous.Height &&
+            frame.Ink == previous.Ink && frame.Pixels.AsSpan().SequenceEqual(previous.Pixels)) return false;
+        Frame = frame;
+        backdrop.Source = glass.Image(frame.Pixels);
         return true;
     }
 }

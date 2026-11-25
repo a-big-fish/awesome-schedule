@@ -194,29 +194,36 @@ internal sealed partial class DesktopIntegration
             ? grouped.Add(strip) ? PlanPortableStrip(strip, style) : null
             : PlanPortableGlass(label, style, labels, clockInk)).ToArray();
         var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
-        var blocked = clockInk.Concat(glassBounds).ToList();
+        var decorations = clockInk.ToList();
         if (portableHoverCue is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } cue)
-            blocked.Add(ScreenBounds(cue));
+            decorations.Add(ScreenBounds(cue));
+        var blocked = decorations.Concat(glassBounds).ToArray();
         bool hasGlass = style.GlassStrength != 0;
         var samples = labels.Select((label, index) => glass[index] == null && !(hasGlass && label.Strip != null)
             ? PortableSamplePoints(label, labels, blocked) : []).ToArray();
         var glassPoints = labels.Select((label, index) => glass[index]?.SamplePoints.Where(pixel =>
         {
             var point = new Point(pixel.X, pixel.Y);
-            return label.Viewport.Contains(point) && !blocked.Any(area => area.Contains(point)) &&
-                !labels.Any(other => other.InkBounds.Contains(point));
+            if (!label.Viewport.Contains(point) || decorations.Any(area => area.Contains(point)) ||
+                labels.Any(other => other.InkBounds.Contains(point))) return false;
+            var own = glass[index]!.ScreenBounds;
+            // The sampled interior of a strip can be corrected using its previously drawn pixels.
+            // Other materials and text cannot be reliably undone and are left as holes in the texture.
+            return !glassBounds.Any(area => (label.Strip == null || area != own) && area.Contains(point));
         }).Distinct().ToArray() ?? []).ToArray();
         var locations = samples.SelectMany(label => label).SelectMany(glyph => glyph.Points)
             .Concat(glassPoints.SelectMany(points => points)).Distinct().ToArray();
+        var previousFrames = labels.Select(label => label.Strip?.Frame ?? label.Layout.GlassFrame).ToArray();
         var sampler = readBackdrop ?? PortableBackdropSamples.Read;
         portableSampling = true;
         try
         {
-            var (colors, glassPixels) = await Task.Run(() =>
+            var (colors, glassFrames) = await Task.Run(() =>
             {
                 var colors = sampler(locations);
-                var frames = glass.Select((patch, index) => patch?.Render(glassPoints[index]
-                    .Where(colors.ContainsKey).ToDictionary(point => point, point => colors[point]))).ToArray();
+                var frames = glass.Select((patch, index) => patch?.RenderFrame(glassPoints[index]
+                    .Where(colors.ContainsKey).ToDictionary(point => point, point => colors[point]),
+                    previousFrames[index], labels[index].Opacity, recover: readBackdrop == null)).ToArray();
                 return (colors, frames);
             });
             if (revision != portableContrastRevision) return;
@@ -230,14 +237,14 @@ internal sealed partial class DesktopIntegration
                 if (label.Strip is { } strip)
                 {
                     if (glass[index] is { } groupGlass)
-                        backgroundChanged |= strip.SetGlass(groupGlass, glassPixels[index]);
+                        backgroundChanged |= strip.SetGlass(groupGlass, glassFrames[index]);
                 }
-                else backgroundChanged |= label.Layout.SetGlass(glass[index], glassPixels[index]);
+                else backgroundChanged |= label.Layout.SetGlass(glass[index], glassFrames[index]);
 
-                if (glass[index] != null || (hasGlass && label.Strip != null))
+                if ((label.Strip?.Frame ?? label.Layout.GlassFrame) is { } frame)
                 {
                     foreach (var glyph in label.Layout.Glyphs)
-                        PaintPortableGlyph(glyph, new(PortableGlass.InkFor(style), null), false);
+                        PaintPortableGlyph(glyph, new(frame.Ink, null), false);
                     continue;
                 }
                 foreach (var (glyph, points) in samples[index])
@@ -261,7 +268,8 @@ internal sealed partial class DesktopIntegration
     static PortableGlass? PlanPortableStrip(PortableGlassStrip strip, PortableStyle style)
     {
         if (style.GlassStrength == 0 || strip.ActualWidth < 3 || strip.ActualHeight < 3) return null;
-        return new PortableGlass(new Rect(strip.RenderSize), ScreenBounds(strip), style, capsule: true);
+        return new PortableGlass(new Rect(strip.RenderSize), ScreenBounds(strip), style, capsule: true,
+            highlights: strip.Highlights, roundedPanel: strip.RoundedPanel);
     }
 
     static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style,
