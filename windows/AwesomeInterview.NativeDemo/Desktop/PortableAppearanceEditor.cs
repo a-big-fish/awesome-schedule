@@ -17,9 +17,65 @@ internal sealed partial class DesktopIntegration
     string EnsurePortableStyleFolder() => PortableAppearancePreset.EnsureFolder(
         Path.Combine(Path.GetDirectoryName(PreferencesPath)!, "PortableStyles"));
 
+    bool ApplyPortablePreset(PortableAppearancePreset preset)
+    {
+        var previous = preferences;
+        preferences = preset.Apply(preferences);
+        bool saved = SavePreferences();
+        if (!saved) preferences = previous;
+        ApplyPortableAppearance();
+        return saved;
+    }
+
+    void AddPortableStyleShortcuts(Panel body)
+    {
+        PortableAppearancePreset[] local;
+        try { local = PortableAppearancePreset.ReadFolder(EnsurePortableStyleFolder()).ToArray(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { local = []; }
+
+        var row = new WrapPanel();
+        var shortcuts = PortableAppearancePreset.BuiltIn.Select(builtIn =>
+        {
+            var preset = local.FirstOrDefault(item => item.FileName == builtIn.FileName) ?? builtIn;
+            var button = CompactPortableButton(preset.Name, () => ApplyPortablePreset(preset));
+            button.Margin = new(0, 0, 5, 4);
+            row.Children.Add(button);
+            return (preset, button);
+        }).ToArray();
+
+        void Refresh()
+        {
+            var current = preferences with { PortableStyle = ActivePortableStyle };
+            foreach (var (preset, button) in shortcuts)
+            {
+                bool selected = preset.Apply(current) == current ||
+                    (current.PortableStyleFile == null && (preset.Apply(current) with { PortableStyleFile = null }) == current);
+                if (selected)
+                {
+                    button.Background = Brush("#EBF2FF");
+                    button.Foreground = Brush("#2357CE");
+                }
+                else
+                {
+                    button.ClearValue(Control.BackgroundProperty);
+                    button.ClearValue(Control.ForegroundProperty);
+                }
+                AutomationProperties.SetItemStatus(button, selected ? "当前样式" : "");
+            }
+        }
+
+        row.Loaded += (_, _) => { portableAppearanceChanged += Refresh; Refresh(); };
+        row.Unloaded += (_, _) => portableAppearanceChanged -= Refresh;
+        body.Children.Add(row);
+        Refresh();
+    }
+
     void AddPortableStyleControls(Panel body)
     {
-        var styles = new ComboBox { MinWidth = 124, DisplayMemberPath = nameof(PortableAppearancePreset.Name) };
+        var styles = new ComboBox { MinWidth = 148, MaxWidth = 320, HorizontalContentAlignment = HorizontalAlignment.Left };
+        PortableAppearancePreset[] available = [];
+        PortableAppearancePreset? Selected() => styles.SelectedIndex >= 0 && styles.SelectedIndex < available.Length
+            ? available[styles.SelectedIndex] : null;
         AutomationProperties.SetName(styles, "随身日程样式");
         var status = Text("", 11, "#52647D");
         status.TextWrapping = TextWrapping.Wrap;
@@ -31,35 +87,30 @@ internal sealed partial class DesktopIntegration
         }
         void Apply(PortableAppearancePreset preset)
         {
-            var previous = preferences;
-            preferences = preset.Apply(preferences);
-            if (!SavePreferences())
-            {
-                preferences = previous;
-                Report("样式未保存，请检查目录权限或磁盘空间。");
-            }
-            else Report($"已应用「{preset.Name}」");
-            ApplyPortableAppearance();
+            Report(ApplyPortablePreset(preset) ? $"已应用「{preset.Name}」" : "样式未保存，请检查目录权限或磁盘空间。");
         }
 
         void Reload(PortableAppearancePreset? selected = null)
         {
-            var previous = styles.SelectedItem as PortableAppearancePreset;
-            try { styles.ItemsSource = PortableAppearancePreset.ReadFolder(EnsurePortableStyleFolder()); }
+            var previous = Selected();
+            try { available = PortableAppearancePreset.ReadFolder(EnsurePortableStyleFolder()).ToArray(); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                styles.ItemsSource = PortableAppearancePreset.BuiltIn;
+                available = PortableAppearancePreset.BuiltIn.ToArray();
                 Report("无法读取样式目录，已显示内置样式。");
             }
-            var available = styles.Items.Cast<PortableAppearancePreset>().ToArray();
+            var names = available.ToLookup(item => item.Name);
+            styles.ItemsSource = available.Select(item => names[item.Name].Count() > 1
+                ? $"{item.Name} · {Path.GetFileNameWithoutExtension(item.FileName)}" : item.Name).ToArray();
             var current = preferences with { PortableStyle = ActivePortableStyle };
             string? requested = selected?.FileName ?? previous?.FileName ?? preferences.PortableStyleFile;
-            styles.SelectedItem = requested == null
+            var selection = requested == null
                 ? available.FirstOrDefault(item => item.Apply(current) with { PortableStyleFile = null } == current)
                     ?? available.FirstOrDefault(item => item.FileName == PortableAppearancePreset.DefaultFile)
                     ?? available.FirstOrDefault()
                 : available.FirstOrDefault(item => item.FileName == requested);
-            if (styles.SelectedItem == null) Report("选中的样式无法读取，请检查 JSON 或重新选择。");
+            styles.SelectedIndex = Array.IndexOf(available, selection);
+            if (selection == null) Report("选中的样式无法读取，请检查 JSON 或重新选择。");
         }
         Reload();
 
@@ -74,7 +125,7 @@ internal sealed partial class DesktopIntegration
         }
         void ApplySelection()
         {
-            if (styles.SelectedItem is PortableAppearancePreset selected) Apply(selected);
+            if (Selected() is { } selected) Apply(selected);
         }
         AddButton("应用", ApplySelection);
         AddButton("导入 JSON", () =>
@@ -122,8 +173,6 @@ internal sealed partial class DesktopIntegration
             preferences = update(opacity);
             ApplyPortableAppearance();
         }
-
-        AddPortableStyleControls(body);
 
         var overall = AddTransparencySlider(body, "整体透明度", PortableOverallOpacity, .9,
             value => Change(opacity => preferences with { PortableOverallOpacity = opacity }, value));

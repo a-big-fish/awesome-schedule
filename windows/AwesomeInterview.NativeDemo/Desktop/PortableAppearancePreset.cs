@@ -12,8 +12,11 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     [System.Text.Json.Serialization.JsonIgnore]
     public string? FileName { get; init; }
 
+    internal const string OutlineFile = "clear-outline.json";
     internal const string DefaultFile = "soft-silhouette.json";
-    static readonly string[] Packaged = ["clear-outline.json", DefaultFile];
+    internal const string GlassFile = "frosted-glass.json";
+    static readonly string[] Packaged = [OutlineFile, DefaultFile, GlassFile];
+    static readonly PortableStyle PreviousBundledStyle = new(GlassStrength: 42);
     static readonly JsonSerializerOptions Options = new()
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -33,21 +36,34 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
         foreach (var file in Packaged.Append("README.md"))
         {
             var destination = Path.Combine(folder, file);
-            if (!File.Exists(destination))
+            bool exists = File.Exists(destination);
+            bool previous = exists && (file == "README.md"
+                ? File.ReadAllText(destination).Contains("从随身日程「外观 → 打开目录」", StringComparison.Ordinal)
+                : MatchesPreviousBundledPreset(TryRead(destination)));
+            if (!exists || previous)
             {
                 var source = Path.Combine(AppContext.BaseDirectory, "PortableStyles", file);
-                if (File.Exists(source)) File.Copy(source, destination);
+                if (File.Exists(source)) File.Copy(source, destination, overwrite: previous);
             }
         }
         return folder;
     }
 
+    static bool MatchesPreviousBundledPreset(PortableAppearancePreset? preset) =>
+        preset?.Style == PreviousBundledStyle && preset is { BackgroundTransparency: 100 } && preset is
+            ({ FileName: OutlineFile, Name: "清透描边", OverallTransparency: 0, BorderTransparency: 0, TextTransparency: 0 }
+            or { FileName: DefaultFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 });
+
+    internal static DesktopPreferences RemovePreviousBundledGlass(DesktopPreferences saved) =>
+        saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or DefaultFile
+            ? saved with { PortableStyle = PortableStyle.Default }
+            : saved;
+
     internal static IReadOnlyList<PortableAppearancePreset> ReadFolder(string folder)
     {
         var presets = new List<PortableAppearancePreset>();
         foreach (var path in Directory.EnumerateFiles(folder, "*.json")
-            .OrderBy(path => Path.GetFileName(path) != "clear-outline.json")
-            .ThenBy(path => Path.GetFileName(path) != DefaultFile)
+            .OrderBy(path => Path.GetFileName(path) switch { OutlineFile => 0, DefaultFile => 1, GlassFile => 2, _ => 3 })
             .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
             if (TryRead(path) is { } preset) presets.Add(preset);

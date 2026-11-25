@@ -1,0 +1,13 @@
+{
+  "Version": 1,
+  "Name": "磨砂玻璃",
+  "OverallTransparency": 0,
+  "BackgroundTransparency": 100,
+  "BorderTransparency": 100,
+  "TextTransparency": 0,
+  "Style": {
+    "GlassStrength": 82,
+    "GlassRadius": 14,
+    "GlassFeather": 16
+  }
+}

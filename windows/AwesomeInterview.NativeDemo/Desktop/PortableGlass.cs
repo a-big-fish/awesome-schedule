@@ -10,6 +10,8 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed class PortableGlass
 {
+    static readonly Color DarkFrost = Color.FromRgb(38, 57, 82);
+    static readonly Color LightFrost = Color.FromRgb(213, 229, 248);
     readonly int columns, rows, blurRadius;
     readonly double featherX, featherY, strength;
     readonly Pixel[] top, bottom, sides;
@@ -24,7 +26,7 @@ internal sealed class PortableGlass
         rows = Math.Clamp((int)Math.Ceiling(screen.Height / 3), 6, 22);
         blurRadius = Math.Clamp((int)Math.Round(style.GlassRadius * columns / local.Width), 1, 8);
         featherX = Math.Min(.45, style.GlassFeather / local.Width);
-        featherY = Math.Min(.46, style.GlassFeather / local.Height);
+        featherY = Math.Min(.28, style.GlassFeather / local.Height);
         strength = style.GlassStrength / 100d;
         int above = (int)Math.Floor(screen.Top) - 2;
         int below = (int)Math.Ceiling(screen.Bottom) + 2;
@@ -64,7 +66,10 @@ internal sealed class PortableGlass
             if (beneathCount == 0) beneath = upper;
             for (int y = 1; y < rows - 1; y++)
             {
-                var color = Blend(upper, beneath, (double)y / (rows - 1));
+                var backdropColor = Blend(upper, beneath, (double)y / (rows - 1));
+                double brightness = (.2126 * backdropColor.R + .7152 * backdropColor.G + .0722 * backdropColor.B) / 255;
+                var tint = Blend(DarkFrost, LightFrost, brightness);
+                var color = Blend(backdropColor, tint, .44);
                 double edge = Math.Min(Edge(x, columns, featherX), Edge(y, rows, featherY));
                 int index = (y * columns + x) * 4;
                 result[index] = color.B;

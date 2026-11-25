@@ -127,6 +127,7 @@ internal sealed partial class DesktopIntegration
         var heading = Text("随身日程外观", 12, margin: new(0, 0, 0, 4));
         heading.FontWeight = FontWeights.SemiBold;
         body.Children.Add(heading);
+        AddPortableStyleShortcuts(body);
         AddPortableTransparencyControls(body);
         var footer = new DockPanel { Margin = new(0, 4, 0, 0) };
         var done = CompactPortableButton("完成", ClosePortableAppearance);
@@ -413,6 +414,7 @@ internal sealed partial class DesktopIntegration
     void AddPortablePreferences(StackPanel body)
     {
         body.Children.Add(Text("随身日程外观", 19, margin: new(0, 24, 0, 14)));
+        AddPortableStyleControls(body);
         AddPortableTransparencyControls(body);
         var palette = new ComboBox
         {

@@ -6,7 +6,7 @@
   "BorderTransparency": 100,
   "TextTransparency": 30,
   "Style": {
-    "GlassStrength": 42,
+    "GlassStrength": 0,
     "GlassRadius": 8,
     "GlassFeather": 10
   }
