@@ -121,7 +121,7 @@ internal static class PortableAppearancePresetChecks
         int middle = (bitmap.PixelHeight / 2) * stride;
         int across = bitmap.PixelWidth / 2 * 4;
         check(pixels[3] == 0 && pixels[stride - 1] == 0 && pixels[across + 3] < pixels[middle + across + 3] &&
-              pixels[middle + across + 3] == 153, "local glass has transparent corners and a stable interior");
+              pixels[middle + across + 3] >= 235, "busy backgrounds are suppressed in the glass core with a fading edge");
         var white = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.White);
         var dark = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.Black);
         int center = middle + stride / 2;
@@ -132,13 +132,37 @@ internal static class PortableAppearancePresetChecks
         var onWhite = glass.RenderFrame(white);
         var onDark = glass.RenderFrame(dark);
         check(onWhite.Ink == Colors.Black && onWhite.Pixels[center + 2] >= 245 &&
-              onDark.Ink == Colors.White && onDark.Pixels[center + 2] < 15 &&
+              onDark.Ink == Colors.White && onDark.Pixels[center + 2] < 42 &&
               ContrastOnGray(onWhite.Pixels, center, 255, onWhite.Ink) >= 4.5 &&
               ContrastOnGray(onDark.Pixels, center, 0, onDark.Ink) >= 4.5,
             "both uniform backgrounds remain transparent and readable");
         capture.Clear();
         check(glass.RenderFrame(capture, onDark).Ink == Colors.White,
             "unavailable texture retains the previous surface polarity");
+
+        // A thin underlying line can disappear in the regional average but still overlap a label.
+        var textOverWhite = glass.SamplePoints.Distinct().ToDictionary(point => point,
+            point => point.Y is >= 50 and < 53 && point.X % 14 < 7 ? Colors.Black : Colors.White);
+        var textOverDark = textOverWhite.ToDictionary(pair => pair.Key,
+            pair => pair.Value == Colors.White ? Colors.Black : Colors.White);
+        var readable = new PortableGlass(glass.LocalBounds, glass.ScreenBounds, new());
+        check(readable.RenderFrame(white).Pixels.Length == 0 && readable.RenderFrame(dark).Pixels.Length == 0,
+            "the clear style leaves plain backgrounds uncovered");
+        var glassLight = glass.RenderFrame(textOverWhite);
+        var glassDark = glass.RenderFrame(textOverDark);
+        var clearLight = readable.RenderFrame(textOverWhite);
+        var clearDark = readable.RenderFrame(textOverDark);
+        check(glassLight.Ink == Colors.Black && glassDark.Ink == Colors.White &&
+              ContrastOnGray(glassLight.Pixels, center, 0, glassLight.Ink) >= 4.5 &&
+              ContrastOnGray(glassDark.Pixels, center, 255, glassDark.Ink) >= 4.5 &&
+              glassLight.Pixels[center + 3] >= 235 && glassDark.Pixels[center + 3] >= 235,
+            "frosted glass keeps dark and light labels readable over opposite underlay strokes");
+        check(clearLight.Ink == Colors.Black && clearDark.Ink == Colors.White &&
+              ContrastOnGray(clearLight.Pixels, center, 0, clearLight.Ink) >= 4.5 &&
+              ContrastOnGray(clearDark.Pixels, center, 255, clearDark.Ink) >= 4.5 &&
+              clearLight.Pixels[center + 3] >= 235 && clearDark.Pixels[center + 3] >= 235 &&
+              clearLight.Pixels[across + 3] < 30 && readable.RenderFrame(white, clearLight).Pixels.Length == 0,
+            "clear labels mask busy text only near the ink and release the backing when the background clears");
 
         var stripes = glass.SamplePoints.Distinct().ToDictionary(point => point,
             point => point.Y % 15 < 7 ? Colors.Tomato : Colors.SteelBlue);

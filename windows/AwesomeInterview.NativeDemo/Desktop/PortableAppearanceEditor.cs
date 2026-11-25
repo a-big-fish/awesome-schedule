@@ -23,6 +23,8 @@ internal sealed partial class DesktopIntegration
         preferences = preset.Apply(preferences);
         bool saved = SavePreferences();
         if (!saved) preferences = previous;
+        if (previous.PortableStyle?.GlassStrength > 0 && ActivePortableStyle.GlassStrength == 0)
+            ClearPortableGlass(restoreInk: true);
         ApplyPortableAppearance();
         return saved;
     }

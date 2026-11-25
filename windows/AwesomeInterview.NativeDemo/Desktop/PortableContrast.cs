@@ -189,17 +189,18 @@ internal sealed partial class DesktopIntegration
             clockInk.Add(area);
         }
         var style = ActivePortableStyle;
+        bool hasGlass = style.GlassStrength != 0;
         var grouped = new HashSet<PortableGlassStrip>();
-        var glass = labels.Select(label => label.Strip is { } strip
-            ? grouped.Add(strip) ? PlanPortableStrip(strip, style) : null
-            : PlanPortableGlass(label, style, labels, clockInk)).ToArray();
+        var glass = NeedsPortableLabelBacking
+            ? labels.Select(label => label.Strip is not { } strip ? PlanPortableGlass(label, style, labels, clockInk)
+                : grouped.Add(strip) ? PlanPortableStrip(strip, style) : null).ToArray()
+            : new PortableGlass?[labels.Count];
         var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
         var decorations = clockInk.ToList();
         if (portableHoverCue is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } cue)
             decorations.Add(ScreenBounds(cue));
-        var blocked = decorations.Concat(glassBounds).ToArray();
-        bool hasGlass = style.GlassStrength != 0;
-        var samples = labels.Select((label, index) => glass[index] == null && !(hasGlass && label.Strip != null)
+        var blocked = hasGlass ? decorations.Concat(glassBounds).ToArray() : decorations.ToArray();
+        var samples = labels.Select((label, index) => !hasGlass || glass[index] == null && label.Strip == null
             ? PortableSamplePoints(label, labels, blocked) : []).ToArray();
         var glassPoints = labels.Select((label, index) => glass[index]?.SamplePoints.Where(pixel =>
         {
@@ -223,7 +224,8 @@ internal sealed partial class DesktopIntegration
                 var colors = sampler(locations);
                 var frames = glass.Select((patch, index) => patch?.RenderFrame(glassPoints[index]
                     .Where(colors.ContainsKey).ToDictionary(point => point, point => colors[point]),
-                    previousFrames[index], labels[index].Opacity, recover: readBackdrop == null)).ToArray();
+                    previousFrames[index], labels[index].Opacity, recover: readBackdrop == null))
+                    .Select(frame => frame is { Pixels.Length: > 0 } ? frame : null).ToArray();
                 return (colors, frames);
             });
             if (revision != portableContrastRevision) return;
@@ -267,7 +269,7 @@ internal sealed partial class DesktopIntegration
 
     static PortableGlass? PlanPortableStrip(PortableGlassStrip strip, PortableStyle style)
     {
-        if (style.GlassStrength == 0 || strip.ActualWidth < 3 || strip.ActualHeight < 3) return null;
+        if (strip.ActualWidth < 3 || strip.ActualHeight < 3) return null;
         return new PortableGlass(new Rect(strip.RenderSize), ScreenBounds(strip), style, capsule: true,
             highlights: strip.Highlights, roundedPanel: strip.RoundedPanel);
     }
@@ -275,11 +277,11 @@ internal sealed partial class DesktopIntegration
     static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style,
         IReadOnlyList<PortableLabelSample> labels, IReadOnlyList<Rect> clockInk)
     {
-        if (style.GlassStrength == 0 || !label.ToScreen.HasInverse) return null;
+        if (!label.ToScreen.HasInverse) return null;
         var inverse = label.ToScreen;
         inverse.Invert();
         var ink = new MatrixTransform(inverse).TransformBounds(label.InkBounds);
-        var expanded = PortableGlass.Expand(ink, style.GlassFeather);
+        var expanded = PortableGlass.Expand(ink, style.GlassStrength == 0 ? 7 : style.GlassFeather);
 
         var transform = new MatrixTransform(label.ToScreen);
         var screen = transform.TransformBounds(expanded);

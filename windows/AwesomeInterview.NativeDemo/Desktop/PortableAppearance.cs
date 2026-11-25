@@ -34,6 +34,7 @@ internal sealed partial class DesktopIntegration
     double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
     double PortableBorderOpacity => Math.Clamp(preferences.PortableBorderOpacity, 0, 1);
     PortableStyle ActivePortableStyle => preferences.PortableStyle is { IsValid: true } style ? style : PortableStyle.Default;
+    bool NeedsPortableLabelBacking => ActivePortableStyle.GlassStrength > 0 || PortableBackgroundOpacity * PortableOverallOpacity < .90;
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
     TextBlock? portableClock;
@@ -386,7 +387,7 @@ internal sealed partial class DesktopIntegration
         };
         portableSectionTint.Opacity = background;
         portableAppearanceChanged?.Invoke();
-        if (ActivePortableStyle.GlassStrength == 0) ClearPortableGlass(restoreInk: true);
+        if (!NeedsPortableLabelBacking) ClearPortableGlass(restoreInk: true);
 
         if (portable == null || portableSurface == null) return;
         ApplyPortableFrame();
