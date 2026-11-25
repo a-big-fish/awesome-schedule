@@ -137,6 +137,7 @@ internal sealed class PortableGlass
 
 internal sealed class PortableGlassStrip : Grid
 {
+    readonly bool showRim;
     readonly Image backdrop = new() { IsHitTestVisible = false, Stretch = Stretch.Fill };
     readonly Border rim = new()
     {
@@ -146,8 +147,9 @@ internal sealed class PortableGlassStrip : Grid
     };
     byte[]? pixels;
 
-    internal PortableGlassStrip(FrameworkElement content)
+    internal PortableGlassStrip(FrameworkElement content, bool showRim = true)
     {
+        this.showRim = showRim;
         var material = new Canvas { IsHitTestVisible = false };
         material.Children.Add(backdrop);
         material.Children.Add(rim);
@@ -176,7 +178,7 @@ internal sealed class PortableGlassStrip : Grid
         if (frame.AsSpan().SequenceEqual(pixels)) return false;
         pixels = frame;
         backdrop.Source = glass.Image(frame);
-        rim.Visibility = Visibility.Visible;
+        if (showRim) rim.Visibility = Visibility.Visible;
         return true;
     }
 }

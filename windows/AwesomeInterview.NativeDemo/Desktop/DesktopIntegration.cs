@@ -134,9 +134,17 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         DockPanel.SetDock(portableAppearancePanel, Dock.Top);
         dock.Children.Add(portableAppearancePanel);
         dock.Children.Add(portableContent);
+        var overlay = CreatePortableHoverCueLayer();
+        var surface = new Grid();
+        surface.Children.Add(dock);
+        surface.Children.Add(overlay);
         portableSurface = new Border
         {
-            CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = dock
+            CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = surface
+        };
+        portable.PreviewMouseMove += (_, e) =>
+        {
+            if (portableHoverActive) UpdatePortableHoverCue(e.GetPosition(overlay));
         };
         portable.Content = portableSurface;
         AttachPortableFocusReset(portable);
@@ -159,6 +167,8 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             StopPortableFocusReset();
             StopPortableIdleTimer();
             portableHoverActive = false;
+            portableHoverCue = null;
+            portableHoverCueLayer = null;
             portableUnlock = null;
             portableAppearancePanel = null;
             portableHeader = null;

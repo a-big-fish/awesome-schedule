@@ -23,7 +23,7 @@ internal sealed partial class DesktopIntegration
     DateTime portableRenderedDay;
     PortablePresentation? portableRenderedPresentation;
     IReadOnlyList<PortableTask> portableRenderedTasks = [];
-    TextBlock[] portableHourLabels = [];
+    FrameworkElement[] portableHourLabels = [];
     int portableHiddenHour = -1;
 
     readonly record struct PortablePresentation(DateTime Day, bool SignedIn, bool Online,
@@ -220,14 +220,19 @@ internal sealed partial class DesktopIntegration
     {
         var timeline = new Canvas { Height = PortableDayHeight, Background = Brushes.Transparent, ClipToBounds = true };
         var hourRules = new Border[24];
-        portableHourLabels = new TextBlock[24];
+        portableHourLabels = new FrameworkElement[24];
         for (int hour = 0; hour < 24; hour++)
         {
             var label = PortableText($"{hour:00}:00", 10, "#52647D");
-            Canvas.SetTop(label, Math.Max(0, hour * PortableHourHeight - 6));
-            Canvas.SetLeft(label, 5);
-            timeline.Children.Add(label);
-            portableHourLabels[hour] = label;
+            label.TextAlignment = TextAlignment.Center;
+            var tick = new PortableGlassStrip(new Border
+            {
+                Padding = new(4, 3, 4, 3), Child = label
+            }, showRim: false) { Width = 44 };
+            Canvas.SetTop(tick, Math.Max(0, hour * PortableHourHeight - 9));
+            Canvas.SetLeft(tick, 3);
+            timeline.Children.Add(tick);
+            portableHourLabels[hour] = tick;
             var rule = new Border { Height = 1, Background = PortableOutline("#DFE7F1"), IsHitTestVisible = false };
             Canvas.SetTop(rule, hour * PortableHourHeight);
             Canvas.SetLeft(rule, PortableTimeGutter);
@@ -251,7 +256,7 @@ internal sealed partial class DesktopIntegration
         body.Children.Add(timeView);
 
         var laneEnds = new List<double>();
-        var cards = new List<(Button Button, StackPanel Label, int Lane)>();
+        var cards = new List<(Button Button, PortableGlassStrip Label, int Lane)>();
         foreach (var task in tasks.OrderBy(item => item.StartTime).ThenBy(item => item.EndTime))
         {
             const double minimumHeight = 19;
@@ -279,8 +284,15 @@ internal sealed partial class DesktopIntegration
                 label.Children.Add(hours);
             }
 
+            var labelGlass = new PortableGlassStrip(new Border
+            {
+                Padding = new(5, 1, 5, 1), Child = label
+            })
+            {
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            };
             var card = PortableButton("", () => ShowTaskDetail(task));
-            card.Content = label;
+            card.Content = BuildPortableEventGlass(labelGlass);
             card.ToolTip = $"{task.Title}\n{task.Hours}";
             card.MinHeight = 0;
             card.Height = height;
@@ -293,7 +305,7 @@ internal sealed partial class DesktopIntegration
             AutomationProperties.SetName(card, $"{task.Title}，{task.Hours}");
             Canvas.SetTop(card, top);
             timeline.Children.Add(card);
-            cards.Add((card, label, lane));
+            cards.Add((card, labelGlass, lane));
         }
 
         var nowInk = PortableInk(PortableNowAccent);

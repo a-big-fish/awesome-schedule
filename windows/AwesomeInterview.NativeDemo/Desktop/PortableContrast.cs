@@ -194,7 +194,9 @@ internal sealed partial class DesktopIntegration
             ? grouped.Add(strip) ? PlanPortableStrip(strip, style) : null
             : PlanPortableGlass(label, style, labels, clockInk)).ToArray();
         var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
-        var blocked = clockInk.Concat(glassBounds).ToArray();
+        var blocked = clockInk.Concat(glassBounds).ToList();
+        if (portableHoverCue is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } cue)
+            blocked.Add(ScreenBounds(cue));
         bool hasGlass = style.GlassStrength != 0;
         var samples = labels.Select((label, index) => glass[index] == null && !(hasGlass && label.Strip != null)
             ? PortableSamplePoints(label, labels, blocked) : []).ToArray();

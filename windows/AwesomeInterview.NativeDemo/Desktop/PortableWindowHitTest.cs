@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.InteropServices;
 
 namespace AwesomeInterview.NativeDemo;
@@ -12,7 +11,7 @@ internal struct ScreenPoint
 internal static class PortableWindowHitTest
 {
     const uint RootWindow = 2;
-    const uint PreviousWindow = 3;
+    const uint NextWindow = 2;
 
     public static bool TryGetCursor(out ScreenPoint point) => GetCursorPos(out point);
 
@@ -22,15 +21,18 @@ internal static class PortableWindowHitTest
     public static bool CoversPoint(nint window, ScreenPoint point)
     {
         if (!ContainsPoint(window, point)) return false;
-
         var hit = WindowFromPoint(point);
-        if (hit == 0) return false;
-        // The hit can be the transparent window itself or a window underneath it.
-        var candidate = GetAncestor(hit, RootWindow);
-        for (int i = 0; candidate != 0 && i < 128; i++)
+        var hitRoot = hit != 0 ? GetAncestor(hit, RootWindow) : 0;
+        if (hitRoot == window) return true;
+
+        // A transparent pixel can report the desktop or no HWND. Check from the front
+        // so a foreground window blocks hover, while the desktop behind the widget doesn't.
+        var candidate = GetTopWindow(0);
+        for (int i = 0; candidate != 0 && i < 512; i++)
         {
             if (candidate == window) return true;
-            candidate = GetWindow(candidate, PreviousWindow);
+            if (candidate == hitRoot) return false;
+            candidate = GetWindow(candidate, NextWindow);
         }
         return false;
     }
@@ -58,4 +60,7 @@ internal static class PortableWindowHitTest
 
     [DllImport("user32.dll")]
     static extern nint GetWindow(nint window, uint command);
+
+    [DllImport("user32.dll")]
+    static extern nint GetTopWindow(nint window);
 }

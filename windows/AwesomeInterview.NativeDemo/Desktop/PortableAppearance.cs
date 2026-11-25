@@ -219,6 +219,9 @@ internal sealed partial class DesktopIntegration
     static extern nint GetWindowLongPtr(nint handle, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     static extern nint SetWindowLongPtr(nint handle, int index, nint value);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool SetWindowPos(nint handle, nint insertAfter, int x, int y, int width, int height, uint flags);
 
     bool ApplyPortableInputStyle(nint hwnd, bool passThrough)
     {
@@ -226,7 +229,12 @@ internal sealed partial class DesktopIntegration
         long next = passThrough ? value | TransparentStyle | NoActivateStyle : value & ~(TransparentStyle | NoActivateStyle);
         if (next == value) return true;
         var old = SetWindowLongPtr(hwnd, ExtendedStyle, new nint(next));
-        if (old != 0 || Marshal.GetLastPInvokeError() == 0) return true;
+        const uint refreshStyle = 0x0020 | 0x0010 | 0x0004 | 0x0002 | 0x0001; // FRAMECHANGED, NOACTIVATE, NOZORDER, NOMOVE, NOSIZE
+        if (old != 0 || Marshal.GetLastPInvokeError() == 0)
+        {
+            if (SetWindowPos(hwnd, 0, 0, 0, 0, 0, refreshStyle)) return true;
+            SetWindowLongPtr(hwnd, ExtendedStyle, new nint(value));
+        }
         shell.Status.Text = "无法切换随身日程的鼠标模式，请重新打开。";
         return false;
     }
@@ -239,6 +247,7 @@ internal sealed partial class DesktopIntegration
 
         portableLocked = locked;
         portableHoverActive = false;
+        UpdatePortableHoverCue(null);
         portableHover.Reset();
         if (locked)
         {
@@ -274,20 +283,32 @@ internal sealed partial class DesktopIntegration
     {
         portableHoverTimer?.Stop();
         portableHoverTimer = null;
+        UpdatePortableHoverCue(null);
         portableWheel?.Dispose();
         portableWheel = null;
     }
 
     void UpdatePortableHover(nint hwnd)
     {
+        if (!PortableWindowHitTest.TryGetCursor(out var point)) return;
+        EvaluatePortableHover(hwnd, point, Environment.TickCount64);
+    }
+
+    void EvaluatePortableHover(nint hwnd, ScreenPoint point, long now)
+    {
         if (!portableLocked || portable is not { IsVisible: true } window) return;
-        bool over = PortableWindowHitTest.TryGetCursor(out var point) && PortableWindowHitTest.CoversPoint(hwnd, point);
+        bool over = PortableWindowHitTest.CoversPoint(hwnd, point);
         if (over && portableUnlock is { IsVisible: true } unlock &&
             PortableWindowHitTest.ContainsPoint(new WindowInteropHelper(unlock).Handle, point))
             over = false;
-        bool mouseBusy = PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
-        bool interactive = portableHover.Update(over, mouseBusy, point.X, point.Y, Environment.TickCount64);
-        if (interactive == portableHoverActive || !ApplyPortableInputStyle(hwnd, !interactive)) return;
+        bool mouseBusy = portableDetailOpen || PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
+        bool interactive = portableHover.Update(over, mouseBusy, point.X, point.Y, now);
+        if (interactive == portableHoverActive)
+        {
+            PositionPortableHoverCue(interactive && over, point);
+            return;
+        }
+        if (!ApplyPortableInputStyle(hwnd, !interactive)) return;
 
         portableHoverActive = interactive;
         if (!interactive)
@@ -297,8 +318,14 @@ internal sealed partial class DesktopIntegration
             SchedulePortableFocusReset();
         }
         else portableFocusReset?.Stop();
+        PositionPortableHoverCue(interactive && over, point);
         UpdatePortableTools();
+        if (interactive) SchedulePortableContrast();
     }
+
+    void PositionPortableHoverCue(bool visible, ScreenPoint point) =>
+        UpdatePortableHoverCue(visible && portableHoverCueLayer is { } layer && PresentationSource.FromVisual(layer) != null
+            ? layer.PointFromScreen(new Point(point.X, point.Y)) : null);
 
     void UpdatePortableTools()
     {
@@ -331,6 +358,8 @@ internal sealed partial class DesktopIntegration
     void ApplyPortableAppearance()
     {
         double overall = PortableOverallOpacity, background = PortableBackgroundOpacity, ink = PortableTextOpacity;
+        double edgeOpacity = SystemParameters.HighContrast ? 0 : Math.Min(1, ActivePortableStyle.GlassStrength / 60d);
+        portableTopGlassEdge.Opacity = portableBottomGlassEdge.Opacity = edgeOpacity;
         foreach (var (color, brush) in portableFillBrushes)
         {
             brush.Color = Brush(PortableFillColor(color)).Color;
@@ -359,8 +388,6 @@ internal sealed partial class DesktopIntegration
         if (ActivePortableStyle.GlassStrength == 0) ClearPortableGlass(restoreInk: true);
 
         if (portable == null || portableSurface == null) return;
-        // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.
-        portableSurface.Background = Brush("#01FFFFFF");
         ApplyPortableFrame();
         if (portableHeader != null)
         {
@@ -384,6 +411,8 @@ internal sealed partial class DesktopIntegration
         if (portableHeader != null)
             portableHeader.Visibility = PortablePassThrough ? Visibility.Hidden : Visibility.Visible;
         if (portableSurface == null) return;
+        // The low-alpha backing keeps the layered window hittable in the gaps after hover unlock.
+        portableSurface.Background = Brush(portableHoverActive ? "#04FFFFFF" : "#01FFFFFF");
         if (PortablePassThrough) portableSurface.BorderBrush = Brushes.Transparent;
         else
         {
