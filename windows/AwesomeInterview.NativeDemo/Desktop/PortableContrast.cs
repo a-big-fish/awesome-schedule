@@ -21,6 +21,7 @@ internal sealed partial class DesktopIntegration
     static readonly SineEase PortableInkEase = CreatePortableInkEase();
     readonly PortableContrastCadence portableContrastCadence = new();
     readonly List<PortableGlyphText> displayedPortableText = new();
+    readonly HashSet<PortableGlassStrip> displayedPortableStrips = new();
     DispatcherTimer? portableContrastTimer;
     HwndSource? portableContrastSource;
     PortableForegroundWatcher? portableForegroundWatcher;
@@ -36,7 +37,7 @@ internal sealed partial class DesktopIntegration
     static extern bool WTSUnRegisterSessionNotification(nint window);
 
     readonly record struct PortableLabelSample(PortableGlyphText Label, PortableGlyphLayout Layout,
-        Matrix ToScreen, Rect InkBounds, Rect Viewport, double Opacity);
+        Matrix ToScreen, Rect InkBounds, Rect Viewport, double Opacity, PortableGlassStrip? Strip);
     readonly record struct PortableGlyphSample(PortableGlyphLayout.Glyph Glyph, Pixel[] Points);
 
     void AttachPortableContrast(Window window)
@@ -104,11 +105,14 @@ internal sealed partial class DesktopIntegration
 
     void ClearPortableGlass(bool restoreInk = false)
     {
+        var clearedStrips = displayedPortableStrips.Where(strip => strip.SetGlass(null, null)).ToArray();
         foreach (var label in displayedPortableText)
         {
-            if (label.GlyphLayout is not { } layout || !layout.SetGlass(null, null) ||
-                !restoreInk || label.NativeInk is not { } original) continue;
-            foreach (var glyph in layout.Glyphs) PaintPortableGlyph(glyph, new(original.Color, null), false);
+            if (label.GlyphLayout is not { } layout) continue;
+            bool cleared = layout.SetGlass(null, null);
+            if (restoreInk && (cleared || clearedStrips.Any(strip => strip.IsAncestorOf(label))) &&
+                label.NativeInk is { } original)
+                foreach (var glyph in layout.Glyphs) PaintPortableGlyph(glyph, new(original.Color, null), false);
         }
     }
 
@@ -144,6 +148,7 @@ internal sealed partial class DesktopIntegration
         portableSessionLocked = false;
         portableContrastUrgent = false;
         displayedPortableText.Clear();
+        displayedPortableStrips.Clear();
     }
 
     async void SamplePortableContrast(object? sender, EventArgs args)
@@ -161,6 +166,8 @@ internal sealed partial class DesktopIntegration
             CollectPortableLabels(unlock, labels);
         displayedPortableText.Clear();
         displayedPortableText.AddRange(labels.Select(sample => sample.Label));
+        displayedPortableStrips.Clear();
+        displayedPortableStrips.UnionWith(labels.Select(label => label.Strip).OfType<PortableGlassStrip>());
 
         if (SystemParameters.HighContrast)
         {
@@ -182,10 +189,15 @@ internal sealed partial class DesktopIntegration
             clockInk.Add(area);
         }
         var style = ActivePortableStyle;
-        var glass = labels.Select(label => PlanPortableGlass(label, style, labels, clockInk)).ToArray();
+        var grouped = new HashSet<PortableGlassStrip>();
+        var glass = labels.Select(label => label.Strip is { } strip
+            ? grouped.Add(strip) ? PlanPortableStrip(strip, style) : null
+            : PlanPortableGlass(label, style, labels, clockInk)).ToArray();
         var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
         var blocked = clockInk.Concat(glassBounds).ToArray();
-        var samples = labels.Select((label, index) => glass[index] == null ? PortableSamplePoints(label, labels, blocked) : []).ToArray();
+        bool hasGlass = style.GlassStrength != 0;
+        var samples = labels.Select((label, index) => glass[index] == null && !(hasGlass && label.Strip != null)
+            ? PortableSamplePoints(label, labels, blocked) : []).ToArray();
         var glassPoints = labels.Select((label, index) => glass[index]?.SamplePoints.Where(pixel =>
         {
             var point = new Point(pixel.X, pixel.Y);
@@ -213,11 +225,17 @@ internal sealed partial class DesktopIntegration
             {
                 var label = labels[index];
                 if (label.Label.GlyphLayout != label.Layout || label.Label.NativeInk is not { } source) continue;
-                backgroundChanged |= label.Layout.SetGlass(glass[index], glassPixels[index]);
-                if (glass[index] is { } patch)
+                if (label.Strip is { } strip)
+                {
+                    if (glass[index] is { } groupGlass)
+                        backgroundChanged |= strip.SetGlass(groupGlass, glassPixels[index]);
+                }
+                else backgroundChanged |= label.Layout.SetGlass(glass[index], glassPixels[index]);
+
+                if (glass[index] != null || (hasGlass && label.Strip != null))
                 {
                     foreach (var glyph in label.Layout.Glyphs)
-                        PaintPortableGlyph(glyph, new(patch.Ink, null), false);
+                        PaintPortableGlyph(glyph, new(PortableGlass.InkFor(style), null), false);
                     continue;
                 }
                 foreach (var (glyph, points) in samples[index])
@@ -236,6 +254,12 @@ internal sealed partial class DesktopIntegration
             timer.Interval = portableContrastCadence.AfterSample(backgroundChanged || urgent);
         }
         finally { portableSampling = false; }
+    }
+
+    static PortableGlass? PlanPortableStrip(PortableGlassStrip strip, PortableStyle style)
+    {
+        if (style.GlassStrength == 0 || strip.ActualWidth < 3 || strip.ActualHeight < 3) return null;
+        return new PortableGlass(new Rect(strip.RenderSize), ScreenBounds(strip), style, capsule: true);
     }
 
     static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style,
@@ -264,11 +288,13 @@ internal sealed partial class DesktopIntegration
     {
         if (root is not { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } ||
             PresentationSource.FromVisual(root) == null) return;
-        CollectPortableLabels(root, ScreenBounds(root), 1, labels);
+        CollectPortableLabels(root, ScreenBounds(root), 1, labels, null);
     }
 
-    static void CollectPortableLabels(Visual visual, Rect viewport, double opacity, List<PortableLabelSample> labels)
+    static void CollectPortableLabels(Visual visual, Rect viewport, double opacity, List<PortableLabelSample> labels,
+        PortableGlassStrip? strip)
     {
+        if (visual is PortableGlassStrip group) strip = group;
         if (visual is FrameworkElement element)
         {
             if (!element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return;
@@ -289,13 +315,13 @@ internal sealed partial class DesktopIntegration
             var ink = new MatrixTransform(toScreen).TransformBounds(layout.Bounds);
             ink.Intersect(layoutBounds);
             ink.Intersect(viewport);
-            if (!ink.IsEmpty) labels.Add(new(text, layout, toScreen, ink, viewport, opacity));
+            if (!ink.IsEmpty) labels.Add(new(text, layout, toScreen, ink, viewport, opacity, strip));
             return;
         }
 
         for (int index = 0; index < VisualTreeHelper.GetChildrenCount(visual); index++)
             if (VisualTreeHelper.GetChild(visual, index) is Visual child)
-                CollectPortableLabels(child, viewport, opacity, labels);
+                CollectPortableLabels(child, viewport, opacity, labels, strip);
     }
 
     static Rect ScreenBounds(FrameworkElement element) =>

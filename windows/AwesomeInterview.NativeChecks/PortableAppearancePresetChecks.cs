@@ -24,7 +24,8 @@ internal static class PortableAppearancePresetChecks
             defaults.PortableAutoLockSeconds == 10, "the new screenshot is the fresh installation default");
 
         check(soft.Style?.GlassStrength == 0 && frosted is { OverallTransparency: 0, BackgroundTransparency: 100,
-            BorderTransparency: 100, Style.GlassStrength: >= 80 }, "only the independent frosted preset enables visible glass");
+            BorderTransparency: 100, Style: { GlassStrength: 60, GlassTone: "light" } },
+            "only the independent frosted preset enables soft light glass");
 
         var previousStyle = new PortableStyle(GlassStrength: 42);
         var upgraded = AppliedStyle(PortableAppearancePreset.DefaultFile);
@@ -36,10 +37,18 @@ internal static class PortableAppearancePresetChecks
                 PortableStyle: previousStyle, PortableStyleFile: fileName));
 
         var oldGlass = new PortableStyle(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16);
-        var glassSettings = PortableAppearancePreset.UpgradeSavedStyle(new(PortableStyle: oldGlass,
-            PortableStyleFile: PortableAppearancePreset.GlassFile, PortableTextOpacity: .88));
-        check(glassSettings.PortableStyle == frosted.Style && glassSettings.PortableTextOpacity == .88,
-            "upgrading the bundled glass updates its footprint without changing user transparency");
+        var denseGlass = new PortableStyle(GlassStrength: 85, GlassRadius: 14, GlassFeather: 24);
+        check(new[] { oldGlass, denseGlass }.All(previous =>
+        {
+            var saved = new DesktopPreferences(PortableStyle: previous,
+                PortableStyleFile: PortableAppearancePreset.GlassFile, PortableTextOpacity: .88);
+            var upgradedGlass = PortableAppearancePreset.UpgradeSavedStyle(saved);
+            return upgradedGlass.PortableStyle == frosted.Style && upgradedGlass.PortableTextOpacity == .88;
+        }), "both previous bundled glass presets migrate without changing user transparency");
+        var customizedGlass = new DesktopPreferences(PortableStyle: denseGlass with { GlassFeather = 19 },
+            PortableStyleFile: PortableAppearancePreset.GlassFile);
+        check(PortableAppearancePreset.UpgradeSavedStyle(customizedGlass) == customizedGlass,
+            "upgrading preserves explicitly customized frosted glass");
 
         var existing = JsonSerializer.Deserialize<DesktopPreferences>(
             """{"PortableOpacity":0.73,"PortableTextOpacity":0.89,"PortableColor":"warm","PortableTopmost":false}""")!;
@@ -86,12 +95,10 @@ internal static class PortableAppearancePresetChecks
                       .Style?.GlassStrength == 21, "user edits survive reseeding built-in styles and are read from disk");
 
             string glassFile = Path.Combine(local, PortableAppearancePreset.GlassFile);
-            var stock = File.ReadAllText(glassFile);
-            File.WriteAllText(glassFile, stock.Replace("\"GlassStrength\": 85", "\"GlassStrength\": 82")
-                .Replace("\"GlassFeather\": 24", "\"GlassFeather\": 16"));
+            File.WriteAllText(glassFile, JsonSerializer.Serialize(frosted with { Style = denseGlass }));
             PortableAppearancePreset.EnsureFolder(local);
-            check(PortableAppearancePreset.TryRead(glassFile)?.Style?.GlassFeather == 24,
-                "the previous bundled glass file is refreshed automatically");
+            check(PortableAppearancePreset.TryRead(glassFile)?.Style == frosted.Style,
+                "the dense Preview 20 glass file is refreshed automatically");
 
             File.WriteAllText(file, source.Replace("\"Version\": 1", "\"Version\": 2"));
             try { PortableAppearancePreset.Import(file, local); check(false, "unsupported styles are rejected"); }
@@ -107,23 +114,26 @@ internal static class PortableAppearancePresetChecks
         int middle = (bitmap.PixelHeight / 2) * stride;
         check(pixels[middle + 3] == 0 && pixels[middle + stride - 1] == 0 &&
               pixels[middle + 7] > 0 && pixels[middle + 7] < pixels[middle + stride / 2 + 3] &&
-              pixels[middle + stride / 2] is > 0 and < 255 && pixels[middle + stride / 2 + 3] >= 200,
-            "frosted strip blurs sampled detail and feathers both ends to fully transparent");
+              pixels[stride + 7] > 0 && pixels[stride + 7] < pixels[middle + 7] &&
+              pixels[middle + stride / 2] is > 0 and < 255 && pixels[middle + stride / 2 + 3] == 153,
+            "soft glass feathers both axes and fades more gently at corners");
         var white = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.White);
         var dark = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.Black);
         int center = middle + stride / 2;
         var taskInk = new Rect(20, 14, 80, 13);
         var expanded = PortableGlass.Expand(taskInk, frosted.Style!.GlassFeather);
-        check(expanded.Width == 128 && expanded.Height == 41 && expanded.Contains(taskInk),
+        check(expanded.Width == 108 && expanded.Height == 29 && expanded.Contains(taskInk),
             "the glass footprint extends past the headline in both directions");
-        var light = new PortableGlass(glass.LocalBounds, glass.ScreenBounds, frosted.Style with { GlassTone = "light" });
-        check(glass.Ink == Colors.White && light.Ink == Colors.Black &&
-              ContrastOnGray(glass.Render(white), center, 255, glass.Ink) >= 4.5 &&
-              ContrastOnGray(light.Render(dark), center, 0, light.Ink) >= 4.5,
-            "fixed black and white ink contrast with the glass core against opposing backgrounds");
+        var darkGlass = new PortableGlass(glass.LocalBounds, glass.ScreenBounds, denseGlass);
+        check(glass.Ink == Colors.Black && darkGlass.Ink == Colors.White &&
+              ContrastOnGray(glass.Render(dark), center, 0, glass.Ink) >= 4.5 &&
+              ContrastOnGray(darkGlass.Render(white), center, 255, darkGlass.Ink) >= 4.5,
+            "soft light glass and custom dark glass maintain fixed ink contrast on opposing backgrounds");
+        check(glass.Render(white)[center + 2] >= 245,
+            "light glass keeps the fill close to white on a white background");
         capture.Clear();
-        check(glass.Render(capture)[center + 3] >= 210 && glass.Ink == Colors.White,
-            "missing samples retain the fixed glass tint and ink");
+        check(glass.Render(capture)[center + 3] == 153 && glass.Ink == Colors.Black,
+            "missing samples retain the fixed light tint and dark ink");
     }
 
     static double ContrastOnGray(byte[] pixels, int index, int background, Color ink)

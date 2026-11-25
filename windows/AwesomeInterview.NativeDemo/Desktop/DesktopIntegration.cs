@@ -193,18 +193,16 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     Border BuildPortableHeader()
     {
         var controls = new DockPanel();
-        void AddTool(Button button)
-        {
-            DockPanel.SetDock(button, Dock.Right);
-            controls.Children.Add(button);
-        }
-        AddTool(PortableTool("关闭", () => portable?.Close()));
-        AddTool(PortableTool("外观", TogglePortableAppearance));
+        portableLockTool = PortableTool("鼠标穿透", () => SetPortableLocked(!portableLocked));
         portablePinTool = PortableTool("置顶", TogglePortableTopmost);
-        AddTool(portablePinTool);
-        var lockButton = PortableTool("鼠标穿透", () => SetPortableLocked(!portableLocked));
-        portableLockTool = lockButton;
-        AddTool(lockButton);
+        var tools = new StackPanel { Orientation = Orientation.Horizontal };
+        tools.Children.Add(portableLockTool);
+        tools.Children.Add(portablePinTool);
+        tools.Children.Add(PortableTool("外观", TogglePortableAppearance));
+        tools.Children.Add(PortableTool("关闭", () => portable?.Close()));
+        var glassStrip = new PortableGlassStrip(tools);
+        DockPanel.SetDock(glassStrip, Dock.Right);
+        controls.Children.Add(glassStrip);
 
         var title = PortableLabel("随身日程", 13);
         title.FontWeight = FontWeights.SemiBold;

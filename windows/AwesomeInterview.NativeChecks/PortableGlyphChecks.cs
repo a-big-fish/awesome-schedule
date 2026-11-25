@@ -47,6 +47,22 @@ internal static class PortableGlyphChecks
                     .Any(pixel => frame[pixel * 4 + 3] > 30),
                     "WPF draws expanded glass past the text's local bounds without changing layout size");
 
+                var strip = new PortableGlassStrip(new TextBlock { Text = "外观  关闭", Width = 84, Height = 26 });
+                var dock = new DockPanel { Width = 310, Height = 56 };
+                DockPanel.SetDock(strip, Dock.Right);
+                dock.Children.Add(strip);
+                dock.Children.Add(new TextBlock { Text = "随身日程" });
+                dock.Measure(new Size(310, 56));
+                dock.Arrange(new Rect(0, 0, 310, 56));
+                var stripSize = strip.RenderSize;
+                var bounds = new Rect(stripSize);
+                var stripPatch = new PortableGlass(bounds, bounds, new(GlassStrength: 60, GlassTone: "light"), capsule: true);
+                strip.SetGlass(stripPatch, stripPatch.Render(new Dictionary<System.Drawing.Point, Color>()));
+                _ = Render(dock);
+                var image = strip.Children.OfType<Canvas>().Single().Children.OfType<Image>().Single();
+                check(strip.RenderSize == stripSize && image.Clip is RectangleGeometry { RadiusX: > 0 } &&
+                    image.Source != null && !image.IsHitTestVisible, "shared glass capsule is rounded and cannot resize its toolbar");
+
                 var combined = Label("A😊️é", 170);
                 check(combined.PrepareGlyphs()!.Glyphs.Count == 3, "portable glyph drawing retains emoji and combining accents");
                 var trimmed = Label("很长一行任务标题和数据", 65, TextTrimming.CharacterEllipsis);

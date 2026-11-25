@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Pixel = System.Drawing.Point;
@@ -11,8 +12,9 @@ namespace AwesomeInterview.NativeDemo;
 internal sealed class PortableGlass
 {
     static readonly Color DarkFrost = Color.FromRgb(30, 40, 53);
-    static readonly Color LightFrost = Color.FromRgb(238, 243, 249);
+    static readonly Color LightFrost = Color.FromRgb(247, 248, 249);
     readonly Color tint;
+    readonly bool capsule;
     readonly int columns, rows, blurRadius;
     readonly double featherX, featherY, strength;
     readonly Pixel[] top, bottom, sides;
@@ -21,14 +23,15 @@ internal sealed class PortableGlass
     internal Color Ink { get; }
     internal Rect[] ExcludedInk { get; }
 
-    internal PortableGlass(Rect local, Rect screen, PortableStyle style, Rect[]? excludedInk = null)
+    internal PortableGlass(Rect local, Rect screen, PortableStyle style, Rect[]? excludedInk = null, bool capsule = false)
     {
+        this.capsule = capsule;
         LocalBounds = local;
         ScreenBounds = screen;
         ExcludedInk = excludedInk ?? [];
         bool light = style.GlassTone == "light";
         tint = light ? LightFrost : DarkFrost;
-        Ink = light ? Colors.Black : Colors.White;
+        Ink = InkFor(style);
         columns = Math.Clamp((int)Math.Ceiling(screen.Width / 4), 6, 96);
         rows = Math.Clamp((int)Math.Ceiling(screen.Height / 3), 6, 22);
         blurRadius = Math.Clamp((int)Math.Round(style.GlassRadius * columns / local.Width), 1, 8);
@@ -53,6 +56,8 @@ internal sealed class PortableGlass
     // glass and ink footprints so neither the glass nor the text is fed back into the blur.
     internal IEnumerable<Pixel> SamplePoints => top.Concat(bottom).Concat(sides);
 
+    internal static Color InkFor(PortableStyle style) => style.GlassTone == "light" ? Colors.Black : Colors.White;
+
     internal static Rect Expand(Rect ink, int feather)
     {
         ink.Inflate(feather, Math.Round(feather * .58));
@@ -68,7 +73,8 @@ internal sealed class PortableGlass
             : topCount > 0 ? all : bottomCount > 0 ? lower : sideCount > 0 ? side : tint;
 
         var result = new byte[columns * rows * 4];
-        for (int x = 1; x < columns - 1; x++)
+        int edgeInset = capsule ? 0 : 1;
+        for (int x = edgeInset; x < columns - edgeInset; x++)
         {
             int start = Math.Max(0, x - blurRadius);
             int end = Math.Min(columns, x + blurRadius + 1);
@@ -76,12 +82,12 @@ internal sealed class PortableGlass
             var beneath = Average(bottom, start, end, backdrop, out int beneathCount);
             if (upperCount == 0) upper = beneathCount > 0 ? beneath : fallback;
             if (beneathCount == 0) beneath = upper;
-            for (int y = 1; y < rows - 1; y++)
+            for (int y = edgeInset; y < rows - edgeInset; y++)
             {
                 var backdropColor = Blend(upper, beneath, (double)y / (rows - 1));
                 // Limit the blurred backdrop's influence so the chosen ink stays readable.
-                var color = Blend(tint, backdropColor, .10);
-                double edge = Math.Min(Edge(x, columns, featherX), Edge(y, rows, featherY));
+                var color = Blend(tint, backdropColor, capsule ? .18 : .10);
+                double edge = capsule ? 1 : Edge(x, columns, featherX) * Edge(y, rows, featherY);
                 int index = (y * columns + x) * 4;
                 result[index] = color.B;
                 result[index + 1] = color.G;
@@ -126,5 +132,51 @@ internal sealed class PortableGlass
         double distance = (double)Math.Min(index, length - 1 - index) / (length - 1);
         double t = Math.Min(1, distance / feather);
         return t * t * (3 - 2 * t);
+    }
+}
+
+internal sealed class PortableGlassStrip : Grid
+{
+    readonly Image backdrop = new() { IsHitTestVisible = false, Stretch = Stretch.Fill };
+    readonly Border rim = new()
+    {
+        IsHitTestVisible = false, BorderThickness = new Thickness(1), Visibility = Visibility.Collapsed,
+        BorderBrush = new LinearGradientBrush(Color.FromArgb(150, 255, 255, 255),
+            Color.FromArgb(55, 255, 255, 255), 90)
+    };
+    byte[]? pixels;
+
+    internal PortableGlassStrip(FrameworkElement content)
+    {
+        var material = new Canvas { IsHitTestVisible = false };
+        material.Children.Add(backdrop);
+        material.Children.Add(rim);
+        Children.Add(material);
+        Children.Add(content);
+        SizeChanged += (_, _) =>
+        {
+            backdrop.Width = rim.Width = ActualWidth;
+            backdrop.Height = rim.Height = ActualHeight;
+            double radius = ActualHeight / 2;
+            backdrop.Clip = new RectangleGeometry(new Rect(RenderSize), radius, radius);
+            rim.CornerRadius = new CornerRadius(radius);
+        };
+    }
+
+    internal bool SetGlass(PortableGlass? glass, byte[]? frame)
+    {
+        if (glass == null || frame == null)
+        {
+            if (pixels == null) return false;
+            pixels = null;
+            backdrop.Source = null;
+            rim.Visibility = Visibility.Collapsed;
+            return true;
+        }
+        if (frame.AsSpan().SequenceEqual(pixels)) return false;
+        pixels = frame;
+        backdrop.Source = glass.Image(frame);
+        rim.Visibility = Visibility.Visible;
+        return true;
     }
 }

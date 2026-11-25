@@ -16,6 +16,6 @@
 | `Style.GlassStrength` | 局部磨砂强度，0–85 的整数。设为 0 可关闭 |
 | `Style.GlassRadius` | 磨砂平滑半径，2–22 DIP |
 | `Style.GlassFeather` | 磨砂在文字周围的扩展和渐隐距离，3–24 DIP |
-| `Style.GlassTone` | `dark` 用深色玻璃与白字，`light` 用浅色玻璃与黑字。默认 `dark` |
+| `Style.GlassTone` | `dark` 为深玻璃白字，`light` 为浅玻璃黑字。内置磨砂预设选 `light`，自定义文件省略此项时为 `dark` |
 
 颜色用 `#RRGGBB`。整个 `Style` 可省略，省略的颜色沿用内置色，磨砂参数默认依次为 0、8、10。把 `GlassStrength` 设为大于 0 可给自定义样式启用磨砂。四个透明度字段要保留。

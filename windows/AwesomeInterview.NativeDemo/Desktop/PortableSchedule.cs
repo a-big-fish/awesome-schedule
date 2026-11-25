@@ -178,9 +178,6 @@ internal sealed partial class DesktopIntegration
             selectedView.Background = PortableFill("#EBF2FF");
             selectedView.Foreground = PortableInk("#2357CE");
             AutomationProperties.SetHelpText(selectedView, "当前视图");
-            DockPanel.SetDock(tabs, Dock.Right);
-            row.Children.Add(tabs);
-
             if (completed > 0)
             {
                 var toggle = new CheckBox
@@ -194,9 +191,12 @@ internal sealed partial class DesktopIntegration
                     portableShowCompleted = toggle.IsChecked == true;
                     RefreshPortable();
                 };
-                DockPanel.SetDock(toggle, Dock.Right);
-                row.Children.Add(toggle);
+                tabs.Children.Insert(0, toggle);
             }
+
+            var glassStrip = new PortableGlassStrip(tabs);
+            DockPanel.SetDock(glassStrip, Dock.Right);
+            row.Children.Add(glassStrip);
         }
 
         var date = PortableLabel(today.ToString("M月d日 dddd"), 14);

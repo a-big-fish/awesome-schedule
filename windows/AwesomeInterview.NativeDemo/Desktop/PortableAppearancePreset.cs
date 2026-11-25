@@ -17,7 +17,11 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     internal const string GlassFile = "frosted-glass.json";
     static readonly string[] Packaged = [OutlineFile, DefaultFile, GlassFile];
     static readonly PortableStyle PreviousBundledStyle = new(GlassStrength: 42);
-    static readonly PortableStyle PreviousFrostedStyle = new(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16);
+    static readonly PortableStyle[] PreviousFrostedStyles =
+    [
+        new(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16),
+        new(GlassStrength: 85, GlassRadius: 14, GlassFeather: 24)
+    ];
     static readonly JsonSerializerOptions Options = new()
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -54,14 +58,14 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
         && (preset.Style == PreviousBundledStyle && preset is
                 ({ FileName: OutlineFile, Name: "清透描边", OverallTransparency: 0, BorderTransparency: 0, TextTransparency: 0 }
                 or { FileName: DefaultFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 })
-            || preset.Style == PreviousFrostedStyle && preset is
+            || PreviousFrostedStyles.Contains(preset.Style) && preset is
                 { FileName: GlassFile, Name: "磨砂玻璃", OverallTransparency: 0, BorderTransparency: 100, TextTransparency: 0 });
 
     internal static DesktopPreferences UpgradeSavedStyle(DesktopPreferences saved)
     {
         if (saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or DefaultFile)
             return saved with { PortableStyle = PortableStyle.Default };
-        if (saved.PortableStyleFile == GlassFile && saved.PortableStyle == PreviousFrostedStyle &&
+        if (saved.PortableStyleFile == GlassFile && PreviousFrostedStyles.Contains(saved.PortableStyle) &&
             TryRead(Path.Combine(AppContext.BaseDirectory, "PortableStyles", GlassFile))?.Style is { } updated)
             return saved with { PortableStyle = updated };
         return saved;
