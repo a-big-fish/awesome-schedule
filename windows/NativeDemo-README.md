@@ -1,10 +1,10 @@
-# Awesome Interview Windows 1.6.0-W Preview 20
+# Awesome Interview Windows 1.6.0-W Preview 21
 
 Windows 10/11 x64、WPF / .NET 10 原生追赶预览。面试、简历、面经录入与导出流程已接通，完整追赶PRD的全部发布门禁尚未通过。
 
 ## 安装
 
-解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview20-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
+解压 `AwesomeInterview-NativeDemo-1.6.0-W-preview21-win-x64.zip`，先退出旧版（包括托盘），运行 `Install.cmd`；也可直接运行 `app/AwesomeInterview.NativeDemo.exe`。用户级、未签名、自包含x64包，无需预装.NET。本轮没有自动执行安装、升级或卸载。
 
 使用现有账号在应用内登录。可主动勾选「在此电脑记住密码」。保存的凭据由 Windows 当前用户 DPAPI 加密，重登绑定原服务器与账号。退出登录会清除已保存凭据和账号缓存，也可在登录页单独清除密码。会话、快照、私人草稿、简历页和提醒账本同样加密保存。卸载保留 `%LOCALAPPDATA%/AwesomeInterviewNative` 与 `%LOCALAPPDATA%/AwesomeInterviewNativeDemo` 中的数据和桌面偏好。
 
@@ -54,7 +54,7 @@ PDF当前由服务端PyMuPDF生成有界PNG页，WPF原生展示并加密缓存�
 
 Windows 原生检查 185 项通过，Python 测试 273 项通过、1 项跳过。新增覆盖玻璃胶囊的布局、白底磨砂、渐隐边角及旧磨砂预设升级。WPF 构建通过，保留既有 WinForms 高 DPI 清单分析告警。WPF 测试窗口验证了解锁、前台通知触发采样、当前时间无底色、宽窗横线淡出及文字下方的磨砂。Preview 15 验证了窗口工作区与四边四角缩放。Preview 12 验证了预设保存、空闲延时和解锁布局。凭据测试使用模拟 HTTP 响应。随身日程离屏布局及系统滚轮钩子的注册和释放已在 Preview 4 验证。真实窗口的鼠标穿透和多屏 DPI 仍待验收。
 
-使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview20` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
+使用 `windows/scripts/Package-Native.ps1 -Version 1.6.0-W-preview21` 从已提交的原生源码生成自包含ZIP、提交标识和SHA256。测试命令：`windows/.tools/dotnet/dotnet.exe run --project windows/AwesomeInterview.NativeChecks`。
 
 验收记录：`windows/acceptance/2026-11-21/README.md`；历史版本：`windows/NativeDemo-HISTORY.md`。
 
