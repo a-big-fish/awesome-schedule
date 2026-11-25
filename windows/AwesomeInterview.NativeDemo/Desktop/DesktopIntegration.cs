@@ -17,7 +17,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
     Func<IReadOnlyCollection<System.Drawing.Point>, IReadOnlyDictionary<System.Drawing.Point, Color>>? readBackdrop = null,
     string? preferencesPath = null)
 {
-    DesktopPreferences preferences = new();
+    DesktopPreferences preferences = new(PortableStyle: new(FillWindow: true));
     Forms.NotifyIcon? tray;
     Forms.ToolStripMenuItem? portableMenu;
     Window? portable;
@@ -38,6 +38,8 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
                 using var saved = JsonDocument.Parse(File.ReadAllText(PreferencesPath));
                 preferences = PortableAppearancePreset.UpgradeSavedStyle(
                     saved.RootElement.Deserialize<DesktopPreferences>() ?? new());
+                if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableOpacity), out _))
+                    preferences = preferences with { PortableOpacity = 0 };
                 if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableOverallOpacity), out _))
                     preferences = preferences with { PortableOverallOpacity = 1 };
                 if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableTextOpacity), out _))

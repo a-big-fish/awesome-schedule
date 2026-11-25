@@ -13,9 +13,10 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     public string? FileName { get; init; }
 
     internal const string OutlineFile = "clear-outline.json";
-    internal const string DefaultFile = "soft-silhouette.json";
+    internal const string DefaultFile = "solid.json";
+    internal const string SoftFile = "soft-silhouette.json";
     internal const string GlassFile = "frosted-glass.json";
-    static readonly string[] Packaged = [OutlineFile, DefaultFile, GlassFile];
+    static readonly string[] Packaged = [DefaultFile, OutlineFile, SoftFile, GlassFile];
     static readonly PortableStyle PreviousBundledStyle = new(GlassStrength: 42);
     static readonly PortableStyle[] PreviousFrostedStyles =
     [
@@ -44,7 +45,7 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
             var destination = Path.Combine(folder, file);
             bool exists = File.Exists(destination);
             bool previous = exists && (file == "README.md"
-                ? !File.ReadAllText(destination).Contains("`Style.GlassRefraction`", StringComparison.Ordinal)
+                ? !File.ReadAllText(destination).Contains("`Style.FillWindow`", StringComparison.Ordinal)
                 : MatchesPreviousBundledPreset(TryRead(destination)));
             if (!exists || previous)
             {
@@ -58,13 +59,13 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     static bool MatchesPreviousBundledPreset(PortableAppearancePreset? preset) => preset is { BackgroundTransparency: 100 }
         && (preset.Style == PreviousBundledStyle && preset is
                 ({ FileName: OutlineFile, Name: "清透描边", OverallTransparency: 0, BorderTransparency: 0, TextTransparency: 0 }
-                or { FileName: DefaultFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 })
+                or { FileName: SoftFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 })
             || PreviousFrostedStyles.Contains(preset.Style) && preset is
                 { FileName: GlassFile, Name: "磨砂玻璃", OverallTransparency: 0, BorderTransparency: 100, TextTransparency: 0 });
 
     internal static DesktopPreferences UpgradeSavedStyle(DesktopPreferences saved)
     {
-        if (saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or DefaultFile)
+        if (saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or SoftFile)
             return saved with { PortableStyle = PortableStyle.Default };
         if (saved.PortableStyleFile == GlassFile && PreviousFrostedStyles.Contains(saved.PortableStyle) &&
             TryRead(Path.Combine(AppContext.BaseDirectory, "PortableStyles", GlassFile))?.Style is { } updated)
@@ -76,7 +77,7 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     {
         var presets = new List<PortableAppearancePreset>();
         foreach (var path in Directory.EnumerateFiles(folder, "*.json")
-            .OrderBy(path => Path.GetFileName(path) switch { OutlineFile => 0, DefaultFile => 1, GlassFile => 2, _ => 3 })
+            .OrderBy(path => Path.GetFileName(path) switch { DefaultFile => 0, OutlineFile => 1, SoftFile => 2, GlassFile => 3, _ => 4 })
             .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase))
         {
             if (TryRead(path) is { } preset) presets.Add(preset);

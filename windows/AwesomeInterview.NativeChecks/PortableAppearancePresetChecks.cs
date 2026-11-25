@@ -11,24 +11,28 @@ internal static class PortableAppearancePresetChecks
     {
         var presets = PortableAppearancePreset.BuiltIn;
         var defaults = new DesktopPreferences();
-        check(presets.Count == 3, "all three portable appearance JSON files load");
-        if (presets.Count != 3) return;
+        check(presets.Count == 4, "all four portable appearance JSON files load");
+        if (presets.Count != 4) return;
 
+        var solid = presets.Single(preset => preset.FileName == PortableAppearancePreset.DefaultFile);
         var clear = presets.Single(preset => preset.Name == "清透描边");
         var soft = presets.Single(preset => preset.Name == "清透淡影");
         var frosted = presets.Single(preset => preset.Name == "磨砂玻璃");
         check(clear is { OverallTransparency: 0, BackgroundTransparency: 100, BorderTransparency: 0, TextTransparency: 0,
             Style.GlassStrength: 0 }, "the clear outline preset uses the requested values without glass");
-        check(soft is { OverallTransparency: 50, BackgroundTransparency: 100, BorderTransparency: 100, TextTransparency: 30 }
-            && (soft.Apply(defaults) with { PortableStyle = null, PortableStyleFile = null }) == defaults &&
-            defaults.PortableAutoLockSeconds == 10, "the new screenshot is the fresh installation default");
+        check(soft is { OverallTransparency: 50, BackgroundTransparency: 100, BorderTransparency: 100, TextTransparency: 30 },
+            "the original translucent preset retains its opacity");
+        check(presets[0] == solid && solid is { Name: "实色", OverallTransparency: 0, BackgroundTransparency: 0,
+            BorderTransparency: 0, TextTransparency: 0, Style: { FillWindow: true, GlassStrength: 0 } } &&
+            (solid.Apply(defaults) with { PortableStyle = null, PortableStyleFile = null }) == defaults &&
+            defaults.PortableAutoLockSeconds == 10, "the first preset and fresh default are fully opaque");
 
         check(soft.Style?.GlassStrength == 0 && frosted is { OverallTransparency: 0, BackgroundTransparency: 100,
             BorderTransparency: 100, Style: { GlassStrength: 60, GlassTone: "auto", GlassRefraction: 7 } },
             "only the independent glass preset enables transparent optics");
 
         var previousStyle = new PortableStyle(GlassStrength: 42);
-        var upgraded = AppliedStyle(PortableAppearancePreset.DefaultFile);
+        var upgraded = AppliedStyle(PortableAppearancePreset.SoftFile);
         var custom = AppliedStyle("user-style.json");
         check(upgraded is { PortableTextOpacity: .55, PortableStyle.GlassStrength: 0 } &&
             custom.PortableStyle == previousStyle, "upgrade removes the previously bundled glass and preserves custom styles");
@@ -56,6 +60,8 @@ internal static class PortableAppearancePresetChecks
         check(existing is { PortableOpacity: .73, PortableTextOpacity: .89, PortableAutoLockSeconds: 10 },
             "stored opacity settings survive introducing style files");
         var applied = soft.Apply(existing with { PortableAutoLockSeconds = 30 });
+        check(PortableAppearancePreset.UpgradeSavedStyle(applied) == applied,
+            "an existing selected style survives the new default");
         check(applied is { PortableColor: "warm", PortableTopmost: false, PortableAutoLockSeconds: 30,
             PortableOpacity: 0, PortableTextOpacity: .70, PortableOverallOpacity: .50, PortableBorderOpacity: 0 },
             "applying a style leaves interaction preferences intact");
@@ -84,7 +90,7 @@ internal static class PortableAppearancePresetChecks
                   imported.Apply(defaults).PortableStyle is { TextColor: "#DDEEFF", GlassStrength: 0, GlassRadius: 11 },
                 "commented JSON imports without overwriting an existing style and persists custom tokens");
 
-            string edited = Path.Combine(local, PortableAppearancePreset.DefaultFile);
+            string edited = Path.Combine(local, PortableAppearancePreset.SoftFile);
             string source = File.ReadAllText(edited);
             File.WriteAllText(edited, source.Replace("\"GlassStrength\": 0", "\"GlassStrength\": 42"));
             PortableAppearancePreset.EnsureFolder(local);
@@ -92,7 +98,7 @@ internal static class PortableAppearancePresetChecks
                 "upgrading an untouched Preview 18 preset updates its independent glass behavior");
             File.WriteAllText(edited, source.Replace("\"GlassStrength\": 0", "\"GlassStrength\": 21"));
             PortableAppearancePreset.EnsureFolder(local);
-            check(PortableAppearancePreset.ReadFolder(local).Single(style => style.FileName == PortableAppearancePreset.DefaultFile)
+            check(PortableAppearancePreset.ReadFolder(local).Single(style => style.FileName == PortableAppearancePreset.SoftFile)
                       .Style?.GlassStrength == 21, "user edits survive reseeding built-in styles and are read from disk");
 
             string glassFile = Path.Combine(local, PortableAppearancePreset.GlassFile);
@@ -103,7 +109,7 @@ internal static class PortableAppearancePresetChecks
 
             File.WriteAllText(file, source.Replace("\"Version\": 1", "\"Version\": 2"));
             try { PortableAppearancePreset.Import(file, local); check(false, "unsupported styles are rejected"); }
-            catch (JsonException) { check(PortableAppearancePreset.ReadFolder(local).Count == 5, "unsupported styles leave the saved directory unchanged"); }
+            catch (JsonException) { check(PortableAppearancePreset.ReadFolder(local).Count == 6, "unsupported styles leave the saved directory unchanged"); }
         }
         finally { root.Delete(recursive: true); }
 

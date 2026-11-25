@@ -5,7 +5,7 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed record PortableStyle(string? TextColor = null, string? MutedTextColor = null,
     string? AccentColor = null, string? SectionColor = null, string? EventColor = null, string? OutlineColor = null,
-    int GlassStrength = 0, int GlassRadius = 8, int GlassFeather = 10, string GlassTone = "dark", int GlassRefraction = 6)
+    int GlassStrength = 0, int GlassRadius = 8, int GlassFeather = 10, string GlassTone = "dark", int GlassRefraction = 6, bool FillWindow = false)
 {
     internal static PortableStyle Default { get; } = new();
 

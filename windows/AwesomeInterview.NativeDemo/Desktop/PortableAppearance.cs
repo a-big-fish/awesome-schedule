@@ -25,6 +25,7 @@ internal sealed partial class DesktopIntegration
     QuietScrollViewer? portableTaskScroll, portableTimelineScroll;
     PortableWheelInput? portableWheel;
     readonly SolidColorBrush portableSectionTint = new();
+    readonly SolidColorBrush portableWindowFill = new();
     readonly Dictionary<string, SolidColorBrush> portableFillBrushes = new();
     readonly Dictionary<string, SolidColorBrush> portableInkBrushes = new();
     readonly Dictionary<string, SolidColorBrush> portableOutlineBrushes = new();
@@ -411,8 +412,15 @@ internal sealed partial class DesktopIntegration
         if (portableHeader != null)
             portableHeader.Visibility = PortablePassThrough ? Visibility.Hidden : Visibility.Visible;
         if (portableSurface == null) return;
-        // The low-alpha backing keeps the layered window hittable in the gaps after hover unlock.
-        portableSurface.Background = Brush(portableHoverActive ? "#04FFFFFF" : "#01FFFFFF");
+        // Keep a low-alpha backing for hit testing while preserving the selected window fill.
+        double transparentHitSurface = (portableHoverActive ? 4 : 1) / 255d;
+        if (ActivePortableStyle.FillWindow)
+        {
+            portableWindowFill.Color = portableSectionTint.Color;
+            portableWindowFill.Opacity = Math.Max(transparentHitSurface, PortableBackgroundOpacity * PortableOverallOpacity);
+            portableSurface.Background = portableWindowFill;
+        }
+        else portableSurface.Background = Brush(portableHoverActive ? "#04FFFFFF" : "#01FFFFFF");
         if (PortablePassThrough) portableSurface.BorderBrush = Brushes.Transparent;
         else
         {
