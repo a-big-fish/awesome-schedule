@@ -13,12 +13,13 @@ internal sealed class PortableGlyphLayout
     static readonly Pen SampleMargin = CreateSampleMargin();
     readonly List<Glyph> glyphs = new();
     readonly DrawingGroup rendered;
-    readonly DrawingGroup glassLayer = new();
+    internal DrawingGroup GlassLayer { get; } = new();
     byte[]? glassPixels;
     Rect glassBounds;
+    Rect[] glassExclusions = [];
     internal IReadOnlyList<Glyph> Glyphs => glyphs;
     internal Rect Bounds { get; private set; } = Rect.Empty;
-    internal DrawingBrush Surface { get; }
+    internal DrawingGroup Drawing { get; } = new();
 
     internal sealed class Glyph(GlyphRun run, Geometry ink, SolidColorBrush fill, SolidColorBrush outline)
     {
@@ -34,34 +35,46 @@ internal sealed class PortableGlyphLayout
     {
         var local = new Rect(size);
         rendered = CopyText(nativeText, Matrix.Identity, source.Color);
-        var surfaceDrawing = new DrawingGroup { ClipGeometry = new RectangleGeometry(local) };
-        surfaceDrawing.Children.Add(glassLayer);
-        surfaceDrawing.Children.Add(rendered);
-        SetInkSource(source);
-        Surface = new DrawingBrush(surfaceDrawing)
+        Drawing.Children.Add(GlassLayer);
+        Drawing.Children.Add(new DrawingGroup
         {
-            ViewboxUnits = BrushMappingMode.Absolute, Viewbox = local,
-            ViewportUnits = BrushMappingMode.Absolute, Viewport = local,
-            Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top
-        };
+            ClipGeometry = new RectangleGeometry(local),
+            Children = { rendered }
+        });
+        SetInkSource(source);
         foreach (var glyph in glyphs) glyph.SamplePoints = BuildSamples(glyph);
     }
 
-    internal void SetGlass(PortableGlass? glass, byte[]? pixels)
+    internal bool SetGlass(PortableGlass? glass, byte[]? pixels)
     {
         if (glass == null || pixels == null)
         {
-            if (glassPixels == null) return;
-            glassLayer.Children.Clear();
+            if (glassPixels == null) return false;
+            GlassLayer.Children.Clear();
             glassPixels = null;
-            return;
+            glassExclusions = [];
+            GlassLayer.ClipGeometry = null;
+            return true;
         }
 
-        if (glassBounds == glass.LocalBounds && pixels.AsSpan().SequenceEqual(glassPixels)) return;
+        if (glassBounds == glass.LocalBounds && pixels.AsSpan().SequenceEqual(glassPixels) &&
+            glass.ExcludedInk.AsSpan().SequenceEqual(glassExclusions)) return false;
         glassBounds = glass.LocalBounds;
         glassPixels = pixels;
-        glassLayer.Children.Clear();
-        glassLayer.Children.Add(new ImageDrawing(glass.Image(pixels), glassBounds));
+        glassExclusions = glass.ExcludedInk;
+        if (glassExclusions.Length == 0) GlassLayer.ClipGeometry = null;
+        else
+        {
+            var exclusions = new GeometryGroup { FillRule = FillRule.Nonzero };
+            foreach (var ink in glassExclusions)
+                exclusions.Children.Add(new RectangleGeometry(ink));
+            var clip = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(glassBounds), exclusions);
+            clip.Freeze();
+            GlassLayer.ClipGeometry = clip;
+        }
+        GlassLayer.Children.Clear();
+        GlassLayer.Children.Add(new ImageDrawing(glass.Image(pixels), glassBounds));
+        return true;
     }
 
     internal void SetInkSource(SolidColorBrush source) =>

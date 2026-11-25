@@ -27,6 +27,26 @@ internal static class PortableGlyphChecks
                 title.Text = "时间";
                 check(title.GlyphLayout == null && title.Background == null, "new portable label text clears old glyph drawings immediately");
 
+                var frosted = Label("磨砂玻璃", 170);
+                var host = new Canvas { Width = 240, Height = 95 };
+                const int left = 35, top = 22;
+                frosted.Width = 170;
+                Canvas.SetLeft(frosted, left);
+                Canvas.SetTop(frosted, top);
+                host.Children.Add(frosted);
+                host.Measure(new Size(240, 95));
+                host.Arrange(new Rect(0, 0, 240, 95));
+                _ = Render(host);
+                var frostedLayout = frosted.PrepareGlyphs()!;
+                var before = frosted.RenderSize;
+                var plate = PortableGlass.Expand(frostedLayout.Bounds, 24);
+                var patch = new PortableGlass(plate, plate, new(GlassStrength: 85, GlassFeather: 24));
+                frostedLayout.SetGlass(patch, patch.Render(new Dictionary<System.Drawing.Point, Color>()));
+                var frame = Render(host);
+                check(frosted.RenderSize == before && Enumerable.Range(0, top * 240)
+                    .Any(pixel => frame[pixel * 4 + 3] > 30),
+                    "WPF draws expanded glass past the text's local bounds without changing layout size");
+
                 var combined = Label("A😊️é", 170);
                 check(combined.PrepareGlyphs()!.Glyphs.Count == 3, "portable glyph drawing retains emoji and combining accents");
                 var trimmed = Label("很长一行任务标题和数据", 65, TextTrimming.CharacterEllipsis);

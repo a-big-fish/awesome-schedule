@@ -10,6 +10,7 @@ namespace AwesomeInterview.NativeDemo;
 internal sealed class PortableGlyphText : TextBlock
 {
     object originalForeground = DependencyProperty.UnsetValue;
+    PortableTextVisual? drawingVisual;
     double glyphDpi;
     bool layoutDirty;
     internal PortableGlyphLayout? GlyphLayout { get; private set; }
@@ -27,6 +28,18 @@ internal sealed class PortableGlyphText : TextBlock
             if (GlyphLayout != null && layoutDirty) PrepareGlyphs();
         }));
     };
+
+    // A separate visual renders the glass past the text bounds without participating in layout or hit testing.
+    sealed class PortableTextVisual : DrawingVisual
+    {
+        protected override HitTestResult? HitTestCore(PointHitTestParameters hitTestParameters) => null;
+        protected override GeometryHitTestResult? HitTestCore(GeometryHitTestParameters hitTestParameters) => null;
+    }
+
+    protected override int VisualChildrenCount => base.VisualChildrenCount + (drawingVisual == null ? 0 : 1);
+
+    protected override Visual GetVisualChild(int index) =>
+        drawingVisual != null && index == base.VisualChildrenCount ? drawingVisual : base.GetVisualChild(index);
 
     internal PortableGlyphLayout? PrepareGlyphs()
     {
@@ -48,7 +61,13 @@ internal sealed class PortableGlyphText : TextBlock
         glyphDpi = dpi;
         layoutDirty = false;
         GlyphLayout = layout;
-        Background = layout.Surface;
+        if (drawingVisual == null)
+        {
+            drawingVisual = new PortableTextVisual();
+            AddVisualChild(drawingVisual);
+        }
+        using var context = drawingVisual.RenderOpen();
+        context.DrawDrawing(layout.Drawing);
         return layout;
     }
 
@@ -65,7 +84,11 @@ internal sealed class PortableGlyphText : TextBlock
         GlyphLayout = null;
         NativeInk = null;
         layoutDirty = false;
-        ClearValue(BackgroundProperty);
+        if (drawingVisual != null)
+        {
+            RemoveVisualChild(drawingVisual);
+            drawingVisual = null;
+        }
         if (originalForeground == DependencyProperty.UnsetValue) ClearValue(ForegroundProperty);
         else SetValue(ForegroundProperty, originalForeground);
         originalForeground = DependencyProperty.UnsetValue;

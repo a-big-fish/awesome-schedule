@@ -54,12 +54,12 @@ internal sealed partial class DesktopIntegration
             }
         };
         window.IsVisibleChanged += (_, _) => SchedulePortableContrast();
-        window.LocationChanged += (_, _) => PortableGlassGeometryChanged();
-        window.SizeChanged += (_, _) => PortableGlassGeometryChanged();
-        window.DpiChanged += (_, _) => PortableGlassGeometryChanged();
+        window.LocationChanged += (_, _) => SchedulePortableContrast();
+        window.SizeChanged += (_, _) => SchedulePortableContrast();
+        window.DpiChanged += (_, _) => SchedulePortableContrast();
         window.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, args) =>
         {
-            if (args.HorizontalChange != 0 || args.VerticalChange != 0) PortableGlassGeometryChanged();
+            if (args.HorizontalChange != 0 || args.VerticalChange != 0) SchedulePortableContrast();
         }), handledEventsToo: true);
     }
 
@@ -75,7 +75,7 @@ internal sealed partial class DesktopIntegration
         if (message == EnterSizeMove)
         {
             portableMoving = true;
-            PortableGlassGeometryChanged();
+            SchedulePortableContrast();
             foreach (var label in displayedPortableText)
                 if (label.GlyphLayout is { } layout)
                     foreach (var glyph in layout.Glyphs)
@@ -102,16 +102,14 @@ internal sealed partial class DesktopIntegration
         value.SetValue(property, shown);
     }
 
-    void ClearPortableGlass()
+    void ClearPortableGlass(bool restoreInk = false)
     {
         foreach (var label in displayedPortableText)
-            label.GlyphLayout?.SetGlass(null, null);
-    }
-
-    void PortableGlassGeometryChanged()
-    {
-        ClearPortableGlass();
-        SchedulePortableContrast();
+        {
+            if (label.GlyphLayout is not { } layout || !layout.SetGlass(null, null) ||
+                !restoreInk || label.NativeInk is not { } original) continue;
+            foreach (var glyph in layout.Glyphs) PaintPortableGlyph(glyph, new(original.Color, null), false);
+        }
     }
 
     void SchedulePortableContrast(bool resetCadence = true)
@@ -184,10 +182,10 @@ internal sealed partial class DesktopIntegration
             clockInk.Add(area);
         }
         var style = ActivePortableStyle;
-        var glass = labels.Select(label => PlanPortableGlass(label, style)).ToArray();
+        var glass = labels.Select(label => PlanPortableGlass(label, style, labels, clockInk)).ToArray();
         var glassBounds = glass.OfType<PortableGlass>().Select(patch => patch.ScreenBounds).ToArray();
         var blocked = clockInk.Concat(glassBounds).ToArray();
-        var samples = labels.Select(label => PortableSamplePoints(label, labels, blocked)).ToArray();
+        var samples = labels.Select((label, index) => glass[index] == null ? PortableSamplePoints(label, labels, blocked) : []).ToArray();
         var glassPoints = labels.Select((label, index) => glass[index]?.SamplePoints.Where(pixel =>
         {
             var point = new Point(pixel.X, pixel.Y);
@@ -215,23 +213,19 @@ internal sealed partial class DesktopIntegration
             {
                 var label = labels[index];
                 if (label.Label.GlyphLayout != label.Layout || label.Label.NativeInk is not { } source) continue;
-                label.Layout.SetGlass(glass[index], glassPixels[index]);
+                backgroundChanged |= label.Layout.SetGlass(glass[index], glassPixels[index]);
+                if (glass[index] is { } patch)
+                {
+                    foreach (var glyph in label.Layout.Glyphs)
+                        PaintPortableGlyph(glyph, new(patch.Ink, null), false);
+                    continue;
+                }
                 foreach (var (glyph, points) in samples[index])
                 {
                     int count = 0;
                     foreach (var point in points)
                         if (colors.TryGetValue(point, out var color)) backdrop[count++] = color;
-                    if (count == 0 && glass[index] != null)
-                    {
-                        var anchor = label.ToScreen.Transform(glyph.Ink.Bounds.Location);
-                        var nearest = glassPoints[index].OrderBy(point =>
-                            Math.Abs(point.X - anchor.X) + Math.Abs(point.Y - anchor.Y));
-                        foreach (var point in nearest)
-                        {
-                            if (colors.TryGetValue(point, out var color)) backdrop[count++] = color;
-                            if (count == backdrop.Length) break;
-                        }
-                    }
+
                     var (choice, changed) = glyph.Contrast.Observe(backdrop.AsSpan(0, count), source.Color,
                         source.Opacity * label.Opacity, urgent);
                     backgroundChanged |= changed;
@@ -244,21 +238,26 @@ internal sealed partial class DesktopIntegration
         finally { portableSampling = false; }
     }
 
-    static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style)
+    static PortableGlass? PlanPortableGlass(PortableLabelSample label, PortableStyle style,
+        IReadOnlyList<PortableLabelSample> labels, IReadOnlyList<Rect> clockInk)
     {
         if (style.GlassStrength == 0 || !label.ToScreen.HasInverse) return null;
-        var ink = label.Layout.Bounds;
-        ink.Inflate(style.GlassFeather, style.GlassFeather);
-        ink.Intersect(new Rect(label.Label.RenderSize));
-
-        var transform = new MatrixTransform(label.ToScreen);
-        var screen = transform.TransformBounds(ink);
-        screen.Intersect(label.Viewport);
-        if (screen.IsEmpty || screen.Width < 3 || screen.Height < 3) return null;
         var inverse = label.ToScreen;
         inverse.Invert();
-        var local = new MatrixTransform(inverse).TransformBounds(screen);
-        return new PortableGlass(local, screen, style);
+        var ink = new MatrixTransform(inverse).TransformBounds(label.InkBounds);
+        var expanded = PortableGlass.Expand(ink, style.GlassFeather);
+
+        var transform = new MatrixTransform(label.ToScreen);
+        var screen = transform.TransformBounds(expanded);
+        screen.Intersect(label.Viewport);
+        if (screen.IsEmpty || screen.Width < 3 || screen.Height < 3) return null;
+        var toLocal = new MatrixTransform(inverse);
+        var local = toLocal.TransformBounds(screen);
+        // Expanded glass sits behind its own label and leaves neighboring text unobscured.
+        var excluded = labels.Where(other => other.Label != label.Label && !other.InkBounds.IntersectsWith(label.InkBounds))
+            .Select(other => other.InkBounds).Concat(clockInk)
+            .Where(bounds => bounds.IntersectsWith(screen)).Select(toLocal.TransformBounds).ToArray();
+        return new PortableGlass(local, screen, style, excluded);
     }
 
     static void CollectPortableLabels(FrameworkElement? root, List<PortableLabelSample> labels)

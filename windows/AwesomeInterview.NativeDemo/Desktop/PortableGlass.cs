@@ -10,18 +10,25 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed class PortableGlass
 {
-    static readonly Color DarkFrost = Color.FromRgb(38, 57, 82);
-    static readonly Color LightFrost = Color.FromRgb(213, 229, 248);
+    static readonly Color DarkFrost = Color.FromRgb(30, 40, 53);
+    static readonly Color LightFrost = Color.FromRgb(238, 243, 249);
+    readonly Color tint;
     readonly int columns, rows, blurRadius;
     readonly double featherX, featherY, strength;
     readonly Pixel[] top, bottom, sides;
     internal Rect ScreenBounds { get; }
     internal Rect LocalBounds { get; }
+    internal Color Ink { get; }
+    internal Rect[] ExcludedInk { get; }
 
-    internal PortableGlass(Rect local, Rect screen, PortableStyle style)
+    internal PortableGlass(Rect local, Rect screen, PortableStyle style, Rect[]? excludedInk = null)
     {
         LocalBounds = local;
         ScreenBounds = screen;
+        ExcludedInk = excludedInk ?? [];
+        bool light = style.GlassTone == "light";
+        tint = light ? LightFrost : DarkFrost;
+        Ink = light ? Colors.Black : Colors.White;
         columns = Math.Clamp((int)Math.Ceiling(screen.Width / 4), 6, 96);
         rows = Math.Clamp((int)Math.Ceiling(screen.Height / 3), 6, 22);
         blurRadius = Math.Clamp((int)Math.Round(style.GlassRadius * columns / local.Width), 1, 8);
@@ -46,14 +53,19 @@ internal sealed class PortableGlass
     // glass and ink footprints so neither the glass nor the text is fed back into the blur.
     internal IEnumerable<Pixel> SamplePoints => top.Concat(bottom).Concat(sides);
 
-    internal byte[]? Render(IReadOnlyDictionary<Pixel, Color> backdrop)
+    internal static Rect Expand(Rect ink, int feather)
+    {
+        ink.Inflate(feather, Math.Round(feather * .58));
+        return ink;
+    }
+
+    internal byte[] Render(IReadOnlyDictionary<Pixel, Color> backdrop)
     {
         var all = Average(top, 0, top.Length, backdrop, out int topCount);
         var lower = Average(bottom, 0, bottom.Length, backdrop, out int bottomCount);
         var side = Average(sides, 0, sides.Length, backdrop, out int sideCount);
-        if (topCount + bottomCount + sideCount == 0) return null;
         var fallback = topCount > 0 && bottomCount > 0 ? Blend(all, lower, .5)
-            : topCount > 0 ? all : bottomCount > 0 ? lower : side;
+            : topCount > 0 ? all : bottomCount > 0 ? lower : sideCount > 0 ? side : tint;
 
         var result = new byte[columns * rows * 4];
         for (int x = 1; x < columns - 1; x++)
@@ -67,9 +79,8 @@ internal sealed class PortableGlass
             for (int y = 1; y < rows - 1; y++)
             {
                 var backdropColor = Blend(upper, beneath, (double)y / (rows - 1));
-                double brightness = (.2126 * backdropColor.R + .7152 * backdropColor.G + .0722 * backdropColor.B) / 255;
-                var tint = Blend(DarkFrost, LightFrost, brightness);
-                var color = Blend(backdropColor, tint, .44);
+                // Limit the blurred backdrop's influence so the chosen ink stays readable.
+                var color = Blend(tint, backdropColor, .10);
                 double edge = Math.Min(Edge(x, columns, featherX), Edge(y, rows, featherY));
                 int index = (y * columns + x) * 4;
                 result[index] = color.B;

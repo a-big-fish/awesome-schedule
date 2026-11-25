@@ -32,8 +32,14 @@ internal static class PortableAppearancePresetChecks
         check(upgraded is { PortableTextOpacity: .55, PortableStyle.GlassStrength: 0 } &&
             custom.PortableStyle == previousStyle, "upgrade removes the previously bundled glass and preserves custom styles");
         DesktopPreferences AppliedStyle(string fileName) =>
-            PortableAppearancePreset.RemovePreviousBundledGlass(new(PortableTextOpacity: .55,
+            PortableAppearancePreset.UpgradeSavedStyle(new(PortableTextOpacity: .55,
                 PortableStyle: previousStyle, PortableStyleFile: fileName));
+
+        var oldGlass = new PortableStyle(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16);
+        var glassSettings = PortableAppearancePreset.UpgradeSavedStyle(new(PortableStyle: oldGlass,
+            PortableStyleFile: PortableAppearancePreset.GlassFile, PortableTextOpacity: .88));
+        check(glassSettings.PortableStyle == frosted.Style && glassSettings.PortableTextOpacity == .88,
+            "upgrading the bundled glass updates its footprint without changing user transparency");
 
         var existing = JsonSerializer.Deserialize<DesktopPreferences>(
             """{"PortableOpacity":0.73,"PortableTextOpacity":0.89,"PortableColor":"warm","PortableTopmost":false}""")!;
@@ -79,6 +85,14 @@ internal static class PortableAppearancePresetChecks
             check(PortableAppearancePreset.ReadFolder(local).Single(style => style.FileName == PortableAppearancePreset.DefaultFile)
                       .Style?.GlassStrength == 21, "user edits survive reseeding built-in styles and are read from disk");
 
+            string glassFile = Path.Combine(local, PortableAppearancePreset.GlassFile);
+            var stock = File.ReadAllText(glassFile);
+            File.WriteAllText(glassFile, stock.Replace("\"GlassStrength\": 85", "\"GlassStrength\": 82")
+                .Replace("\"GlassFeather\": 24", "\"GlassFeather\": 16"));
+            PortableAppearancePreset.EnsureFolder(local);
+            check(PortableAppearancePreset.TryRead(glassFile)?.Style?.GlassFeather == 24,
+                "the previous bundled glass file is refreshed automatically");
+
             File.WriteAllText(file, source.Replace("\"Version\": 1", "\"Version\": 2"));
             try { PortableAppearancePreset.Import(file, local); check(false, "unsupported styles are rejected"); }
             catch (JsonException) { check(PortableAppearancePreset.ReadFolder(local).Count == 5, "unsupported styles leave the saved directory unchanged"); }
@@ -98,9 +112,26 @@ internal static class PortableAppearancePresetChecks
         var white = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.White);
         var dark = glass.SamplePoints.Distinct().ToDictionary(point => point, _ => Colors.Black);
         int center = middle + stride / 2;
-        check(glass.Render(white)![center + 2] < 245 && glass.Render(dark)![center + 2] > 12,
-            "glass retains a visible adaptive tint on uniformly bright and dark backgrounds");
+        var taskInk = new Rect(20, 14, 80, 13);
+        var expanded = PortableGlass.Expand(taskInk, frosted.Style!.GlassFeather);
+        check(expanded.Width == 128 && expanded.Height == 41 && expanded.Contains(taskInk),
+            "the glass footprint extends past the headline in both directions");
+        var light = new PortableGlass(glass.LocalBounds, glass.ScreenBounds, frosted.Style with { GlassTone = "light" });
+        check(glass.Ink == Colors.White && light.Ink == Colors.Black &&
+              ContrastOnGray(glass.Render(white), center, 255, glass.Ink) >= 4.5 &&
+              ContrastOnGray(light.Render(dark), center, 0, light.Ink) >= 4.5,
+            "fixed black and white ink contrast with the glass core against opposing backgrounds");
         capture.Clear();
-        check(glass.Render(capture) == null, "unavailable background cannot produce a stale or black glass strip");
+        check(glass.Render(capture)[center + 3] >= 210 && glass.Ink == Colors.White,
+            "missing samples retain the fixed glass tint and ink");
+    }
+
+    static double ContrastOnGray(byte[] pixels, int index, int background, Color ink)
+    {
+        var alpha = pixels[index + 3] / 255d;
+        double Blend(byte channel) => (background + (channel - background) * alpha) / 255d;
+        double luminance = .2126 * PortableOklch.Linearize(Blend(pixels[index + 2])) +
+            .7152 * PortableOklch.Linearize(Blend(pixels[index + 1])) + .0722 * PortableOklch.Linearize(Blend(pixels[index]));
+        return ink == Colors.White ? 1.05 / (luminance + .05) : (luminance + .05) / .05;
     }
 }

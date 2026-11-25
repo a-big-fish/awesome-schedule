@@ -356,7 +356,7 @@ internal sealed partial class DesktopIntegration
         };
         portableSectionTint.Opacity = background;
         portableAppearanceChanged?.Invoke();
-        if (ActivePortableStyle.GlassStrength == 0) ClearPortableGlass();
+        if (ActivePortableStyle.GlassStrength == 0) ClearPortableGlass(restoreInk: true);
 
         if (portable == null || portableSurface == null) return;
         // The nearly clear hit surface lets the top bar remain draggable at 100% backdrop transparency.

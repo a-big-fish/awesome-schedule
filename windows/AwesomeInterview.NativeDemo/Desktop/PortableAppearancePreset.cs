@@ -17,6 +17,7 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
     internal const string GlassFile = "frosted-glass.json";
     static readonly string[] Packaged = [OutlineFile, DefaultFile, GlassFile];
     static readonly PortableStyle PreviousBundledStyle = new(GlassStrength: 42);
+    static readonly PortableStyle PreviousFrostedStyle = new(GlassStrength: 82, GlassRadius: 14, GlassFeather: 16);
     static readonly JsonSerializerOptions Options = new()
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -38,7 +39,7 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
             var destination = Path.Combine(folder, file);
             bool exists = File.Exists(destination);
             bool previous = exists && (file == "README.md"
-                ? File.ReadAllText(destination).Contains("从随身日程「外观 → 打开目录」", StringComparison.Ordinal)
+                ? !File.ReadAllText(destination).Contains("`Style.GlassTone`", StringComparison.Ordinal)
                 : MatchesPreviousBundledPreset(TryRead(destination)));
             if (!exists || previous)
             {
@@ -49,15 +50,22 @@ internal sealed record PortableAppearancePreset(string Name, int OverallTranspar
         return folder;
     }
 
-    static bool MatchesPreviousBundledPreset(PortableAppearancePreset? preset) =>
-        preset?.Style == PreviousBundledStyle && preset is { BackgroundTransparency: 100 } && preset is
-            ({ FileName: OutlineFile, Name: "清透描边", OverallTransparency: 0, BorderTransparency: 0, TextTransparency: 0 }
-            or { FileName: DefaultFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 });
+    static bool MatchesPreviousBundledPreset(PortableAppearancePreset? preset) => preset is { BackgroundTransparency: 100 }
+        && (preset.Style == PreviousBundledStyle && preset is
+                ({ FileName: OutlineFile, Name: "清透描边", OverallTransparency: 0, BorderTransparency: 0, TextTransparency: 0 }
+                or { FileName: DefaultFile, Name: "清透淡影", OverallTransparency: 50, BorderTransparency: 100, TextTransparency: 30 })
+            || preset.Style == PreviousFrostedStyle && preset is
+                { FileName: GlassFile, Name: "磨砂玻璃", OverallTransparency: 0, BorderTransparency: 100, TextTransparency: 0 });
 
-    internal static DesktopPreferences RemovePreviousBundledGlass(DesktopPreferences saved) =>
-        saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or DefaultFile
-            ? saved with { PortableStyle = PortableStyle.Default }
-            : saved;
+    internal static DesktopPreferences UpgradeSavedStyle(DesktopPreferences saved)
+    {
+        if (saved.PortableStyle == PreviousBundledStyle && saved.PortableStyleFile is null or OutlineFile or DefaultFile)
+            return saved with { PortableStyle = PortableStyle.Default };
+        if (saved.PortableStyleFile == GlassFile && saved.PortableStyle == PreviousFrostedStyle &&
+            TryRead(Path.Combine(AppContext.BaseDirectory, "PortableStyles", GlassFile))?.Style is { } updated)
+            return saved with { PortableStyle = updated };
+        return saved;
+    }
 
     internal static IReadOnlyList<PortableAppearancePreset> ReadFolder(string folder)
     {

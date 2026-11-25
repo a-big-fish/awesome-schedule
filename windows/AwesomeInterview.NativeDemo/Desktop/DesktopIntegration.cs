@@ -36,7 +36,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             {
                 // Settings written before styles were introduced used the clear-outline defaults.
                 using var saved = JsonDocument.Parse(File.ReadAllText(PreferencesPath));
-                preferences = PortableAppearancePreset.RemovePreviousBundledGlass(
+                preferences = PortableAppearancePreset.UpgradeSavedStyle(
                     saved.RootElement.Deserialize<DesktopPreferences>() ?? new());
                 if (!saved.RootElement.TryGetProperty(nameof(DesktopPreferences.PortableOverallOpacity), out _))
                     preferences = preferences with { PortableOverallOpacity = 1 };
