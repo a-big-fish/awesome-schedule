@@ -1,0 +1,98 @@
+<section id="resume-assistant" class="card resume-assistant" data-resume-assistant aria-labelledby="resume-assistant-heading" hidden>
+  <header class="resume-assistant-header">
+    <div>
+      <h2 id="resume-assistant-heading" tabindex="-1">简历助手</h2>
+      <p class="muted-text">使用当前简历。开始后会将处理过的简历文字和你填写的内容发送给配置的 AI 模型。</p>
+    </div>
+    <button class="btn secondary small" type="button" data-assistant-close>返回面试计划</button>
+  </header>
+  <div class="resume-assistant-toolbar">
+    <div class="resume-assistant-modes" role="group" aria-label="简历助手模式">
+      <button class="btn secondary small" type="button" data-assistant-mode="practice" aria-pressed="true" aria-controls="resume-practice">练一练</button>
+      <button class="btn secondary small" type="button" data-assistant-mode="optimize" aria-pressed="false" aria-controls="resume-optimize">简历优化</button>
+    </div>
+    <div class="resume-model-picker" data-resume-model-picker hidden>
+      <div class="resume-model-buttons" data-resume-model-buttons role="group" aria-label="分析模型（最多选择两个）"></div>
+      <button class="btn secondary small resume-model-add" type="button" data-resume-model-add
+              aria-label="添加 API 模型" aria-haspopup="dialog">
+        <span aria-hidden="true">+</span>
+      </button>
+    </div>
+  </div>
+  <p class="resume-assistant-notice" data-assistant-notice role="status"></p>
+  <div id="resume-practice" class="resume-assistant-pane" data-assistant-pane="practice">
+    <form class="resume-assistant-form" data-practice-setup>
+      <div class="resume-assistant-fields">
+        <label>求职方向（可选） <input class="input" name="position" maxlength="200" placeholder="例如 Java 后端"></label>
+        <label>练习重点（可选） <input class="input" name="focus" maxlength="200" placeholder="例如某段项目或一项技术"></label>
+      </div>
+      <label class="resume-assistant-source-option"><input type="checkbox" name="reference_experiences"> 允许参考我的相关面经题目</label>
+      <div><button class="btn" type="submit">开始练习</button></div>
+    </form>
+    <div class="resume-assistant-conversation" data-practice-session hidden>
+      <div class="resume-assistant-session-bar">
+        <div data-practice-sources hidden></div>
+        <button class="btn secondary small" type="button" data-practice-reset>重新开始</button>
+      </div>
+      <ol class="resume-assistant-turns" data-practice-turns aria-label="练习对话"></ol>
+      <form class="resume-assistant-form" data-practice-answer>
+        <label>你的回答 <textarea class="textarea" name="answer" rows="3" maxlength="3000" required></textarea></label>
+        <div class="resume-assistant-submit">
+          <button class="btn" type="submit">发送回答</button>
+          <button class="btn secondary" type="button" data-practice-review disabled>结束并复盘</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div id="resume-optimize" class="resume-assistant-pane" data-assistant-pane="optimize" hidden>
+    <p class="resume-assistant-notice" data-resume-model-selection-status role="status"></p>
+    <form class="resume-assistant-form" data-optimize-form>
+      <label>求职方向（可选） <input class="input" name="position" maxlength="200" placeholder="例如 Java 后端"></label>
+      <div><button class="btn" type="submit">分析简历</button></div>
+    </form>
+    <div class="resume-assistant-results" data-optimize-results hidden></div>
+    <template data-optimize-result-template>
+      <section class="resume-model-result">
+        <header class="resume-model-result-header">
+          <h3 data-optimize-model-name></h3>
+          <p class="muted-text" data-optimize-summary role="status">正在分析简历…</p>
+        </header>
+        <ol class="resume-assistant-suggestions" data-optimize-items aria-label="简历修改建议"></ol>
+        <p class="muted-text" data-optimize-empty hidden>这次没有找到可定位到原文的修改建议。</p>
+      </section>
+    </template>
+  </div>
+  <dialog class="resume-model-dialog" data-resume-model-dialog aria-labelledby="resume-model-dialog-title">
+    <form class="resume-assistant-form" data-resume-model-form>
+      <header class="resume-assistant-header">
+        <h2 id="resume-model-dialog-title">添加 API 模型</h2>
+        <button class="btn secondary small" type="button" data-resume-model-close>关闭</button>
+      </header>
+      <label>显示名称（可选）
+        <input class="input" name="name" maxlength="40" placeholder="例如 DS" autofocus>
+      </label>
+      <label>API URL
+        <input class="input" name="base_url" type="url" required maxlength="2048" placeholder="https://api.example.com/v1"
+               aria-describedby="resume-model-url-help">
+      </label>
+      <p class="muted-text" id="resume-model-url-help">填写支持模型列表和流式 Chat Completions 的公开 HTTPS 接口。</p>
+      <label>API Key
+        <input class="input" name="api_key" type="password" required maxlength="4096" autocomplete="off">
+      </label>
+      <button class="btn secondary" type="button" data-resume-model-discover>获取可用模型</button>
+      <label>选择模型
+        <select class="input" name="model" required disabled aria-describedby="resume-model-dialog-status">
+          <option value="">请先获取可用模型</option>
+        </select>
+      </label>
+      <p class="resume-assistant-notice" id="resume-model-dialog-status" data-resume-model-status role="status"></p>
+      <div class="resume-assistant-submit">
+        <button class="btn" type="submit" disabled>保存模型</button>
+      </div>
+    </form>
+    <details class="resume-model-management" data-resume-model-management hidden>
+      <summary>已保存的 API 模型</summary>
+      <ul data-resume-model-saved></ul>
+    </details>
+  </dialog>
+</section>

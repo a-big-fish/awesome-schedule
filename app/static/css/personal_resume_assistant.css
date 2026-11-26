@@ -1,0 +1,219 @@
+.resume-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.my-interview-layout > .resume-assistant {
+  display: flex;
+  flex: 1.75 1 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: clamp(16px, 2vw, 30px);
+  overflow: auto;
+}
+
+.my-interview-layout > [hidden],
+.resume-assistant [hidden] { display: none; }
+
+.resume-assistant-header,
+.resume-assistant-session-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resume-assistant-header h2 { margin: 0 0 5px; font-size: 20px; }
+.resume-assistant-header p { margin: 0; }
+.resume-assistant-header > button { flex: none; }
+
+.resume-assistant-modes,
+.resume-assistant-submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.resume-assistant-toolbar {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.resume-assistant-modes button[aria-pressed="true"] {
+  background: #edf3ff;
+  border-color: #8fa9f7;
+  color: #1b49c7;
+}
+
+.resume-assistant-notice { margin: 0; color: var(--muted); }
+.resume-assistant-notice:empty { display: none; }
+.resume-assistant-notice[data-error] { color: var(--danger); }
+.resume-assistant-pane { min-width: 0; }
+
+.resume-assistant-form,
+.resume-assistant-results {
+  display: grid;
+  gap: 14px;
+}
+
+.resume-assistant-form > label,
+.resume-assistant-fields > label {
+  display: grid;
+  gap: 6px;
+}
+
+.resume-assistant-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.resume-assistant-form > .resume-assistant-source-option {
+  display: inline-flex;
+  align-items: center;
+}
+
+.resume-assistant-conversation { display: grid; gap: 12px; }
+.resume-assistant-session-bar > :last-child { margin-left: auto; }
+.resume-assistant-session-bar a { margin-inline-end: 10px; }
+.resume-assistant-turns {
+  display: grid;
+  gap: 12px;
+  max-height: min(46vh, 480px);
+  overflow: auto;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+
+.resume-assistant-turns li {
+  max-width: min(100%, 70ch);
+  padding: 12px 14px;
+  background: #f4f6fb;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.resume-assistant-turns li[data-role="user"] {
+  justify-self: end;
+  background: #edf3ff;
+  border-color: #d2defc;
+}
+
+.resume-assistant-turns strong { color: var(--muted); font-size: 12px; }
+.resume-assistant-turns p { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.resume-assistant-toolbar,
+.resume-model-picker,
+.resume-model-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.resume-model-picker { margin-inline-start: auto; justify-content: flex-end; }
+.resume-model-buttons { justify-content: flex-end; }
+.resume-model-buttons .btn { max-width: min(100%, 220px); overflow-wrap: anywhere; }
+.resume-model-buttons .btn[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.resume-model-buttons .btn[aria-pressed="true"]:hover { background: var(--primary-dark); }
+.btn.resume-model-add { min-width: 36px; font-size: 18px; line-height: 1; }
+[data-resume-model-selection-status]:not(:empty) { margin-bottom: 10px; }
+
+.resume-model-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  overflow: auto;
+}
+.resume-model-dialog::backdrop { background: rgba(18, 28, 49, .38); }
+.resume-model-dialog h2 { margin: 0; font-size: 18px; }
+.resume-model-dialog p { margin: 0; }
+.resume-model-dialog .resume-assistant-submit { justify-content: flex-end; }
+.resume-model-dialog [data-resume-model-discover] { justify-self: start; }
+.resume-model-management { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.resume-model-management summary { cursor: pointer; }
+.resume-model-management ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.resume-model-management li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+#resume-optimize { container-type: inline-size; }
+.resume-assistant-results {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  margin-top: 18px;
+}
+@container (min-width: 540px) {
+  .resume-assistant-results[data-comparison] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.resume-model-result {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.resume-model-result-header {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+.resume-model-result-header h3 { margin: 0; font-size: 14px; }
+.resume-model-result p { margin: 0; }
+.resume-model-result [data-error] { color: var(--danger); }
+.resume-assistant-suggestions { display: grid; gap: 10px; padding-left: 24px; margin: 0; }
+
+.resume-assistant-suggestions > li {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.resume-assistant-suggestions h4 { margin: 0 0 6px; font-size: 15px; }
+.resume-assistant-suggestions p { margin: 8px 0; white-space: pre-wrap; }
+.resume-assistant-suggestions blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid #a9baf0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.resume-assistant button:focus-visible,
+.resume-panel-actions button:focus-visible,
+.resume-assistant a:focus-visible { outline: 2px solid #284ed0; outline-offset: 2px; }
+
+@media (max-width: 1000px) {
+  .my-interview-layout > .resume-assistant { flex: 1 1 auto; }
+}
+
+@media (max-width: 580px) {
+  .resume-assistant-fields { grid-template-columns: minmax(0, 1fr); }
+  .resume-assistant-header { flex-wrap: wrap; }
+  .resume-assistant-turns { max-height: 50vh; }
+  .resume-model-picker { justify-content: flex-start; margin-inline-start: 0; }
+  .resume-model-buttons { justify-content: flex-start; }
+}

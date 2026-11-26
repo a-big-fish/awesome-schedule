@@ -71,6 +71,10 @@
     const file = panel.querySelector('[data-resume-file]');
     const choose = panel.querySelector('[data-resume-choose]');
     let active = true, busy = false, controller, entry, objectUrl, uploadRequest;
+    function showVersion(version = '') {
+      if ((panel.dataset.resumeVersion || '') === version) return;
+      panel.dataset.resumeVersion = version;
+    }
     const hide = () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = null;
@@ -80,6 +84,7 @@
       empty.hidden = false;
       name.textContent = '';
       entry = null;
+      showVersion();
     };
     // Aborting cannot undo a server-side save. The next visit checks resume metadata
     // as usual, while callbacks from this disposed panel must never redirect it.
@@ -103,6 +108,7 @@
       open.hidden = false;
       empty.hidden = true;
       name.textContent = value.file_name;
+      showVersion(value.version);
     }
     const restored = read(scope).then(cached => {
       if (active && cached) {

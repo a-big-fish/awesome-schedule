@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     ai_model: str = "gpt-4o-mini"
     ai_timeout_seconds: float = 60.0
     ai_max_completion_tokens: int = 1024
+    ai_resume_optimization_max_tokens: int = 8192
+    resume_models_db_path: str = "data/resume-models.sqlite3"
     ai_interview_default_system_prompt: str = (
         "你是一位经验丰富的IT行业资深面试官，正在协助真人面试官评估候选人。"
         "请基于简历和面试岗位，提出深入追问、压力面试问题和评估建议；"

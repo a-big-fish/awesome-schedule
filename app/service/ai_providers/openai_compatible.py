@@ -16,9 +16,15 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         self,
         settings: Settings,
         transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        review_mode: bool = False,
     ) -> None:
         self.settings = settings
         self.transport = transport
+        self.review_mode = review_mode
+
+    def _make_transport(self) -> httpx.AsyncBaseTransport | None:
+        return self.transport
 
     @property
     def name(self) -> str:
@@ -65,10 +71,14 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         if not api_key:
             raise AIInterviewError("AI API Key 未配置，请检查模型配置或 .env 配置")
 
+        chat_url = self._chat_url(base_url)
+        token_parameter = "max_completion_tokens"
+        if self.review_mode and httpx.URL(chat_url).host == "api.deepseek.com":
+            token_parameter = "max_tokens"
         payload = {
             "model": model,
             "messages": [message.model_dump() for message in messages],
-            "max_completion_tokens": self.settings.ai_max_completion_tokens,
+            token_parameter: self.settings.ai_max_completion_tokens,
             "stream": True,
         }
         headers = {
@@ -79,10 +89,10 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.ai_timeout_seconds,
-                transport=self.transport,
+                transport=self._make_transport(),
             ) as client:
                 async with client.stream(
-                    "POST", self._chat_url(base_url), json=payload, headers=headers
+                    "POST", chat_url, json=payload, headers=headers
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -95,17 +105,25 @@ class OpenAICompatibleProvider(AIInterviewProvider):
                             continue
                         try:
                             body = json.loads(payload_text)
+                            if body.get("error"):
+                                raise AIInterviewError("AI 服务中断了回复，请稍后重试。")
                             choices = body.get("choices")
                             if not choices:
                                 continue
+                            if self.review_mode and choices[0].get("finish_reason") == "length":
+                                raise AIInterviewError("模型的输出被截断，请尝试换用输出容量更大的模型。")
                             delta = choices[0].get("delta", {})
                             content = delta.get("content")
-                        except (AttributeError, TypeError, json.JSONDecodeError) as exc:
+                        except (AttributeError, IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
                             raise AIInterviewError("AI 服务返回的数据格式无效") from exc
                         if isinstance(content, str) and content:
                             received = True
                             yield content
         except httpx.HTTPStatusError as exc:
+            if self.review_mode and exc.response.status_code in {401, 403}:
+                raise AIInterviewError("模型服务拒绝访问，请检查 API Key 和模型权限。") from exc
+            if self.review_mode and exc.response.status_code == 429:
+                raise AIInterviewError("该接口当前请求过多或额度不足，请稍后重试。") from exc
             raise AIInterviewError("AI 服务返回错误，请稍后重试") from exc
         except httpx.HTTPError as exc:
             raise AIInterviewError("无法连接 AI 服务，请检查网络和配置") from exc

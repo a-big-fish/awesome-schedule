@@ -6,7 +6,7 @@
 <div class="my-interview-layout">
   {% include '_personal_resume_panel.html' %}
 
-  <div class="my-interview-cols">
+  <div class="my-interview-cols" data-interview-plan>
     {% if selected_event %}
     {% include 'interview_experience_panel.html' %}
     {% else %}
@@ -68,5 +68,6 @@
     </aside>
     {% endif %}
   </div>
+  {% include '_personal_resume_assistant.html' %}
 </div>
 {% endblock %}

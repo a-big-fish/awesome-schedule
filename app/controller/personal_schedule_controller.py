@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.controller.page_controller import WEEKDAY_NAMES, _assign_entry_columns, templates
+from app.controller.personal_resume_assistant_controller import router as resume_assistant_router
 from app.core.dependencies import (
     get_interview_experience_service, get_my_resume_mapper,
     get_personal_schedule_service, get_resume_parser_service, get_personal_resume_state_service,
@@ -35,6 +36,7 @@ from app.service.calendar_sync_service import CalendarSyncService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/my-schedule", tags=["personal-schedule"])
+router.include_router(resume_assistant_router)
 DISPLAY_ZONE = ZoneInfo("Asia/Shanghai")
 EVENT_LABELS = {
     "interview": "面试",
