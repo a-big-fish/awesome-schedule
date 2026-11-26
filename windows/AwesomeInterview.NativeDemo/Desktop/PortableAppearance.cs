@@ -6,7 +6,6 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Effects;
 using System.Windows.Input;
 using System.Windows.Threading;
 using Forms=System.Windows.Forms;
@@ -195,13 +194,11 @@ internal sealed partial class DesktopIntegration
             };
             var unlock = CompactPortableButton("解锁交互", () => SetPortableLocked(false));
             unlock.ClickMode = ClickMode.Press;
-            unlock.Margin = new(3);
             unlock.ToolTip = "关闭鼠标穿透，恢复完整交互";
-            unlock.Effect = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 3, Opacity = .22 };
             unlock.MouseEnter += (_, _) => PaintPortableUnlock(unlock);
             unlock.MouseLeave += (_, _) => PaintPortableUnlock(unlock);
             unlock.IsKeyboardFocusedChanged += (_, _) => PaintPortableUnlock(unlock);
-            portableUnlock.Content = unlock;
+            portableUnlock.Content = new PortableGlassStrip(unlock, showRim: false, roundedPanel: true) { Margin = new(3) };
         }
         ApplyPortableUnlockAppearance();
         PositionPortableUnlock();
@@ -335,7 +332,6 @@ internal sealed partial class DesktopIntegration
     {
         ApplyPortableFrame();
         RefreshPortableGuidePresentation();
-        UpdatePortableResizeFrame();
         if (portableLockTool != null)
         {
             portableLockTool.Content = portableHoverActive ? "解锁交互" : "鼠标穿透";
@@ -424,7 +420,6 @@ internal sealed partial class DesktopIntegration
         }
         foreach (var button in portableToolbarButtons) PaintPortableTool(button);
         ApplyPortableUnlockAppearance();
-        UpdatePortableResizeFrame();
         ApplyPortableHoverCueAppearance();
         SchedulePortableContrast();
     }
@@ -444,7 +439,7 @@ internal sealed partial class DesktopIntegration
         }
         else portableSurface.Background = Brush(portableHoverActive ? "#04FFFFFF" : "#01FFFFFF");
         var outline = Brush("#7992B6");
-        outline.Opacity = Math.Max(PortablePassThrough ? .48 : .32, PortableOverallOpacity * PortableBorderOpacity);
+        outline.Opacity = Math.Max(.48, PortableOverallOpacity * PortableBorderOpacity);
         portableSurface.BorderBrush = outline;
     }
 
@@ -452,18 +447,17 @@ internal sealed partial class DesktopIntegration
     {
         if (portableUnlock == null) return;
         portableUnlock.Topmost = preferences.PortableTopmost;
-        if (portableUnlock.Content is Button unlock) PaintPortableUnlock(unlock);
+        if (portableUnlock.Content is PortableGlassStrip { Child: Button unlock }) PaintPortableUnlock(unlock);
     }
 
     void PaintPortableUnlock(Button unlock)
     {
         bool active = unlock.IsMouseOver || unlock.IsKeyboardFocused || SystemParameters.HighContrast;
-        bool filled = active && (!preferences.UsesClearOutline || SystemParameters.HighContrast);
+        bool filled = SystemParameters.HighContrast || active && !preferences.UsesClearOutline && ActivePortableStyle.GlassStrength == 0;
         unlock.Background = filled ? Brush("#F6F9FF") : Brushes.Transparent;
         unlock.BorderBrush = active ? Brush("#ABBAD0") : Brush("#26657A98");
         unlock.Foreground = Brush("#192C46");
         unlock.ContentTemplateSelector = filled ? null : PortableGlyphTemplateSelector.Instance;
-        if (unlock.Effect is DropShadowEffect shadow) shadow.Opacity = active || preferences.UsesClearOutline ? 0 : .22;
         if (!filled) SchedulePortableContrast();
     }
 

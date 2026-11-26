@@ -228,11 +228,13 @@ internal sealed class PortableGlassStrip : Grid
     internal PortableGlassFrame? Frame { get; private set; }
     internal bool Highlights { get; }
     internal bool RoundedPanel { get; }
+    internal FrameworkElement Child { get; }
 
     internal PortableGlassStrip(FrameworkElement content, bool showRim = true, bool roundedPanel = false)
     {
         Highlights = showRim;
         RoundedPanel = roundedPanel;
+        Child = content;
         var material = new Canvas { IsHitTestVisible = false };
         material.Children.Add(backdrop);
         Children.Add(material);
