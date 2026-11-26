@@ -38,6 +38,45 @@ async def _rejected_field(response: httpx.Response, fields: tuple[str, ...]) -> 
     return None
 
 
+class _InlineThinking:
+    """Separate an optional leading GLM <think> block from the answer."""
+
+    _start = "<think>"
+    _end = "</think>"
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._inside = False
+        self._finished = False
+
+    def split(self, chunk: str) -> tuple[int, str]:
+        if self._finished:
+            return 0, chunk
+        self._pending += chunk
+        if not self._inside:
+            text = self._pending.lstrip()
+            if text.startswith(self._start):
+                self._inside = True
+                self._pending = text[len(self._start):]
+            elif self._start.startswith(text):
+                self._pending = text
+                return 0, ""
+            else:
+                self._finished = True
+                return 0, text
+        end = self._pending.find(self._end)
+        if end >= 0:
+            answer = self._pending[end + len(self._end):]
+            self._pending = ""
+            self._finished = True
+            return end, answer
+        # Carry a possible partial closing tag across SSE chunks.
+        remaining = next((size for size in range(len(self._end) - 1, 0, -1)
+                          if self._pending.endswith(self._end[:size])), 0)
+        length = len(self._pending) - remaining
+        self._pending = self._pending[length:]
+        return length, ""
+
 
 class OpenAICompatibleProvider(AIInterviewProvider):
     """Adapter for OpenAI-compatible streaming chat completion APIs."""
@@ -114,10 +153,13 @@ class OpenAICompatibleProvider(AIInterviewProvider):
             payload["max_completion_tokens"] = self.settings.ai_max_completion_tokens
         if self.review_mode and host == "api.deepseek.com" and model.casefold().startswith(("deepseek-v4", "deepseek-flash")):
             payload["thinking"] = {"type": "disabled"}
-        if self.review_mode and self.settings.ai_reasoning_effort:
-            # Gateways such as api.do.top ignore `thinking` but honour reasoning_effort;
-            # "none" removes the 10-25s of reasoning tokens that made reviews feel stuck.
-            payload["reasoning_effort"] = self.settings.ai_reasoning_effort
+        glm_53_review = self.review_mode and model.casefold().rsplit("/", 1)[-1].startswith("glm-5.3")
+        effort = self.settings.ai_reasoning_effort
+        if glm_53_review and effort and effort not in {"low", "high", "max"}:
+            effort = "low"
+        if self.review_mode and effort:
+            payload["reasoning_effort"] = effort
+        inline_thinking = _InlineThinking() if glm_53_review else None
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         started = perf_counter()
         headers_ms = reasoning_ms = content_ms = None
@@ -173,8 +215,12 @@ class OpenAICompatibleProvider(AIInterviewProvider):
                             except (AttributeError, IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
                                 finish = "invalid_stream"
                                 raise AIInterviewError("AI 服务返回的数据格式无效") from exc
-                            if self.review_mode and isinstance(reasoning, str) and reasoning:
-                                reasoning_chars += len(reasoning)
+                            thought_chars = len(reasoning) if isinstance(reasoning, str) else 0
+                            if inline_thinking and isinstance(content, str) and content:
+                                inline_chars, content = inline_thinking.split(content)
+                                thought_chars += inline_chars
+                            if self.review_mode and thought_chars:
+                                reasoning_chars += thought_chars
                                 if reasoning_ms is None:
                                     reasoning_ms = elapsed_ms()
                                     if on_stage and content_ms is None:

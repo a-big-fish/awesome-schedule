@@ -146,7 +146,9 @@ class ResumeSuggestion(BaseModel):
     rewrite: Annotated[str, StringConstraints(strip_whitespace=True, max_length=350)] = ""
 
 
-_SUGGESTIONS_START = re.compile(r'^[ \t]*(?:```(?:json)?[ \t]*)?(\{\s*"suggestions"\s*:\s*\[)', re.IGNORECASE | re.MULTILINE)
+_SUGGESTIONS_START = re.compile(
+    r'(?:^|</think>)[ \t]*(?:```(?:json)?[ \t]*)?(\{\s*"suggestions"\s*:\s*\[)', re.IGNORECASE | re.MULTILINE,
+)
 _FIRST_SUGGESTION = re.compile(r"\s*")
 _NEXT_SUGGESTION = re.compile(r"\s*,\s*")
 _NUMBER = re.compile(r"\d+(?:\.\d+)?")
@@ -193,9 +195,9 @@ class ResumeSuggestionReview:
         if not self._reading_items:
             prefix = _SUGGESTIONS_START.search(self._pending)
             if prefix is None:
-                if len(self._pending) > 512:
-                    self._reading_finished = True
-                    self._pending = ""
+                # A gateway may prepend reasoning or an explanation before the JSON.
+                # Keep enough overlap to recognize an opener split across chunks.
+                self._pending = self._pending[-512:]
                 return []
             self._reading_items = True
             self._pending = self._pending[prefix.end():]
@@ -269,15 +271,15 @@ class ResumeSuggestionReview:
         self._emitted.extend(suggestions)
         return suggestions
 
-
     def finish(self) -> list[ResumeSuggestion]:
         """Check the final envelope and return any items not already sent."""
         text = "".join(self._parts).strip()
         if text.startswith("```") and text.endswith("```"):
             text = text.partition("\n")[2][:-3].strip()
         if prefix := _SUGGESTIONS_START.search(text):
-            text = text[prefix.start(1):].removesuffix("```").rstrip()
-        decoded = json.loads(text)
+            decoded, _ = self._decoder.raw_decode(text, prefix.start(1))
+        else:
+            decoded = json.loads(text)
         if not isinstance(decoded, dict) or not isinstance(items := decoded.get("suggestions"), list):
             raise ValueError("Invalid suggestion format")
         confirmed = [suggestion for item in items if (suggestion := self._validate(item))]

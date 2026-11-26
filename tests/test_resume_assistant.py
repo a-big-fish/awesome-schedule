@@ -387,6 +387,48 @@ def test_profile_page_exposes_model_management(tmp_path):
             assert marker in page.text
 
 
+@pytest.mark.parametrize(("effort", "expected_effort", "inline"), [
+    ("none", "low", True),
+    ("high", "high", False),
+])
+def test_glm_review_stream_handles_model_effort_and_long_preamble(effort, expected_effort, inline):
+    suggestion = {"category": "evidence", "page": 1, "original": "Built a cache",
+                  "issue": "说明缓存的对照测量方法。"}
+    preamble = ["分析前言" * 180, "\n```json\n{\"sugges", 'tions": [' + json.dumps(suggestion),
+                "]}\n```\n分析结束。"]
+    chunks = ["<thi", "nk>" + "不应显示的推理" * 160, "</th", "ink>"] + preamble if inline else preamble
+
+    async def upstream(request):
+        payload = json.loads(request.content)
+        assert payload["reasoning_effort"] == expected_effort
+        assert "thinking" not in payload
+        frames = [{"choices": [{"delta": {"content": chunk}}]} for chunk in chunks]
+        return httpx.Response(200, text="".join(f"data: {json.dumps(frame)}\n\n" for frame in frames))
+
+    async def check():
+        provider = CustomResumeProvider(
+            Settings(_env_file=None, ai_reasoning_effort=effort), httpx.MockTransport(upstream), review_mode=True,
+        )
+        config = AIModelConfig(base_url="https://mock.example/v1", model="ZHIPU/GLM-5.3-Flash",
+                               api_key="synthetic-secret")
+        outgoing = asyncio.Queue()
+        await assistant_controller._stream_model_review(
+            "glm-model", provider, config, [], ResumeContext(1, {1: "Built a cache"}), True, outgoing,
+        )
+        events = []
+        while not outgoing.empty():
+            frame, _ = outgoing.get_nowait()
+            events.append(json.loads(frame.removeprefix("data: ")))
+        phases = [event["phase"] for event in events if event["type"] == "model_progress"]
+        assert phases == (["accepted", "reasoning", "answer"] if inline else ["accepted", "answer"])
+        assert events[-2]["item"]["issue"] == suggestion["issue"]
+        assert events[-1]["type"] == "model_done"
+        assert "不应显示的推理" not in json.dumps(events, ensure_ascii=False)
+
+    asyncio.run(check())
+
+
+
 def test_review_streams_without_an_output_cap_while_practice_keeps_its_budget():
     payloads = []
 
