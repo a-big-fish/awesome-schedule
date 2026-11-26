@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Forms = System.Windows.Forms;
@@ -144,9 +145,12 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         {
             CornerRadius = new(14), BorderThickness = new(1), BorderBrush = Brush("#CCD6E7"), Child = surface
         };
-        portable.PreviewMouseMove += (_, e) =>
+        portable.PreviewMouseMove += (sender, e) =>
         {
-            if (portableHoverActive) UpdatePortableHoverCue(e.GetPosition(overlay));
+            if (!portableHoverActive || sender is not Window window) return;
+            var screenPoint = overlay.PointToScreen(e.GetPosition(overlay));
+            var point = new ScreenPoint { X = (int)Math.Round(screenPoint.X), Y = (int)Math.Round(screenPoint.Y) };
+            EvaluatePortableHover(new WindowInteropHelper(window).Handle, point, Environment.TickCount64);
         };
         portable.Content = portableSurface;
         AttachPortableFocusReset(portable);
@@ -183,8 +187,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableSurface = null;
             portableNowLine = null;
             portableClock = null;
-            portableHourLabels = [];
-            portableHiddenHour = -1;
+            ClearPortableTimelineGuides();
             portableTaskScroll = null;
             portableTimelineScroll = null;
             portableLocked = false;

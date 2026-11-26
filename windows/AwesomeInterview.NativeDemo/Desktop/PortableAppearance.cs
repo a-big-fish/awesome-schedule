@@ -299,7 +299,7 @@ internal sealed partial class DesktopIntegration
     void EvaluatePortableHover(nint hwnd, ScreenPoint point, long now)
     {
         if (!portableLocked || portable is not { IsVisible: true } window) return;
-        bool over = PortableWindowHitTest.CoversPoint(hwnd, point);
+        bool over = IsPortableHoverArea(new Point(point.X, point.Y)) && PortableWindowHitTest.CoversPoint(hwnd, point);
         if (over && portableUnlock is { IsVisible: true } unlock &&
             PortableWindowHitTest.ContainsPoint(new WindowInteropHelper(unlock).Handle, point))
             over = false;
@@ -353,9 +353,21 @@ internal sealed partial class DesktopIntegration
         return true;
     }
 
-    static bool ContainsPortablePoint(FrameworkElement element, Point screenPoint)
-        => PresentationSource.FromVisual(element) != null &&
-           new Rect(element.RenderSize).Contains(element.PointFromScreen(screenPoint));
+    bool IsPortableHoverArea(Point screenPoint)
+    {
+        if (portableTimelineScroll is not { Content: Canvas timeline } scroll) return true;
+        if (ContainsPortablePoint(portableHeader, screenPoint) || ContainsPortablePoint(portableAppearancePanel, screenPoint)) return true;
+        foreach (var control in portableTimelineHoverControls)
+            if (ContainsPortablePoint(control, screenPoint)) return true;
+        if (!ContainsPortablePoint(scroll, screenPoint) || !ContainsPortablePoint(timeline, screenPoint)) return false;
+        var axisPoint = timeline.PointFromScreen(screenPoint);
+        return PortableTimelineLayout.CanWakeAt(axisPoint.X, portableTimelineHoverWidth,
+            TimeSpan.FromHours(axisPoint.Y / PortableHourHeight), portableTimelineGuideTime, portableTimelineTasks);
+    }
+
+    static bool ContainsPortablePoint(FrameworkElement? element, Point screenPoint) =>
+        element is { IsVisible: true, ActualWidth: > 0, ActualHeight: > 0 } && PresentationSource.FromVisual(element) != null &&
+        new Rect(element.RenderSize).Contains(element.PointFromScreen(screenPoint));
 
     void ApplyPortableAppearance()
     {

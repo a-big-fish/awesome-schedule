@@ -24,7 +24,11 @@ internal sealed partial class DesktopIntegration
     PortablePresentation? portableRenderedPresentation;
     IReadOnlyList<PortableTask> portableRenderedTasks = [];
     FrameworkElement[] portableHourLabels = [];
-    int portableHiddenHour = -1;
+    Border[] portableHourRules = [];
+    PortableTimelineLayout.TaskRange[] portableTimelineTasks = [];
+    readonly List<FrameworkElement> portableTimelineHoverControls = new();
+    TimeSpan portableTimelineGuideTime;
+    double portableTimelineHoverWidth;
 
     readonly record struct PortablePresentation(DateTime Day, bool SignedIn, bool Online,
         bool ShowingTasks, bool ShowCompleted, bool TaskActionsBusy);
@@ -72,13 +76,22 @@ internal sealed partial class DesktopIntegration
             }
             var slot = (Border)portableClock.Parent;
             Canvas.SetTop(slot, Math.Clamp(y - slot.Height / 2, 0, PortableDayHeight - slot.Height));
-            int hide = PortableTimelineLayout.NearestHourToHide(now.TimeOfDay);
-            if (hide != portableHiddenHour)
-            {
-                if (portableHiddenHour >= 0) portableHourLabels[portableHiddenHour].Visibility = Visibility.Visible;
-                if (hide >= 0) portableHourLabels[hide].Visibility = Visibility.Hidden;
-                portableHiddenHour = hide;
-            }
+            UpdatePortableGuides(now.TimeOfDay);
+        }
+    }
+
+    void UpdatePortableGuides(TimeSpan now)
+    {
+        portableTimelineGuideTime = now;
+        int hide = PortableTimelineLayout.NearestHourToHide(now);
+        for (int hour = 0; hour < portableHourLabels.Length; hour++)
+        {
+            double opacity = PortableTimelineLayout.GuideOpacity(TimeSpan.FromHours(hour), now, portableTimelineTasks);
+            var line = portableHourRules[hour];
+            var label = portableHourLabels[hour];
+            line.Opacity = label.Opacity = opacity;
+            line.Visibility = opacity > 0 ? Visibility.Visible : Visibility.Hidden;
+            label.Visibility = opacity > 0 && hour != hide ? Visibility.Visible : Visibility.Hidden;
         }
     }
 
@@ -128,8 +141,7 @@ internal sealed partial class DesktopIntegration
         portableTaskScroll = null;
         portableNowLine = null;
         portableClock = null;
-        portableHourLabels = [];
-        portableHiddenHour = -1;
+        ClearPortableTimelineGuides();
         int completeCount = tasksForToday.Count(item => item.Completed);
         var visible = tasksForToday.Where(item => portableShowCompleted || !item.Completed).ToList();
 
@@ -158,10 +170,20 @@ internal sealed partial class DesktopIntegration
                 empty.VerticalAlignment = VerticalAlignment.Center;
                 empty.HorizontalAlignment = HorizontalAlignment.Center;
                 page.Children.Add(empty);
+                portableTimelineHoverControls.Add(empty);
             }
             portableContent.Children.Add(page);
         }
         SchedulePortableContrast();
+    }
+
+    void ClearPortableTimelineGuides()
+    {
+        portableHourLabels = [];
+        portableHourRules = [];
+        portableTimelineTasks = [];
+        portableTimelineHoverControls.Clear();
+        portableTimelineHoverWidth = 0;
     }
 
     FrameworkElement BuildPortableSummary(DateTime today, int pending, int completed, bool signedIn)
@@ -197,13 +219,16 @@ internal sealed partial class DesktopIntegration
             var glassStrip = new PortableGlassStrip(tabs);
             DockPanel.SetDock(glassStrip, Dock.Right);
             row.Children.Add(glassStrip);
+            portableTimelineHoverControls.Add(glassStrip);
         }
 
         var date = PortableLabel(today.ToString("M月d日 dddd"), 14);
         date.FontWeight = FontWeights.SemiBold;
+        date.HorizontalAlignment = HorizontalAlignment.Left;
         date.VerticalAlignment = VerticalAlignment.Center;
         if (signedIn && !shell.Repository.Online) date.ToolTip = "离线，修改将保存在本机";
         row.Children.Add(date);
+        portableTimelineHoverControls.Add(date);
         var summary = PortableSection(row, new(7, 4, 7, 4));
         summary.Margin = new(0, 0, 0, 4);
         return summary;
@@ -219,7 +244,8 @@ internal sealed partial class DesktopIntegration
     FrameworkElement BuildPortableTimeline(IReadOnlyList<PortableTask> tasks)
     {
         var timeline = new Canvas { Height = PortableDayHeight, Background = Brushes.Transparent, ClipToBounds = true };
-        var hourRules = new Border[24];
+        portableTimelineTasks = tasks.Select(task => new PortableTimelineLayout.TaskRange(task.StartTime, task.EndTime)).ToArray();
+        var hourRules = portableHourRules = new Border[24];
         portableHourLabels = new FrameworkElement[24];
         for (int hour = 0; hour < 24; hour++)
         {
@@ -251,6 +277,7 @@ internal sealed partial class DesktopIntegration
         overflow.Visibility = Visibility.Collapsed;
         overflow.HorizontalAlignment = HorizontalAlignment.Right;
         overflow.Margin = new(0, 1, 0, 3);
+        portableTimelineHoverControls.Add(overflow);
         DockPanel.SetDock(overflow, Dock.Top);
         body.Children.Add(overflow);
         body.Children.Add(timeView);
@@ -334,17 +361,17 @@ internal sealed partial class DesktopIntegration
             if (available != previousAvailable)
             {
                 previousAvailable = available;
-                double occupied = laneEnds.Count == 0 ? 0 : width * visibleLanes + gap * (visibleLanes - 1);
+                double occupied = laneEnds.Count == 0 ? Math.Min(128, available) : width * visibleLanes + gap * (visibleLanes - 1);
                 var extent = PortableTimelineLayout.Rule(available, occupied);
                 var mask = CreatePortableRuleFade(extent.SolidFraction);
+                portableTimelineHoverWidth = PortableTimeGutter + extent.Width;
                 foreach (var rule in hourRules)
                 {
                     rule.Width = extent.Width;
                     rule.OpacityMask = mask;
                 }
-                var marker = occupied > 0 ? extent : PortableTimelineLayout.Rule(available, Math.Min(16, available));
-                nowLine.Width = marker.Width;
-                nowLine.OpacityMask = occupied > 0 ? mask : CreatePortableRuleFade(marker.SolidFraction);
+                nowLine.Width = extent.Width;
+                nowLine.OpacityMask = mask;
             }
             int hidden = 0;
             foreach (var (card, label, lane) in cards)
