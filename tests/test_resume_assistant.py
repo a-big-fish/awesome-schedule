@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from app.controller import personal_resume_assistant_controller as assistant_controller
 from app.controller.personal_resume_assistant_controller import get_custom_resume_provider, get_resume_model_store
 from app.core.config import Settings
+from app.core.exceptions import AIInterviewError
+from app.service.resume_assistant_service import ResumeContext
 from app.mapper.resume_model_store import ResumeModelStore
 from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider, discover_resume_models, model_endpoint
 from app.service.ai_providers.static import StaticAIInterviewProvider
@@ -205,12 +207,67 @@ def test_custom_models_compare_identical_context_concurrently_and_keep_all_sugge
         assert first["model"] == "chat-0" and second["model"] == "chat-1"
         assert first["messages"] == second["messages"]
         assert "contact@example.test" not in json.dumps(first)
+        streamed = _stream_events(owner.post(endpoint, headers=headers, json={
+            **payload, "model_ids": model_ids, "stream_suggestions": True,
+        }))
+        first_model = [event for event in streamed if event.get("model_id") == model_ids[0]]
+        assert [event["type"] for event in first_model] == ["model_suggestion"] * 7 + ["model_done"]
+        assert first_model[-1]["page_count"] == 1
+        assert streamed[-1] == {"type": "done"}
         assert owner.delete(f"{models}/{model_ids[0]}", headers=headers).status_code == 204
+
+
+def test_review_stream_validates_complete_items_and_keeps_them_when_provider_interrupts():
+    valid = {"category": "evidence", "page": 1, "original": "Built a cache",
+             "issue": '保留引号 "参考" 和括号 }。', "rewrite": "Improved by 90%"}
+    invalid = {**valid, "page": 2}
+    first = json.dumps(valid, ensure_ascii=False)
+    second = json.dumps({**valid, "issue": "说明测试方法。"}, ensure_ascii=False)
+
+    async def check():
+        release = asyncio.Event()
+        provider = RecordingProvider()
+
+        async def chunks(*args):
+            yield '```json\n{"sugge'
+            assert outgoing.empty()
+            yield 'stions": [' + json.dumps(invalid) + ', ' + first[:-2]
+            assert outgoing.empty()
+            yield first[-2:]
+            await release.wait()
+            yield ', ' + second
+            raise AIInterviewError("模拟接口中断")
+
+        provider.stream = chunks
+        outgoing = asyncio.Queue()
+        task = asyncio.create_task(assistant_controller._stream_model_review(
+            "test-model", provider, None, [], ResumeContext(1, {1: "Built a cache"}),
+            True, outgoing,
+        ))
+        try:
+            frame, terminal = await asyncio.wait_for(outgoing.get(), timeout=2)
+            item = json.loads(frame.removeprefix("data: "))
+            assert not terminal and item["type"] == "model_suggestion"
+            assert item["item"]["issue"] == valid["issue"]
+            assert item["item"]["rewrite"] == ""
+            assert not task.done()
+            release.set()
+            remaining = []
+            while not terminal:
+                frame, terminal = await asyncio.wait_for(outgoing.get(), timeout=2)
+                remaining.append(json.loads(frame.removeprefix("data: ")))
+            assert [event["type"] for event in remaining] == ["model_suggestion", "model_error"]
+            assert remaining[0]["item"]["issue"] == "说明测试方法。"
+            assert remaining[1]["message"] == "模拟接口中断"
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(check())
 
 
 def test_custom_api_requires_https_and_public_addresses():
     import pytest
-    from app.core.exceptions import AIInterviewError
 
     for url in ("http://example.com/v1", "https://[::1]", "https://127.0.0.1", "https://local:pass@example.com",
                 "https://example.com/v1?key=secret", "https://[::ffff:127.0.0.1]"):

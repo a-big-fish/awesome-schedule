@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import logging
+from contextlib import aclosing
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TypeVar
@@ -28,11 +30,12 @@ from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider,
 from app.service.interview_experience_service import InterviewExperienceService
 from app.service.personal_resume_service import PersonalResumeStateService
 from app.service.resume_assistant_service import (
-    ResumeContext, assistant_messages, review_suggestions, select_experience_questions,
+    ResumeContext, ResumeSuggestionReview, assistant_messages, select_experience_questions,
 )
 from app.service.resume_parser_service import ResumeParserService
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 _DEFAULT_MODEL = "default"
 
@@ -139,37 +142,53 @@ def _event(kind: str, **payload) -> str:
     return f"data: {json.dumps({'type': kind, **payload}, ensure_ascii=False)}\n\n"
 
 
-async def _optimize_resume(
-    provider: AIInterviewProvider, config: AIModelConfig | None,
-    messages: list[AIInterviewMessage], context: ResumeContext,
-):
-    chunks = []
-    size = 0
-    async for chunk in provider.stream(messages, config):
-        size += len(chunk)
-        if size > 96000:
-            raise AIInterviewError("分析结果超出单次响应容量，请缩小分析范围后重试。")
-        chunks.append(chunk)
-    return {"page_count": context.page_count,
-            "items": [item.model_dump() for item in review_suggestions(context, "".join(chunks))]}
-
-
-async def _model_result(
+async def _stream_model_review(
     model_id: str | None, provider: AIInterviewProvider, config: AIModelConfig | None,
-    messages: list[AIInterviewMessage], context: ResumeContext,
-) -> str:
-    try:
-        result = await asyncio.wait_for(_optimize_resume(provider, config, messages, context), timeout=120)
+    messages: list[AIInterviewMessage], context: ResumeContext, progressive: bool,
+    outgoing: asyncio.Queue[tuple[str, bool]],
+) -> None:
+    review = ResumeSuggestionReview(context)
+
+    async def analyze() -> str:
+        size = 0
+        async with aclosing(provider.stream(messages, config)) as stream:
+            async for chunk in stream:
+                size += len(chunk)
+                if size > 96000:
+                    raise AIInterviewError("分析结果超出单次响应容量，请缩小分析范围后重试。")
+                for suggestion in review.append(chunk, progressive=progressive):
+                    await outgoing.put((_event("model_suggestion", model_id=model_id,
+                                               item=suggestion.model_dump()), False))
+        remaining = review.finish()
+        if progressive:
+            for suggestion in remaining:
+                await outgoing.put((_event("model_suggestion", model_id=model_id,
+                                           item=suggestion.model_dump()), False))
+            return _event("model_done", model_id=model_id, page_count=context.page_count)
+        result = {"page_count": context.page_count, "items": [item.model_dump() for item in remaining]}
         if model_id is None:
             return _event("suggestions", **result)
         return _event("model_suggestions", model_id=model_id, **result)
+
+    try:
+        terminal = await asyncio.wait_for(analyze(), timeout=120)
     except asyncio.TimeoutError:
-        message = "等待模型分析超时，请稍后重试。"
+        terminal = _review_error(model_id, "等待模型分析超时，请稍后重试。")
     except AIInterviewError as exc:
-        message = str(exc)
+        terminal = _review_error(model_id, str(exc))
     except ValueError:
-        message = "模型返回的建议无法对应简历原文，请重试。"
-    return _event("error", message=message) if model_id is None else _event("model_error", model_id=model_id, message=message)
+        terminal = _review_error(model_id, "模型返回的建议无法对应简历原文，请重试。")
+    except Exception as exc:
+        logger.warning("Resume review stream failed: %s", type(exc).__name__)
+        terminal = _review_error(model_id, "模型分析中断，请稍后重试。")
+    await outgoing.put((terminal, True))
+
+
+def _review_error(model_id: str | None, message: str) -> str:
+    if model_id is None:
+        return _event("error", message=message)
+    return _event("model_error", model_id=model_id, message=message)
+
 
 
 @router.post("/resume/assistant")
@@ -232,10 +251,20 @@ def resume_assistant(
 
     async def stream() -> AsyncIterator[str]:
         if targets:
-            tasks = [asyncio.create_task(_model_result(*target, messages, context)) for target in targets]
+            outgoing: asyncio.Queue[tuple[str, bool]] = asyncio.Queue(maxsize=8)
+            tasks = [asyncio.create_task(
+                _stream_model_review(*target, messages, context, payload.stream_suggestions, outgoing)
+            ) for target in targets]
             try:
-                for task in asyncio.as_completed(tasks):
-                    yield await task
+                pending_models = len(tasks)
+                while pending_models:
+                    try:
+                        frame, terminal = await asyncio.wait_for(outgoing.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield frame
+                    pending_models -= int(terminal)
                 yield _event("done")
             finally:
                 for task in tasks:

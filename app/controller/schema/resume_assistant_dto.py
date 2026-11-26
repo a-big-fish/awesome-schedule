@@ -19,6 +19,7 @@ class ResumeAssistantInput(BaseModel):
 
     version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     action: Literal["start", "answer", "review", "optimize"]
+    stream_suggestions: bool = False
     position: ShortText = ""
     focus: ShortText = ""
     reference_experiences: bool = False
@@ -30,6 +31,8 @@ class ResumeAssistantInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_model_selection(self):
+        if self.stream_suggestions and self.model_ids is None:
+            raise ValueError("逐条输出需要选择分析模型。")
         if self.model_ids is not None and (
             self.action != "optimize" or len(set(self.model_ids)) != len(self.model_ids)
         ):

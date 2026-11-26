@@ -363,41 +363,45 @@
       }
     }
 
-    function showSuggestions(resultPanel, {items: suggestions, page_count: pageCount}) {
+    function appendSuggestion(resultPanel, suggestion) {
       const items = resultPanel.querySelector('[data-optimize-items]');
-      items.replaceChildren();
-      resultPanel.querySelector('[data-optimize-summary]').textContent = `当前简历 ${pageCount} 页 · ${suggestions.length} 条建议`;
-      resultPanel.querySelector('[data-optimize-empty]').hidden = suggestions.length > 0;
-      for (const suggestion of suggestions) {
-        const item = document.createElement('li');
-        item.append(element('h4', categories[suggestion.category]));
-        if (suggestion.page) {
-          const link = element('a', `查看 PDF 第 ${suggestion.page} 页`);
-          const url = new URL(resume.querySelector('[data-resume-open]').href);
-          url.hash = `page=${suggestion.page}`;
-          link.href = url.href;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          item.append(link, element('blockquote', suggestion.original));
-        }
-        item.append(element('p', suggestion.issue));
-        if (suggestion.rewrite) {
-          item.append(element('p', '建议改写 · ' + suggestion.rewrite));
-          const button = element('button', '复制改写');
-          button.type = 'button';
-          button.className = 'btn secondary small';
-          button.addEventListener('click', async () => {
-            try {
-              await navigator.clipboard.writeText(suggestion.rewrite);
-              showStatus('已复制改写。', false, 'optimize');
-            } catch {
-              showStatus('无法访问剪贴板，可以选中文字后手动复制。', true, 'optimize');
-            }
-          });
-          item.append(button);
-        }
-        items.append(item);
+      const item = document.createElement('li');
+      item.append(element('h4', categories[suggestion.category]));
+      if (suggestion.page) {
+        const link = element('a', `查看 PDF 第 ${suggestion.page} 页`);
+        const url = new URL(resume.querySelector('[data-resume-open]').href);
+        url.hash = `page=${suggestion.page}`;
+        link.href = url.href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        item.append(link, element('blockquote', suggestion.original));
       }
+      item.append(element('p', suggestion.issue));
+      if (suggestion.rewrite) {
+        item.append(element('p', '建议改写 · ' + suggestion.rewrite));
+        const button = element('button', '复制改写');
+        button.type = 'button';
+        button.className = 'btn secondary small';
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(suggestion.rewrite);
+            showStatus('已复制改写。', false, 'optimize');
+          } catch {
+            showStatus('无法访问剪贴板，可以选中文字后手动复制。', true, 'optimize');
+          }
+        });
+        item.append(button);
+      }
+      items.append(item);
+    }
+
+    function updateModelSummary(card, pageCount) {
+      const count = card.querySelector('[data-optimize-items]').childElementCount;
+      const summary = card.querySelector('[data-optimize-summary]');
+      summary.textContent = pageCount === undefined
+        ? `正在分析 · 已收到 ${count} 条建议`
+        : `当前简历 ${pageCount} 页 · ${count} 条建议`;
+      card.querySelector('[data-optimize-empty]').hidden = pageCount === undefined || count > 0;
     }
 
     function createResultPanels(models) {
@@ -408,7 +412,7 @@
         const title = card.querySelector('[data-optimize-model-name]');
         title.textContent = model.name;
         title.title = model.model;
-        card.setAttribute('aria-label', model.name + '的分析结果');
+        card.querySelector('[data-optimize-scroll]').setAttribute('aria-label', model.name + '的简历建议');
         results.append(card);
         panels.set(model.id, card);
       }
@@ -419,7 +423,8 @@
 
     function showModelError(card, message) {
       const summary = card.querySelector('[data-optimize-summary]');
-      summary.textContent = message;
+      const count = card.querySelector('[data-optimize-items]').childElementCount;
+      summary.textContent = count ? `已保留 ${count} 条建议。 ${message}` : message;
       summary.setAttribute('data-error', '');
     }
 
@@ -439,7 +444,7 @@
       const ai = target === 'practice' ? addTurn('assistant', action === 'review' ? '练习复盘' : '面试教练') : null;
       let responseText = '', sources;
       controls();
-      showStatus(target === 'practice' ? '正在生成回复…' : '正在分析简历…', false, target);
+      showStatus(target === 'practice' ? '正在生成回复…' : '', false, target);
       try {
         const response = await fetch(assistantUrl, {
           method: 'POST', cache: 'no-store', credentials: 'same-origin', signal: pending.signal,
@@ -457,10 +462,20 @@
           if (event.type === 'sources') sources = event.sources;
           if (waiting.has(event.model_id)) {
             const card = modelPanels.get(event.model_id);
-            if (event.type === 'model_suggestions') showSuggestions(card, event);
-            else if (event.type === 'model_error') showModelError(card, event.message);
-            else return;
-            waiting.delete(event.model_id);
+            switch (event.type) {
+              case 'model_suggestion':
+                appendSuggestion(card, event.item);
+                updateModelSummary(card);
+                break;
+              case 'model_done':
+                updateModelSummary(card, event.page_count);
+                waiting.delete(event.model_id);
+                break;
+              case 'model_error':
+                showModelError(card, event.message);
+                waiting.delete(event.model_id);
+                break;
+            }
           }
         });
         if (request !== pending) return;
@@ -519,7 +534,11 @@
       const models = modelPicker.selected();
       if (!models.length) return;
       modelPicker.clearNotice();
-      void run('optimize', {position: optimizeForm.elements.position.value.trim(), model_ids: models.map(model => model.id)}, models);
+      void run('optimize', {
+        position: optimizeForm.elements.position.value.trim(),
+        model_ids: models.map(model => model.id),
+        stream_suggestions: true,
+      }, models);
     });
     const observer = new MutationObserver(syncVersion);
     observer.observe(resume, {attributeFilter: ['data-resume-version']});

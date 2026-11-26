@@ -57,8 +57,10 @@
           <h3 data-optimize-model-name></h3>
           <p class="muted-text" data-optimize-summary role="status">正在分析简历…</p>
         </header>
-        <ol class="resume-assistant-suggestions" data-optimize-items aria-label="简历修改建议"></ol>
-        <p class="muted-text" data-optimize-empty hidden>这次没有找到可定位到原文的修改建议。</p>
+        <div class="resume-model-result-body" data-optimize-scroll tabindex="0" role="region">
+          <ol class="resume-assistant-suggestions" data-optimize-items></ol>
+          <p class="muted-text" data-optimize-empty hidden>这次没有找到可定位到原文的修改建议。</p>
+        </div>
       </section>
     </template>
   </div>

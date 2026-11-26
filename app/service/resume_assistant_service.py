@@ -145,34 +145,98 @@ class ResumeSuggestion(BaseModel):
     rewrite: Annotated[str, StringConstraints(strip_whitespace=True, max_length=350)] = ""
 
 
-def review_suggestions(context: ResumeContext, output: str) -> list[ResumeSuggestion]:
-    text = output.strip()
-    if text.startswith("```") and text.endswith("```"):
-        text = text.partition("\n")[2][:-3].strip()
-    decoded = json.loads(text)
-    if not isinstance(decoded, dict) or not isinstance(items := decoded.get("suggestions"), list):
-        raise ValueError("Invalid suggestion format")
-    confirmed = []
-    without_spaces = lambda value: "".join(value.split())
-    normalized_pages = {number: without_spaces(page) for number, page in context.pages.items()}
-    for item in items:
+_SUGGESTIONS_START = re.compile(r'\s*(?:```(?:json)?\s*)?\{\s*"suggestions"\s*:\s*\[', re.IGNORECASE)
+_FIRST_SUGGESTION = re.compile(r"\s*")
+_NEXT_SUGGESTION = re.compile(r"\s*,\s*")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+class ResumeSuggestionReview:
+    """Validate complete suggestions as they arrive and check the final JSON document."""
+
+    def __init__(self, context: ResumeContext) -> None:
+        self._pages = {number: "".join(page.split()) for number, page in context.pages.items()}
+        self._length_suggestion = None
+        if context.page_count > 2:
+            self._length_suggestion = ResumeSuggestion(
+                category="structure",
+                issue=f"当前简历共 {context.page_count} 页。建议压到两页以内，优先删减重复技能和与目标岗位关系较弱的内容。",
+            )
+        self._decoder = json.JSONDecoder()
+        self._pending = ""
+        self._parts: list[str] = []
+        self._reading_items = False
+        self._reading_finished = False
+        self._separator = _FIRST_SUGGESTION
+        self._emitted: list[ResumeSuggestion] = []
+
+    def _validate(self, item: object) -> ResumeSuggestion | None:
         try:
             suggestion = ResumeSuggestion.model_validate(item)
         except ValidationError:
-            continue
-        page = normalized_pages.get(suggestion.page, "")
-        excerpt = without_spaces(suggestion.original)
-        if not excerpt or excerpt not in page:
-            continue
+            return None
+        excerpt = "".join(suggestion.original.split())
+        if not excerpt or excerpt not in self._pages.get(suggestion.page, ""):
+            return None
         # A rewrite may omit numbers, but cannot introduce new ones.
-        if set(re.findall(r"\d+(?:\.\d+)?", suggestion.rewrite)) - set(re.findall(r"\d+(?:\.\d+)?", suggestion.original)):
+        if set(_NUMBER.findall(suggestion.rewrite)) - set(_NUMBER.findall(suggestion.original)):
             suggestion.rewrite = ""
-        confirmed.append(suggestion)
-    if items and not confirmed:
-        raise ValueError("No suggestions anchored to the resume")
-    if context.page_count > 2:
-        confirmed.insert(0, ResumeSuggestion(
-            category="structure",
-            issue=f"当前简历共 {context.page_count} 页。建议压到两页以内，优先删减重复技能和与目标岗位关系较弱的内容。",
-        ))
-    return confirmed
+        return suggestion
+
+    def append(self, chunk: str, *, progressive: bool) -> list[ResumeSuggestion]:
+        """Buffer the output and return newly validated items for a progressive client."""
+        self._parts.append(chunk)
+        if not progressive or self._reading_finished:
+            return []
+        self._pending += chunk
+        if not self._reading_items:
+            prefix = _SUGGESTIONS_START.match(self._pending)
+            if prefix is None:
+                if len(self._pending) > 512:
+                    self._reading_finished = True
+                    self._pending = ""
+                return []
+            self._reading_items = True
+            self._pending = self._pending[prefix.end():]
+
+        new_items = []
+        while separator := self._separator.match(self._pending):
+            start = separator.end()
+            if start == len(self._pending):
+                break
+            if self._pending[start] != "{":
+                self._reading_finished = True
+                self._pending = ""
+                break
+            try:
+                item, end = self._decoder.raw_decode(self._pending, start)
+            except json.JSONDecodeError:
+                break
+            self._pending = self._pending[end:]
+            self._separator = _NEXT_SUGGESTION
+            if suggestion := self._validate(item):
+                if not self._emitted and not new_items and self._length_suggestion is not None:
+                    new_items.append(self._length_suggestion)
+                new_items.append(suggestion)
+        if self._pending.lstrip().startswith("]"):
+            self._reading_finished = True
+            self._pending = ""
+        self._emitted.extend(new_items)
+        return new_items
+
+    def finish(self) -> list[ResumeSuggestion]:
+        """Check the final envelope and return any items not already sent."""
+        text = "".join(self._parts).strip()
+        if text.startswith("```") and text.endswith("```"):
+            text = text.partition("\n")[2][:-3].strip()
+        decoded = json.loads(text)
+        if not isinstance(decoded, dict) or not isinstance(items := decoded.get("suggestions"), list):
+            raise ValueError("Invalid suggestion format")
+        confirmed = [suggestion for item in items if (suggestion := self._validate(item))]
+        if items and not confirmed:
+            raise ValueError("No suggestions anchored to the resume")
+        if self._length_suggestion is not None:
+            confirmed.insert(0, self._length_suggestion)
+        if confirmed[:len(self._emitted)] != self._emitted:
+            raise ValueError("Streamed suggestions do not match the final review")
+        return confirmed[len(self._emitted):]
