@@ -251,3 +251,8 @@
   .resume-model-picker { justify-content: flex-start; margin-inline-start: 0; }
   .resume-model-buttons { justify-content: flex-start; }
 }
+
+.resume-model-manage-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.resume-model-manage-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #e2e9f4; border-radius: 10px; padding: 9px 12px; background: #f8faff; overflow-wrap: anywhere; }
+.resume-model-manage-list li small { color: #64748b; white-space: nowrap; }
+#resume-models .settings-actions { margin-top: 4px; }

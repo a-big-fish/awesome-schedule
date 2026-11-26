@@ -14,9 +14,10 @@ from app.core.exceptions import AIInterviewError
 from app.service.resume_assistant_service import ResumeContext
 from app.mapper.resume_model_store import ResumeModelStore
 from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider, discover_resume_models, model_endpoint
+from app.service.ai_providers.openai_compatible import OpenAICompatibleProvider
 from app.service.ai_providers.static import StaticAIInterviewProvider
 from app.core.dependencies import get_ai_interview_provider, get_interview_experience_mapper
-from app.model.ai_interview import AIModelConfig
+from app.model.ai_interview import AIInterviewMessage, AIModelConfig
 from app.model.auth import AuthUser
 from app.model.interview_experience import InterviewExperience, InterviewQuestion
 from app.service.ai_providers.base import AIInterviewProvider
@@ -287,9 +288,9 @@ def test_truncated_review_keeps_final_chunk_and_diagnoses_reasoning_only(final_c
         payload = json.loads(request.content)
         requests.append(payload)
         if len(requests) == 1:
-            assert payload["thinking"] == {"type": "disabled"}
-            return httpx.Response(400, json={"error": {"param": "thinking"}})
-        assert "thinking" not in payload
+            assert payload["reasoning_effort"] == "none" and "thinking" not in payload
+            return httpx.Response(400, json={"error": {"param": "reasoning_effort"}})
+        assert "reasoning_effort" not in payload and "thinking" not in payload
         frames = [
             {"choices": [{"delta": {"reasoning_content": private_reasoning}}]},
             {"choices": [{"delta": {"content": final_content}, "finish_reason": "length"}]},
@@ -330,6 +331,51 @@ def test_truncated_review_keeps_final_chunk_and_diagnoses_reasoning_only(final_c
     assert "first_reasoning_ms=" in caplog.text and "first_suggestion_ms=" in caplog.text
     assert "outcome=truncated" in caplog.text
     assert private_reasoning not in caplog.text and "synthetic-secret" not in caplog.text
+
+
+def test_review_payload_disables_reasoning_on_deepseek_and_on_gateways():
+    """Reasoning must be suppressed: it costs 10-25s per model before any suggestion."""
+    payloads = []
+
+    async def upstream(request):
+        payloads.append(json.loads(request.content))
+        frame = {"choices": [{"delta": {"content": '{"suggestions":[]}'}, "finish_reason": "stop"}]}
+        return httpx.Response(200, text=f"data: {json.dumps(frame)}\n\n")
+
+    async def check():
+        official = OpenAICompatibleProvider(
+            Settings(_env_file=None, ai_model="deepseek-v4.1-flash", ai_api_base_url="https://api.deepseek.com",
+                     ai_api_key="synthetic", ai_reasoning_effort="none"),
+            httpx.MockTransport(upstream), review_mode=True)
+        async for _ in official.stream([AIInterviewMessage(role="user", content="hi")]):
+            pass
+        gateway = CustomResumeProvider(
+            Settings(_env_file=None, ai_reasoning_effort="none"),
+            httpx.MockTransport(upstream), review_mode=True)
+        config = AIModelConfig(base_url="https://gateway.example/v1", model="DeepSeek-V4.1-Flash",
+                               api_key="synthetic")
+        async for _ in gateway.stream([AIInterviewMessage(role="user", content="hi")], config):
+            pass
+
+    asyncio.run(check())
+    assert payloads[0]["thinking"] == {"type": "disabled"}  # documented only by the official host
+    assert payloads[0]["reasoning_effort"] == "none"
+    assert "thinking" not in payloads[1]  # custom gateways ignore it and stay slow
+    assert payloads[1]["reasoning_effort"] == "none"
+
+
+def test_profile_page_exposes_model_management(tmp_path):
+    app, users, _, _, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email="models-profile@example.com", password_hash=hash_password("test-password"),
+                    email_verified=True)
+    users.create_user(user)
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "test-password")
+        page = client.get("/my-schedule/profile")
+        assert page.status_code == 200
+        for marker in ('id="resume-models"', 'data-resume-models-list', 'data-resume-models-dialog',
+                       'data-resume-models-discover', 'personal_resume_models.js', 'AI 模型'):
+            assert marker in page.text
 
 
 def test_custom_api_requires_https_and_public_addresses():

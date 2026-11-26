@@ -15,8 +15,8 @@ from app.service.ai_providers.base import AIInterviewProvider
 logger = logging.getLogger(__name__)
 
 
-async def _rejects_thinking(response: httpx.Response) -> bool:
-    """Retry only an explicit compatibility rejection, before any output."""
+async def _rejected_field(response: httpx.Response, fields: tuple[str, ...]) -> str | None:
+    """Name the request field a gateway rejected, before any output was streamed."""
     error_body = bytearray()
     async for chunk in response.aiter_bytes():
         error_body.extend(chunk[:4096 - len(error_body)])
@@ -24,15 +24,18 @@ async def _rejects_thinking(response: httpx.Response) -> bool:
             break
     try:
         error = json.loads(error_body).get("error", {})
-        if isinstance(error, dict) and error.get("param") in ("thinking", "thinking.type"):
-            return True
+        param = error.get("param") if isinstance(error, dict) else None
     except (AttributeError, ValueError):
-        pass
+        param = None
     message = error_body.decode(errors="replace").lower()
-    return "thinking" in message and any(
-        phrase in message for phrase in ("unsupported", "not supported", "unknown field", "unrecognized",
-                                         "unexpected", "extra inputs", "extra fields")
-    )
+    unsupported = ("unsupported", "not supported", "unknown field", "unrecognized",
+                   "unexpected", "extra inputs", "extra fields", "invalid")
+    for field in fields:
+        if param in (field, f"{field}.type", f"{field}.enabled"):
+            return field
+        if field in message and any(phrase in message for phrase in unsupported):
+            return field
+    return None
 
 
 
@@ -108,8 +111,12 @@ class OpenAICompatibleProvider(AIInterviewProvider):
             token_parameter: self.settings.ai_max_completion_tokens,
             "stream": True,
         }
-        if self.review_mode and model.casefold().startswith(("deepseek-v4", "deepseek-flash")):
+        if self.review_mode and host == "api.deepseek.com" and model.casefold().startswith(("deepseek-v4", "deepseek-flash")):
             payload["thinking"] = {"type": "disabled"}
+        if self.review_mode and self.settings.ai_reasoning_effort:
+            # Gateways such as api.do.top ignore `thinking` but honour reasoning_effort;
+            # "none" removes the 10-25s of reasoning tokens that made reviews feel stuck.
+            payload["reasoning_effort"] = self.settings.ai_reasoning_effort
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         started = perf_counter()
         headers_ms = reasoning_ms = content_ms = None
@@ -128,12 +135,13 @@ class OpenAICompatibleProvider(AIInterviewProvider):
                     async with client.stream("POST", chat_url, json=payload, headers=headers) as response:
                         status = response.status_code
                         headers_ms = elapsed_ms()
-                        if ("thinking" in payload and response.status_code in {400, 422}
-                                and await _rejects_thinking(response)):
-                            logger.info("Resume model compatibility retry request_id=%s host=%s model=%r",
-                                        request_id, host, model)
-                            payload.pop("thinking")
-                            continue
+                        if status in {400, 422} and ("reasoning_effort" in payload or "thinking" in payload):
+                            rejected = await _rejected_field(response, ("reasoning_effort", "thinking"))
+                            if rejected:
+                                logger.info("Resume model compatibility retry request_id=%s host=%s model=%r field=%s",
+                                            request_id, host, model, rejected)
+                                payload.pop(rejected)
+                                continue
                         response.raise_for_status()
                         async for line in response.aiter_lines():
                             if not line.startswith("data:"):
