@@ -29,6 +29,8 @@ internal sealed partial class DesktopIntegration
     readonly List<FrameworkElement> portableTimelineHoverControls = new();
     TimeSpan portableTimelineGuideTime;
     double portableTimelineHoverWidth;
+    double portableTimelineAvailableWidth, portableTimelineOccupiedWidth;
+    readonly SolidColorBrush portableFullGridInk = new();
 
     readonly record struct PortablePresentation(DateTime Day, bool SignedIn, bool Online,
         bool ShowingTasks, bool ShowCompleted, bool TaskActionsBusy);
@@ -83,16 +85,31 @@ internal sealed partial class DesktopIntegration
     void UpdatePortableGuides(TimeSpan now)
     {
         portableTimelineGuideTime = now;
+        bool faded = PortablePassThrough && !PortableTimelineInMotion;
         int hide = PortableTimelineLayout.NearestHourToHide(now);
         for (int hour = 0; hour < portableHourLabels.Length; hour++)
         {
-            double opacity = PortableTimelineLayout.GuideOpacity(TimeSpan.FromHours(hour), now, portableTimelineTasks);
+            double opacity = faded ? PortableTimelineLayout.GuideOpacity(TimeSpan.FromHours(hour), now, portableTimelineTasks) : 1;
             var line = portableHourRules[hour];
             var label = portableHourLabels[hour];
             line.Opacity = label.Opacity = opacity;
             line.Visibility = opacity > 0 ? Visibility.Visible : Visibility.Hidden;
             label.Visibility = opacity > 0 && hour != hide ? Visibility.Visible : Visibility.Hidden;
         }
+        if (portableNowLine == null) return;
+        var extent = PortableTimelineLayout.Rule(portableTimelineAvailableWidth, portableTimelineOccupiedWidth);
+        portableTimelineHoverWidth = PortableTimeGutter + extent.Width;
+        double width = faded ? extent.Width : portableTimelineAvailableWidth;
+        var mask = faded ? CreatePortableRuleFade(extent.SolidFraction) : null;
+        var gridInk = faded ? PortableOutline("#DFE7F1") : portableFullGridInk;
+        foreach (var rule in portableHourRules)
+        {
+            rule.Width = width;
+            rule.OpacityMask = mask;
+            rule.Background = gridInk;
+        }
+        portableNowLine.Width = width;
+        portableNowLine.OpacityMask = mask;
     }
 
     internal void RefreshPortable(bool centerCurrentTime = false)
@@ -115,7 +132,7 @@ internal sealed partial class DesktopIntegration
             {
                 portableTimeOffset = null;
                 if (portableTimelineScroll is { IsLoaded: true, Content: Canvas axis } timeline)
-                    PositionPortableTimeline(timeline, axis, CalendarProjection.Now.TimeOfDay.TotalHours * PortableHourHeight, null);
+                    PositionPortableTimeline(timeline, axis, null, animate: true);
             }
             return;
         }
@@ -135,7 +152,7 @@ internal sealed partial class DesktopIntegration
             if (portableTaskScroll is { IsLoaded: true } tasks) portableTaskOffset = tasks.VerticalOffset;
         }
 
-        if (centerCurrentTime) portableTimeOffset = null;
+        StopPortableTimelineMotion();
         portableContent.Children.Clear();
         portableTimelineScroll = null;
         portableTaskScroll = null;
@@ -163,7 +180,7 @@ internal sealed partial class DesktopIntegration
         else
         {
             var page = new Grid();
-            page.Children.Add(BuildPortableTimeline(visible));
+            page.Children.Add(BuildPortableTimeline(visible, centerCurrentTime));
             if (visible.Count == 0)
             {
                 var empty = PortableDayEmptyState(completeCount);
@@ -184,6 +201,7 @@ internal sealed partial class DesktopIntegration
         portableTimelineTasks = [];
         portableTimelineHoverControls.Clear();
         portableTimelineHoverWidth = 0;
+        portableTimelineAvailableWidth = portableTimelineOccupiedWidth = 0;
     }
 
     FrameworkElement BuildPortableSummary(DateTime today, int pending, int completed, bool signedIn)
@@ -241,7 +259,7 @@ internal sealed partial class DesktopIntegration
         RefreshPortable();
     }
 
-    FrameworkElement BuildPortableTimeline(IReadOnlyList<PortableTask> tasks)
+    FrameworkElement BuildPortableTimeline(IReadOnlyList<PortableTask> tasks, bool returnToNow)
     {
         var timeline = new Canvas { Height = PortableDayHeight, Background = Brushes.Transparent, ClipToBounds = true };
         portableTimelineTasks = tasks.Select(task => new PortableTimelineLayout.TaskRange(task.StartTime, task.EndTime)).ToArray();
@@ -272,6 +290,9 @@ internal sealed partial class DesktopIntegration
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         portableTimelineScroll = timeView;
+        timeView.PreviewMouseWheel += (_, _) => StopPortableTimelineMotion();
+        timeView.PreviewMouseDown += (_, _) => StopPortableTimelineMotion();
+        timeView.PreviewKeyDown += (_, _) => StopPortableTimelineMotion();
         var body = new DockPanel();
         var overflow = PortableButton("", () => ShowPortableTasks(true));
         overflow.Visibility = Visibility.Collapsed;
@@ -354,6 +375,7 @@ internal sealed partial class DesktopIntegration
         double previousAvailable = -1;
         void Fit()
         {
+            if (portableTimelineScroll != timeView) return;
             const double gap = 3;
             double available = Math.Max(0, timeline.ActualWidth - PortableTimeGutter - 7);
             int visibleLanes = Math.Clamp((int)((available + gap) / 100), 1, Math.Max(1, laneEnds.Count));
@@ -361,17 +383,9 @@ internal sealed partial class DesktopIntegration
             if (available != previousAvailable)
             {
                 previousAvailable = available;
-                double occupied = laneEnds.Count == 0 ? Math.Min(128, available) : width * visibleLanes + gap * (visibleLanes - 1);
-                var extent = PortableTimelineLayout.Rule(available, occupied);
-                var mask = CreatePortableRuleFade(extent.SolidFraction);
-                portableTimelineHoverWidth = PortableTimeGutter + extent.Width;
-                foreach (var rule in hourRules)
-                {
-                    rule.Width = extent.Width;
-                    rule.OpacityMask = mask;
-                }
-                nowLine.Width = extent.Width;
-                nowLine.OpacityMask = mask;
+                portableTimelineAvailableWidth = available;
+                portableTimelineOccupiedWidth = laneEnds.Count == 0 ? Math.Min(128, available) : width * visibleLanes + gap * (visibleLanes - 1);
+                UpdatePortableGuides(portableTimelineGuideTime);
             }
             int hidden = 0;
             foreach (var (card, label, lane) in cards)
@@ -395,8 +409,9 @@ internal sealed partial class DesktopIntegration
         timeView.ScrollChanged += (_, args) => { if (args.OriginalSource == timeView) Fit(); };
         timeView.Loaded += (_, _) => timeView.Dispatcher.InvokeAsync(() =>
         {
-            if (!timeView.IsLoaded) return;
-            PositionPortableTimeline(timeView, timeline, CalendarProjection.Now.TimeOfDay.TotalHours * PortableHourHeight, portableTimeOffset);
+            if (!timeView.IsLoaded || portableTimelineScroll != timeView) return;
+            PositionPortableTimeline(timeView, timeline, returnToNow ? portableTimeOffset ?? 0 : portableTimeOffset);
+            if (returnToNow) PositionPortableTimeline(timeView, timeline, null, animate: true);
             Fit();
         }, DispatcherPriority.Loaded);
         var section = PortableSection(body, new(4));
@@ -414,17 +429,6 @@ internal sealed partial class DesktopIntegration
         };
         brush.Freeze();
         return brush;
-    }
-
-    static void PositionPortableTimeline(QuietScrollViewer scroll, Canvas timeline, double currentY, double? savedOffset)
-    {
-        double viewportHeight = scroll.ViewportHeight;
-        double offset = savedOffset ?? currentY - viewportHeight / 2;
-        // Extend the scroll range only when a centered time would fall beyond a day boundary.
-        double beforeDay = Math.Max(0, -offset);
-        double afterDay = Math.Max(0, offset + viewportHeight - PortableDayHeight);
-        timeline.Margin = new(0, beforeDay, 0, afterDay);
-        scroll.ScrollToVerticalOffset(offset + beforeDay);
     }
 
     FrameworkElement BuildPortableTaskList(IReadOnlyList<PortableTask> tasks, int completeCount)

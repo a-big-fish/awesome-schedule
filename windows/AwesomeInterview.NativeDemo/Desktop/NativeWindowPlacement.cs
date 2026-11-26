@@ -8,6 +8,7 @@ namespace AwesomeInterview.NativeDemo;
 
 internal sealed class NativeWindowPlacement
 {
+    internal const int ResizeEdgeDip = 7;
     readonly Window window;
     readonly Func<bool>? portableInteractive;
     readonly double preferredMinWidth, preferredMinHeight, defaultWidth, defaultHeight;
@@ -64,6 +65,22 @@ internal sealed class NativeWindowPlacement
         int y = (int)Math.Round(pointer.Y - Math.Clamp(pointer.Y - current.Top, 0, ToPixels(34)));
         Place(DesktopWindowBounds.Fit(new(x, y, x + restored.Width, y + restored.Height), area));
         restoreBounds = null;
+    }
+
+    internal DesktopResizeHit PortableResizeHit(nint handle, ScreenPoint point) =>
+        PortableWindowHitTest.TryGetBounds(handle, out var frame)
+            ? DesktopWindowBounds.ResizeHit(frame, point.X, point.Y, ToPixels(ResizeEdgeDip), ToPixels(13))
+            : DesktopResizeHit.Client;
+
+    internal void ResizePortableFromEdge(nint handle, ScreenPoint point)
+    {
+        var edge = PortableResizeHit(handle, point);
+        if (edge == DesktopResizeHit.Client) return;
+        const int SystemCommand = 0x0112, Size = 0xF000;
+        // The sizing direction is WMSZ_LEFT through WMSZ_BOTTOMRIGHT.
+        int direction = (int)edge - (int)DesktopResizeHit.Left + 1;
+        int position = (ushort)point.X | ((ushort)point.Y << 16);
+        SendMessage(handle, SystemCommand, Size | direction, position);
     }
 
     DesktopRect RestoredBounds(DesktopRect area)
@@ -131,10 +148,8 @@ internal sealed class NativeWindowPlacement
                 handled = true;
                 return -1; // HTTRANSPARENT, alongside the widget's existing layered input style.
             }
-            if (!PortableWindowHitTest.TryGetBounds(handle, out var frame)) return 0;
             long position = lParam.ToInt64();
-            var hit = DesktopWindowBounds.ResizeHit(frame, unchecked((short)position),
-                unchecked((short)(position >> 16)), ToPixels(7), ToPixels(13));
+            var hit = PortableResizeHit(handle, new ScreenPoint { X = unchecked((short)position), Y = unchecked((short)(position >> 16)) });
             if (hit == DesktopResizeHit.Client) return 0;
             handled = true;
             return (int)hit;
@@ -218,6 +233,9 @@ internal sealed class NativeWindowPlacement
 
     [DllImport("user32.dll")]
     static extern uint GetDpiForWindow(nint window);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
 
     [DllImport("user32.dll")]
     static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);

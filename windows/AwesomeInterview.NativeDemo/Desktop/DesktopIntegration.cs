@@ -162,6 +162,10 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         portable.PreviewKeyDown += (_, e) => { if (PortablePassThrough) e.Handled = true; };
         portable.LocationChanged += (_, _) => PositionPortableUnlock();
         portable.SizeChanged += (_, _) => PositionPortableUnlock();
+        portable.LocationChanged += (_, _) => PositionPortableResizeFrame();
+        portable.SizeChanged += (_, _) => PositionPortableResizeFrame();
+        portable.DpiChanged += (_, _) => PositionPortableResizeFrame();
+        portable.IsVisibleChanged += (_, _) => UpdatePortableResizeFrame();
         portable.Closing += (_, _) =>
         {
             ClosePortableAppearance();
@@ -176,6 +180,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
             portableHoverCue = null;
             portableHoverCueLayer = null;
             portableUnlock = null;
+            portableResizeFrame = null;
             portableAppearancePanel = null;
             portableHeader = null;
             portableToolbarButtons.Clear();

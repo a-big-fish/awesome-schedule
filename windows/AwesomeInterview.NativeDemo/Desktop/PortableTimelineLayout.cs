@@ -39,4 +39,16 @@ internal static class PortableTimelineLayout
 
     internal static bool CanWakeAt(double x, double width, TimeSpan time, TimeSpan now, IReadOnlyList<TaskRange> tasks) =>
         x >= 0 && x < width && time >= TimeSpan.Zero && time < TimeSpan.FromDays(1) && GuideOpacity(time, now, tasks) > 0;
+
+    internal static double CenterOffset(double currentY, double viewportHeight, double? firstShownY, double leadingSpace)
+    {
+        double centered = Math.Max(0, currentY - viewportHeight / 2);
+        return firstShownY is { } first ? Math.Max(centered, first - leadingSpace) : centered;
+    }
+
+    internal static double ScrollFrame(double from, double to, double progress)
+    {
+        double remaining = 1 - Math.Clamp(progress, 0, 1);
+        return to - (to - from) * remaining * remaining * remaining;
+    }
 }

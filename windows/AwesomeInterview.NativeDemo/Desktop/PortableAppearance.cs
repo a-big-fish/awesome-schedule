@@ -304,7 +304,8 @@ internal sealed partial class DesktopIntegration
         if (over && portableUnlock is { IsVisible: true } unlock &&
             PortableWindowHitTest.ContainsPoint(new WindowInteropHelper(unlock).Handle, point))
             over = false;
-        bool mouseBusy = portableDetailOpen || PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
+        bool mouseBusy = portableDetailOpen || portableTimelineReveal?.IsEnabled == true ||
+            PortableWindowHitTest.AnyMouseButtonDown || window.IsMouseCaptureWithin;
         bool interactive = portableHover.Update(over, mouseBusy, point.X, point.Y, now);
         if (interactive == portableHoverActive)
         {
@@ -333,6 +334,8 @@ internal sealed partial class DesktopIntegration
     void UpdatePortableTools()
     {
         ApplyPortableFrame();
+        RefreshPortableGuidePresentation();
+        UpdatePortableResizeFrame();
         if (portableLockTool != null)
         {
             portableLockTool.Content = portableHoverActive ? "解锁交互" : "鼠标穿透";
@@ -350,6 +353,7 @@ internal sealed partial class DesktopIntegration
             !ContainsPortablePoint(scroll, new Point(screenX, screenY)) || !scroll.TryScrollWithWheel(delta))
             return false;
 
+        if (scroll == portableTimelineScroll) RevealPortableTimelineWhileScrolling();
         SchedulePortableFocusReset();
         return true;
     }
@@ -391,6 +395,8 @@ internal sealed partial class DesktopIntegration
             brush.Color = Brush(ActivePortableStyle.OutlineColor ?? color).Color;
             brush.Opacity = border;
         }
+        portableFullGridInk.Color = Brush(ActivePortableStyle.OutlineColor ?? "#A3B6CF").Color;
+        portableFullGridInk.Opacity = Math.Max(border * .55, .42);
         portableSectionTint.Color = ActivePortableStyle.SectionColor is { } sectionColor ? Brush(sectionColor).Color :
             preferences.PortableColor switch
         {
@@ -418,6 +424,7 @@ internal sealed partial class DesktopIntegration
         }
         foreach (var button in portableToolbarButtons) PaintPortableTool(button);
         ApplyPortableUnlockAppearance();
+        UpdatePortableResizeFrame();
         ApplyPortableHoverCueAppearance();
         SchedulePortableContrast();
     }
@@ -436,13 +443,9 @@ internal sealed partial class DesktopIntegration
             portableSurface.Background = portableWindowFill;
         }
         else portableSurface.Background = Brush(portableHoverActive ? "#04FFFFFF" : "#01FFFFFF");
-        if (PortablePassThrough) portableSurface.BorderBrush = Brushes.Transparent;
-        else
-        {
-            var outline = Brush("#AABAD1");
-            outline.Opacity = PortableOverallOpacity * PortableBorderOpacity;
-            portableSurface.BorderBrush = outline;
-        }
+        var outline = Brush("#7992B6");
+        outline.Opacity = Math.Max(PortablePassThrough ? .48 : .32, PortableOverallOpacity * PortableBorderOpacity);
+        portableSurface.BorderBrush = outline;
     }
 
     void ApplyPortableUnlockAppearance()

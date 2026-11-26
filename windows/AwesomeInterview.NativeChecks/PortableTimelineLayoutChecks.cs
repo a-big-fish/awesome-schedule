@@ -42,5 +42,16 @@ internal static class PortableTimelineLayoutChecks
             hover.Update(CanWake(110, 18.5), false, 110, 555, 5900) &&
             !hover.Update(CanWake(320, 18.5), false, 320, 555, 6000),
             "a long dwell in empty space stays locked and moving out of live guides restores pass-through");
+
+        check(PortableTimelineLayout.CenterOffset(330, 240, 210, 20) == 210 &&
+            PortableTimelineLayout.CenterOffset(330, 640, 210, 20) == 190 &&
+            PortableTimelineLayout.CenterOffset(330, 640, null, 20) == 10 &&
+            PortableTimelineLayout.CenterOffset(40, 640, null, 20) == 0,
+            "centering caps leading blank space only in the faded view and avoids synthetic time before midnight");
+        check(PortableTimelineLayout.ScrollFrame(20, 240, 0) == 20 &&
+            PortableTimelineLayout.ScrollFrame(20, 240, .25) is > 20 and < 240 &&
+            PortableTimelineLayout.ScrollFrame(20, 240, 1) == 240 &&
+            PortableTimelineLayout.ScrollFrame(240, 20, .25) is > 20 and < 240,
+            "automatic centering animates from the current offset in either direction");
     }
 }
