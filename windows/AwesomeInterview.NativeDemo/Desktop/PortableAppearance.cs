@@ -28,10 +28,13 @@ internal sealed partial class DesktopIntegration
     readonly Dictionary<string, SolidColorBrush> portableFillBrushes = new();
     readonly Dictionary<string, SolidColorBrush> portableInkBrushes = new();
     readonly Dictionary<string, SolidColorBrush> portableOutlineBrushes = new();
+    readonly Dictionary<string, SolidColorBrush> portableEventOutlineBrushes = new();
     double PortableOverallOpacity => Math.Clamp(preferences.PortableOverallOpacity, .10, 1);
     double PortableBackgroundOpacity => Math.Clamp(preferences.PortableOpacity, 0, 1);
     double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
     double PortableBorderOpacity => Math.Clamp(preferences.PortableBorderOpacity, 0, 1);
+    double PortableEventOutlineOpacity => !SystemParameters.HighContrast && ActivePortableStyle.GlassStrength > 0
+        ? Math.Max(.78, PortableBorderOpacity) : PortableBorderOpacity;
     PortableStyle ActivePortableStyle => preferences.PortableStyle is { IsValid: true } style ? style : PortableStyle.Default;
     bool NeedsPortableLabelBacking => !preferences.UsesClearOutline &&
         (ActivePortableStyle.GlassStrength > 0 || PortableBackgroundOpacity * PortableOverallOpacity < .90);
@@ -79,6 +82,8 @@ internal sealed partial class DesktopIntegration
     SolidColorBrush PortableFill(string color) => OpacityBrush(portableFillBrushes, color, PortableBackgroundOpacity, PortableFillColor(color));
     SolidColorBrush PortableInk(string color) => OpacityBrush(portableInkBrushes, color, PortableTextOpacity, PortableInkColor(color));
     SolidColorBrush PortableOutline(string color) => OpacityBrush(portableOutlineBrushes, color, PortableBorderOpacity, ActivePortableStyle.OutlineColor);
+    SolidColorBrush PortableEventOutline(string color) =>
+        OpacityBrush(portableEventOutlineBrushes, color, PortableEventOutlineOpacity, ActivePortableStyle.OutlineColor);
 
     string PortableFillColor(string color) => color == "#EDF3FF" ? ActivePortableStyle.EventColor ?? color : color;
     string PortableInkColor(string color) => color switch
@@ -373,8 +378,6 @@ internal sealed partial class DesktopIntegration
     void ApplyPortableAppearance()
     {
         double overall = PortableOverallOpacity, background = PortableBackgroundOpacity, ink = PortableTextOpacity;
-        double edgeOpacity = SystemParameters.HighContrast ? 0 : Math.Min(1, ActivePortableStyle.GlassStrength / 60d);
-        portableTopGlassEdge.Opacity = portableBottomGlassEdge.Opacity = edgeOpacity;
         foreach (var (color, brush) in portableFillBrushes)
         {
             brush.Color = Brush(PortableFillColor(color)).Color;
@@ -386,11 +389,8 @@ internal sealed partial class DesktopIntegration
             brush.Opacity = ink;
         }
         double border = PortableBorderOpacity;
-        foreach (var (color, brush) in portableOutlineBrushes)
-        {
-            brush.Color = Brush(ActivePortableStyle.OutlineColor ?? color).Color;
-            brush.Opacity = border;
-        }
+        UpdatePortableOutlines(portableOutlineBrushes, border);
+        UpdatePortableOutlines(portableEventOutlineBrushes, PortableEventOutlineOpacity);
         portableFullGridInk.Color = Brush(ActivePortableStyle.OutlineColor ?? "#A3B6CF").Color;
         portableFullGridInk.Opacity = Math.Max(border * .55, .42);
         portableSectionTint.Color = ActivePortableStyle.SectionColor is { } sectionColor ? Brush(sectionColor).Color :
@@ -422,6 +422,15 @@ internal sealed partial class DesktopIntegration
         ApplyPortableUnlockAppearance();
         ApplyPortableHoverCueAppearance();
         SchedulePortableContrast();
+    }
+
+    void UpdatePortableOutlines(Dictionary<string, SolidColorBrush> outlines, double opacity)
+    {
+        foreach (var (color, brush) in outlines)
+        {
+            brush.Color = Brush(ActivePortableStyle.OutlineColor ?? color).Color;
+            brush.Opacity = opacity;
+        }
     }
 
     void ApplyPortableFrame()

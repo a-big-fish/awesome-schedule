@@ -340,7 +340,7 @@ internal sealed partial class DesktopIntegration
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
             };
             var card = PortableButton("", () => ShowTaskDetail(task));
-            card.Content = BuildPortableEventGlass(labelGlass);
+            card.Content = labelGlass;
             card.ToolTip = $"{task.Title}\n{task.Hours}";
             card.MinHeight = 0;
             card.Height = height;
@@ -349,7 +349,7 @@ internal sealed partial class DesktopIntegration
             card.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             card.VerticalContentAlignment = VerticalAlignment.Stretch;
             card.Background = PortableFill(task.Completed ? "#EEF0F3" : "#EDF3FF");
-            card.BorderBrush = PortableOutline(task.Completed ? "#A1ADBE" : "#869AB8");
+            card.BorderBrush = PortableEventOutline(task.Completed ? "#A1ADBE" : "#869AB8");
             AutomationProperties.SetName(card, $"{task.Title}，{task.Hours}");
             Canvas.SetTop(card, top);
             timeline.Children.Add(card);
