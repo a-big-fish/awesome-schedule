@@ -107,6 +107,27 @@ class PostgresResumeFileStorage(ResumeFileStorage):
                 )
             connection.commit()
 
+    def save_document(self, content: bytes, storage_key: str) -> str:
+        self._save(storage_key, self._resume_id_from_key(storage_key), "application/json", content)
+        return storage_key
+
+    def read_document(self, storage_key: str) -> bytes:
+        return self._read(storage_key, "application/json")
+
+    def list_documents(self, prefix: str) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT storage_key FROM interview_resume_files WHERE storage_key LIKE %s "
+                "ORDER BY storage_key",
+                (f"{prefix}%",),
+            ).fetchall()
+        return [row["storage_key"] for row in rows]
+
+    @staticmethod
+    def _resume_id_from_key(storage_key: str) -> str:
+        parts = storage_key.split("/")
+        return parts[1] if len(parts) > 1 and parts[0] in {"resumes", "resume_info", "resume_images"} else parts[0]
+
     def _read(self, storage_key: str, expected_type: str) -> bytes:
         with self._connect() as connection:
             with connection.cursor() as cursor:

@@ -97,6 +97,26 @@ class S3CompatibleResumeFileStorage(ResumeFileStorage):
         except UnicodeDecodeError as exc:
             raise ValueError(f"Invalid resume text encoding: {storage_key}") from exc
 
+    def save_document(self, content: bytes, storage_key: str) -> str:
+        self._upload(content, storage_key, "application/json")
+        return storage_key
+
+    def read_document(self, storage_key: str) -> bytes:
+        return self._read(storage_key)
+
+    def list_documents(self, prefix: str) -> list[str]:
+        keys: list[str] = []
+        token: str | None = None
+        while True:
+            kwargs: dict[str, str] = {"Bucket": self.bucket_name, "Prefix": prefix}
+            if token:
+                kwargs["ContinuationToken"] = token
+            page = self._client.list_objects_v2(**kwargs)
+            keys.extend(item["Key"] for item in page.get("Contents", []))
+            if not page.get("IsTruncated"):
+                return sorted(keys)
+            token = page["NextContinuationToken"]
+
     def _storage_key(
         self,
         artifact_type: str,

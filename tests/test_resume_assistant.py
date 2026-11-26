@@ -8,11 +8,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.controller import personal_resume_assistant_controller as assistant_controller
-from app.controller.personal_resume_assistant_controller import get_custom_resume_provider, get_resume_model_store
+from app.controller.personal_resume_assistant_controller import (
+    get_custom_resume_provider, get_resume_model_store, get_resume_review_store,
+)
 from app.core.config import Settings
 from app.core.exceptions import AIInterviewError
 from app.service.resume_assistant_service import ResumeContext
+from app.mapper.local_resume_file_storage import LocalResumeFileStorage
 from app.mapper.resume_model_store import ResumeModelStore
+from app.service.resume_review_store import ResumeReviewStore, review_prefix
+from app.model.my_resume_profile import MyResumeProfile
+from app.model.resume import Resume
 from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider, discover_resume_models, model_endpoint
 from app.service.ai_providers.openai_compatible import OpenAICompatibleProvider
 from app.service.ai_providers.static import StaticAIInterviewProvider
@@ -215,7 +221,9 @@ def test_custom_models_compare_identical_context_concurrently_and_keep_all_sugge
             **payload, "model_ids": model_ids, "stream_suggestions": True,
         }))
         first_model = [event for event in streamed if event.get("model_id") == model_ids[0]]
-        assert first_model.pop(0)["phase"] == "answer"
+        phases = [event["phase"] for event in first_model if event["type"] == "model_progress"]
+        assert phases == ["accepted", "answer"]
+        first_model = [event for event in first_model if event["type"] != "model_progress"]
         assert [event["type"] for event in first_model] == ["model_suggestion"] * 7 + ["model_done"]
         assert first_model[-1]["page_count"] == 1
         assert streamed[-1] == {"type": "done"}
@@ -312,12 +320,13 @@ def test_truncated_review_keeps_final_chunk_and_diagnoses_reasoning_only(final_c
         while not outgoing.empty():
             frame, _ = outgoing.get_nowait()
             events.append(json.loads(frame.removeprefix("data: ")))
-        assert events[0]["phase"] == "reasoning"
+        phases = [event["phase"] for event in events if event["type"] == "model_progress"]
+        assert phases[0] == "accepted" and "reasoning" in phases
         assert all(private_reasoning not in json.dumps(event) for event in events)
         assert events[-1]["type"] == "model_error"
         suggestions = [event["item"] for event in events if event["type"] == "model_suggestion"]
         if expected_issue:
-            assert events[1]["phase"] == "answer"
+            assert "answer" in phases
             assert [item["issue"] for item in suggestions] == [expected_issue]
             assert suggestions[0]["rewrite"] == ""
         else:
@@ -376,6 +385,80 @@ def test_profile_page_exposes_model_management(tmp_path):
         for marker in ('id="resume-models"', 'data-resume-models-list', 'data-resume-models-dialog',
                        'data-resume-models-discover', 'personal_resume_models.js', 'AI 模型'):
             assert marker in page.text
+
+
+def test_review_streams_without_an_output_cap_while_practice_keeps_its_budget():
+    payloads = []
+
+    async def upstream(request):
+        payloads.append(json.loads(request.content))
+        frame = {"choices": [{"delta": {"content": "x"}, "finish_reason": "stop"}]}
+        return httpx.Response(200, text=f"data: {json.dumps(frame)}\n\n")
+
+    async def check():
+        review = CustomResumeProvider(
+            Settings(_env_file=None, ai_max_completion_tokens=999), httpx.MockTransport(upstream), review_mode=True)
+        config = AIModelConfig(base_url="https://gateway.example/v1", model="m", api_key="synthetic")
+        async for _ in review.stream([AIInterviewMessage(role="user", content="hi")], config):
+            pass
+        practice = OpenAICompatibleProvider(
+            Settings(_env_file=None, ai_api_base_url="https://api.example.com/v1", ai_api_key="synthetic",
+                     ai_model="m", ai_max_completion_tokens=999), httpx.MockTransport(upstream))
+        async for _ in practice.stream([AIInterviewMessage(role="user", content="hi")]):
+            pass
+
+    asyncio.run(check())
+    assert "max_completion_tokens" not in payloads[0] and "max_tokens" not in payloads[0]
+    assert payloads[1]["max_completion_tokens"] == 999
+
+
+def test_review_store_persists_beside_the_resume(tmp_path):
+    storage = LocalResumeFileStorage(tmp_path)
+    pdf_key = storage.save_pdf(b"%PDF-1.4", "cv.pdf", "resume-1")
+    store = ResumeReviewStore(storage)
+    document = store.save(
+        owner_id="owner-1", resume_id="resume-1", pdf_path=pdf_key, position="后端",
+        models=[{"model_id": "m1", "name": "DS", "model": "deepseek", "suggestions": [{"issue": "x"}]}])
+    keys = storage.list_documents(review_prefix(pdf_key))
+    assert len(keys) == 1 and "/resume-1/reviews/" in keys[0] and keys[0].endswith(".json")
+    summaries = store.list(pdf_path=pdf_key, owner_id="owner-1")
+    assert summaries[0]["id"] == document["review_id"]
+    assert summaries[0]["suggestion_count"] == 1 and summaries[0]["models"] == ["DS"]
+    saved = store.read(pdf_path=pdf_key, owner_id="owner-1", review_id=document["review_id"])
+    assert saved["position"] == "后端"
+    assert store.list(pdf_path=pdf_key, owner_id="someone-else") == []
+    assert store.read(pdf_path=pdf_key, owner_id="someone-else", review_id=document["review_id"]) is None
+
+
+def test_review_history_routes_are_owner_scoped(tmp_path):
+    app, users, _, _, profiles, resumes = _public_fixture(tmp_path)
+    alice = AuthUser(email="history-alice@example.com", password_hash=hash_password("test-password"),
+                     email_verified=True)
+    bob = AuthUser(email="history-bob@example.com", password_hash=hash_password("test-password"),
+                   email_verified=True)
+    users.create_user(alice)
+    users.create_user(bob)
+    storage = LocalResumeFileStorage(tmp_path / "files")
+    pdf_key = storage.save_pdf(b"%PDF-1.4", "cv.pdf", "resume-h")
+    resume = resumes.save(Resume(owner_id=alice.id, file_name="cv.pdf", pdf_path=pdf_key))
+    profiles.save(MyResumeProfile(id=alice.id, resume_id=resume.id))
+    store = ResumeReviewStore(storage)
+    document = store.save(owner_id=alice.id, resume_id=resume.id, pdf_path=pdf_key, position="后端",
+                          models=[{"model_id": "m1", "name": "DS", "model": "deepseek",
+                                   "suggestions": [{"issue": "x"}]}])
+    app.dependency_overrides[get_resume_review_store] = lambda: store
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, alice.email, "test-password")
+        listing = client.get("/my-schedule/resume/assistant/reviews")
+        assert listing.status_code == 200
+        assert [item["id"] for item in listing.json()["reviews"]] == [document["review_id"]]
+        detail = client.get(f"/my-schedule/resume/assistant/reviews/{document['review_id']}")
+        assert detail.status_code == 200 and detail.json()["position"] == "后端"
+        assert client.get("/my-schedule/resume/assistant/reviews/nope").status_code == 404
+    with TestClient(app, base_url="https://testserver") as other:
+        _login(other, bob.email, "test-password")
+        assert other.get("/my-schedule/resume/assistant/reviews").json() == {"reviews": []}
+        assert other.get(f"/my-schedule/resume/assistant/reviews/{document['review_id']}").status_code == 404
 
 
 def test_custom_api_requires_https_and_public_addresses():

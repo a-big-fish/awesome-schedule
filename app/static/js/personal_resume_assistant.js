@@ -271,6 +271,10 @@
     const optimizeForm = find('[data-optimize-form]');
     const results = find('[data-optimize-results]');
     const resultTemplate = find('[data-optimize-result-template]');
+    const reviewHistory = find('[data-review-history]');
+    const reviewHistoryList = find('[data-review-history-list]');
+    const reviewHistoryStatus = find('[data-review-history-status]');
+    let historyLoaded = false;
     const notices = {practice: '', optimize: ''};
     let mode = 'practice', version = resume.dataset.resumeVersion || '', request = null;
     let options = {}, history = [], ended = false;
@@ -291,6 +295,73 @@
       panel.querySelectorAll('[data-assistant-pane]').forEach(pane => {pane.hidden = pane.dataset.assistantPane !== mode;});
       modelPicker.show(mode === 'optimize');
       showStatus(notices[mode], error[mode]);
+      if (mode === 'optimize') loadHistory();
+    }
+
+    function formatReviewTime(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString('zh-CN', {hour12: false});
+    }
+
+    async function loadHistory() {
+      if (historyLoaded) return;
+      historyLoaded = true;
+      try {
+        const response = await fetch(assistantUrl + '/reviews', {
+          cache: 'no-store', credentials: 'same-origin', headers: {Accept: 'application/json', ...csrfHeader()},
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data) throw Error('无法加载历史记录。');
+        const items = (data.reviews || []).map(review => {
+          const item = document.createElement('li');
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn secondary small';
+          button.textContent = `${formatReviewTime(review.created_at)} · ${review.position || '未填写方向'}`
+            + ` · ${review.suggestion_count} 条 · ${(review.models || []).join(' / ')}`;
+          button.addEventListener('click', () => showSavedReview(review.id));
+          item.append(button);
+          return item;
+        });
+        reviewHistoryList.replaceChildren(...items);
+        reviewHistory.hidden = !items.length;
+        reviewHistoryStatus.textContent = items.length ? '' : '完成一次简历分析后，结果会保存在这份简历旁边。';
+      } catch (error) {
+        reviewHistoryStatus.textContent = error.message;
+      }
+    }
+
+    async function showSavedReview(reviewId) {
+      if (request) return;
+      reviewHistoryStatus.textContent = '正在加载记录…';
+      try {
+        const response = await fetch(`${assistantUrl}/reviews/${encodeURIComponent(reviewId)}`, {
+          cache: 'no-store', credentials: 'same-origin', headers: {Accept: 'application/json', ...csrfHeader()},
+        });
+        const record = await response.json().catch(() => null);
+        if (!response.ok || !record) {
+          throw Error(typeof record?.detail === 'string' ? record.detail : '无法加载这条记录。');
+        }
+        const panels = createResultPanels(record.models.map(model => (
+          {id: model.model_id, name: model.name || model.model_id, model: model.model || ''}
+        )));
+        let total = 0;
+        for (const model of record.models) {
+          const card = panels.get(model.model_id);
+          if (!card) continue;
+          const suggestions = model.suggestions || [];
+          for (const suggestion of suggestions) appendSuggestion(card, suggestion);
+          total += suggestions.length;
+          card.querySelector('[data-optimize-summary]').textContent =
+            `${suggestions.length} 条建议 · ${formatReviewTime(record.created_at)}`;
+          card.querySelector('[data-optimize-empty]').hidden = suggestions.length > 0;
+        }
+        reviewHistoryStatus.textContent = '';
+        showStatus(`正在查看 ${formatReviewTime(record.created_at)} 的分析记录（${total} 条）。`, false, 'optimize');
+      } catch (error) {
+        reviewHistoryStatus.textContent = error.message;
+        showStatus(error.message, true, 'optimize');
+      }
     }
 
     function showPanel(open, focus = true) {
@@ -442,7 +513,7 @@
       const waiting = new Set(modelPanels.keys());
       const user = input.answer ? addTurn('user', '你', input.answer) : null;
       const ai = target === 'practice' ? addTurn('assistant', action === 'review' ? '练习复盘' : '面试教练') : null;
-      let responseText = '', sources;
+      let responseText = '', sources, saved = false;
       controls();
       showStatus(target === 'practice' ? '正在生成回复…' : '', false, target);
       try {
@@ -460,12 +531,13 @@
             transcript.scrollTop = transcript.scrollHeight;
           }
           if (event.type === 'sources') sources = event.sources;
+          if (event.type === 'saved') saved = true;
           if (waiting.has(event.model_id)) {
             const card = modelPanels.get(event.model_id);
             switch (event.type) {
               case 'model_progress':
                 card.querySelector('[data-optimize-summary]').textContent =
-                  event.phase === 'reasoning' ? '模型正在推理…' : '正在生成建议…';
+                  event.phase === 'answer' ? '正在生成建议…' : '模型端已接收并正在思考…';
                 break;
               case 'model_suggestion':
                 appendSuggestion(card, event.item);
@@ -493,7 +565,15 @@
           ended = action === 'review';
         }
         if (waiting.size) throw Error('有模型未返回分析结果，请重试。');
-        showStatus(ended && target === 'practice' ? '本轮练习已结束。' : '', false, target);
+        if (saved && target === 'optimize') {
+          historyLoaded = false;
+          loadHistory();
+          showStatus('本次分析已保存，可在「以往分析记录」中查看。', false, 'optimize');
+        } else if (ended && target === 'practice') {
+          showStatus('本轮练习已结束。', false, 'practice');
+        } else {
+          showStatus('', false, target);
+        }
       } catch (error) {
         if (request !== pending) return;
         user?.turn.remove();

@@ -104,13 +104,14 @@ class OpenAICompatibleProvider(AIInterviewProvider):
 
         chat_url = self._chat_url(base_url)
         host = httpx.URL(chat_url).host
-        token_parameter = "max_tokens" if self.review_mode and host == "api.deepseek.com" else "max_completion_tokens"
         payload = {
             "model": model,
             "messages": [message.model_dump() for message in messages],
-            token_parameter: self.settings.ai_max_completion_tokens,
             "stream": True,
         }
+        if not self.review_mode:
+            # Reviews deliberately run without an output cap: the upstream default applies.
+            payload["max_completion_tokens"] = self.settings.ai_max_completion_tokens
         if self.review_mode and host == "api.deepseek.com" and model.casefold().startswith(("deepseek-v4", "deepseek-flash")):
             payload["thinking"] = {"type": "disabled"}
         if self.review_mode and self.settings.ai_reasoning_effort:
@@ -143,6 +144,9 @@ class OpenAICompatibleProvider(AIInterviewProvider):
                                 payload.pop(rejected)
                                 continue
                         response.raise_for_status()
+                        if on_stage is not None:
+                            # The upstream accepted the request; tell the user before the first token.
+                            await on_stage("accepted")
                         async for line in response.aiter_lines():
                             if not line.startswith("data:"):
                                 continue
@@ -215,7 +219,8 @@ class OpenAICompatibleProvider(AIInterviewProvider):
                     "first_reasoning_ms=%s first_content_ms=%s total_ms=%s finish=%s "
                     "reasoning_chars=%s content_chars=%s token_budget=%s",
                     request_id, model_id, host, model, status, headers_ms, reasoning_ms, content_ms, elapsed_ms(), finish,
-                    reasoning_chars, content_chars, self.settings.ai_max_completion_tokens,
+                    reasoning_chars, content_chars,
+                    "unlimited" if self.review_mode else self.settings.ai_max_completion_tokens,
                 )
 
         if (self.review_mode and content_ms is None) or not content_chars:

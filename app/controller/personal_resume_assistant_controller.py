@@ -11,23 +11,24 @@ from typing import TypeVar
 
 from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.controller.schema.resume_assistant_dto import ResumeAssistantInput, ResumeModelCredentials, ResumeModelInput
-from app.core.config import Settings
 from app.core.dependencies import (
     get_ai_interview_provider, get_interview_experience_service,
-    get_personal_resume_state_service, get_resume_parser_service,
+    get_personal_resume_state_service, get_resume_file_storage, get_resume_parser_service,
 )
 from app.core.exceptions import AIInterviewError, AIOutputTruncatedError, ResumeFileNotFoundError
 from app.core.postgres_pool import release_shared_connection
+from app.mapper.base_resume_file_storage import ResumeFileStorage
 from app.mapper.resume_model_store import ResumeModel, ResumeModelStore
 from app.model.ai_interview import AIInterviewMessage, AIModelConfig
 from app.service.ai_providers.base import AIInterviewProvider
 from app.service.ai_providers.openai_compatible import OpenAICompatibleProvider
 from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider, discover_resume_models, model_endpoint
+from app.service.resume_review_store import ResumeReviewStore
 from app.service.interview_experience_service import InterviewExperienceService
 from app.service.personal_resume_service import PersonalResumeStateService
 from app.service.resume_assistant_service import (
@@ -46,16 +47,18 @@ def get_resume_model_store(request: Request) -> ResumeModelStore:
 
 
 def get_custom_resume_provider(request: Request) -> AIInterviewProvider:
-    return CustomResumeProvider(_review_settings(request.app.state.settings), review_mode=True)
+    return CustomResumeProvider(request.app.state.settings, review_mode=True)
 
 
-def _review_settings(settings: Settings) -> Settings:
-    return settings.model_copy(update={"ai_max_completion_tokens": settings.ai_resume_optimization_max_tokens})
+def get_resume_review_store(
+    storage: ResumeFileStorage = Depends(get_resume_file_storage),
+) -> ResumeReviewStore:
+    return ResumeReviewStore(storage)
 
 
 def _review_provider(provider: AIInterviewProvider) -> AIInterviewProvider:
     if isinstance(provider, OpenAICompatibleProvider):
-        return OpenAICompatibleProvider(_review_settings(provider.settings), provider.transport, review_mode=True)
+        return OpenAICompatibleProvider(provider.settings, provider.transport, review_mode=True)
     return provider
 
 
@@ -223,6 +226,62 @@ def _review_error(model_id: str | None, message: str) -> str:
 
 
 
+@router.get("/resume/assistant/reviews")
+def resume_review_history(
+    state: PersonalResumeStateService = Depends(get_personal_resume_state_service),
+    parser: ResumeParserService = Depends(get_resume_parser_service),
+    reviews: ResumeReviewStore = Depends(get_resume_review_store),
+):
+    """List saved reviews for the current resume, newest first."""
+    current = state.current()
+    resume = parser.get_resume(current["id"]) if current else None
+    if not resume or resume.owner_id != state.owner_id:
+        return {"reviews": []}
+    return {"reviews": reviews.list(pdf_path=resume.pdf_path, owner_id=state.owner_id)}
+
+
+@router.get("/resume/assistant/reviews/{review_id}")
+def resume_review_detail(
+    review_id: str,
+    state: PersonalResumeStateService = Depends(get_personal_resume_state_service),
+    parser: ResumeParserService = Depends(get_resume_parser_service),
+    reviews: ResumeReviewStore = Depends(get_resume_review_store),
+):
+    current = state.current()
+    resume = parser.get_resume(current["id"]) if current else None
+    document = reviews.read(pdf_path=resume.pdf_path, owner_id=state.owner_id, review_id=review_id) \
+        if resume and resume.owner_id == state.owner_id else None
+    if not document:
+        raise HTTPException(404, "记录不存在。")
+    return JSONResponse(document, headers={"Cache-Control": "no-store"})
+
+
+async def _save_review(review_store: ResumeReviewStore, owner_id: str, resume, position: str,
+                       collected: dict[str, list[dict]], provider: AIInterviewProvider, request: Request,
+                       model_store: ResumeModelStore) -> bool:
+    """Persist one review document per optimize run, beside the resume PDF."""
+    names = {entry.id: entry for entry in await run_in_threadpool(model_store.list, owner_id)}
+    default = _default_model(provider, request)
+    if default:
+        names.setdefault(_DEFAULT_MODEL, default)
+    models = []
+    for model_id, items in collected.items():
+        entry = names.get(model_id)
+        models.append({
+            "model_id": model_id,
+            "name": entry.name if entry else (model_id or "默认模型"),
+            "model": entry.model if entry else "",
+            "suggestions": items,
+        })
+    try:
+        await run_in_threadpool(review_store.save, owner_id=owner_id, resume_id=resume.id,
+                                pdf_path=resume.pdf_path, position=position, models=models)
+        return True
+    except Exception:  # noqa: BLE001 - history is a convenience, never fail the stream
+        logger.warning("Resume review persistence failed owner=%s resume=%s", owner_id, resume.id)
+        return False
+
+
 @router.post("/resume/assistant")
 def resume_assistant(
     payload: ResumeAssistantInput,
@@ -233,6 +292,7 @@ def resume_assistant(
     provider: AIInterviewProvider = Depends(get_ai_interview_provider),
     custom: AIInterviewProvider = Depends(get_custom_resume_provider),
     store: ResumeModelStore = Depends(get_resume_model_store),
+    review_store: ResumeReviewStore = Depends(get_resume_review_store),
 ) -> StreamingResponse:
     targets = []
     if payload.model_ids is not None:
@@ -284,6 +344,7 @@ def resume_assistant(
     async def stream() -> AsyncIterator[str]:
         if targets:
             outgoing: asyncio.Queue[tuple[str, bool]] = asyncio.Queue(maxsize=8)
+            collected: dict[str, list[dict]] = {}
             tasks = [asyncio.create_task(
                 _stream_model_review(*target, messages, context, payload.stream_suggestions, outgoing,
                                      getattr(request.state, "request_id", None))
@@ -297,7 +358,17 @@ def resume_assistant(
                         yield ": keep-alive\n\n"
                         continue
                     yield frame
+                    try:
+                        event = json.loads(frame.removeprefix("data: ").strip())
+                    except ValueError:
+                        event = {}
+                    if event.get("type") == "model_suggestion":
+                        collected.setdefault(event.get("model_id"), []).append(event.get("item"))
                     pending_models -= int(terminal)
+                if payload.action == "optimize" and collected:
+                    if await _save_review(review_store, state.owner_id, resume, payload.position,
+                                          collected, provider, request, store):
+                        yield _event("saved")
                 yield _event("done")
             finally:
                 for task in tasks:
