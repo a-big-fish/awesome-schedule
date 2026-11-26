@@ -1,3 +1,5 @@
+using System;
+
 namespace AwesomeInterview.NativeDemo;
 
 internal sealed record DesktopPreferences(
@@ -12,4 +14,8 @@ internal sealed record DesktopPreferences(
     double PortableBorderOpacity = 1,
     int PortableAutoLockSeconds = 10,
     PortableStyle? PortableStyle = null,
-    string? PortableStyleFile = null);
+    string? PortableStyleFile = null)
+{
+    internal bool UsesClearOutline => string.Equals(PortableStyleFile, PortableAppearancePreset.OutlineFile, StringComparison.OrdinalIgnoreCase)
+        && PortableStyle is null or { GlassStrength: 0 };
+}

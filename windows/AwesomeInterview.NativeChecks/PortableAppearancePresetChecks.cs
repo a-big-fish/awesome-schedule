@@ -20,6 +20,12 @@ internal static class PortableAppearancePresetChecks
         var frosted = presets.Single(preset => preset.Name == "磨砂玻璃");
         check(clear is { OverallTransparency: 0, BackgroundTransparency: 100, BorderTransparency: 0, TextTransparency: 0,
             Style.GlassStrength: 0 }, "the clear outline preset uses the requested values without glass");
+        var appliedOutline = clear.Apply(defaults);
+        var savedOutline = JsonSerializer.Deserialize<DesktopPreferences>("""{"PortableStyleFile":"clear-outline.json","PortableOpacity":0}""")!;
+        check(appliedOutline.UsesClearOutline && PortableAppearancePreset.UpgradeSavedStyle(savedOutline).UsesClearOutline &&
+            !soft.Apply(defaults).UsesClearOutline && !frosted.Apply(defaults).UsesClearOutline &&
+            !(appliedOutline with { PortableStyle = new(GlassStrength: 40) }).UsesClearOutline,
+            "saved clear outline styles use only strokes while other presets and explicit glass retain their material");
         check(soft is { OverallTransparency: 50, BackgroundTransparency: 100, BorderTransparency: 100, TextTransparency: 30 },
             "the original translucent preset retains its opacity");
         check(presets[0] == solid && solid is { Name: "实色", OverallTransparency: 0, BackgroundTransparency: 0,
@@ -147,7 +153,7 @@ internal static class PortableAppearancePresetChecks
             pair => pair.Value == Colors.White ? Colors.Black : Colors.White);
         var readable = new PortableGlass(glass.LocalBounds, glass.ScreenBounds, new());
         check(readable.RenderFrame(white).Pixels.Length == 0 && readable.RenderFrame(dark).Pixels.Length == 0,
-            "the clear style leaves plain backgrounds uncovered");
+            "adaptive backing leaves plain backgrounds uncovered");
         var glassLight = glass.RenderFrame(textOverWhite);
         var glassDark = glass.RenderFrame(textOverDark);
         var clearLight = readable.RenderFrame(textOverWhite);
@@ -162,7 +168,7 @@ internal static class PortableAppearancePresetChecks
               ContrastOnGray(clearDark.Pixels, center, 255, clearDark.Ink) >= 4.5 &&
               clearLight.Pixels[center + 3] >= 235 && clearDark.Pixels[center + 3] >= 235 &&
               clearLight.Pixels[across + 3] < 30 && readable.RenderFrame(white, clearLight).Pixels.Length == 0,
-            "clear labels mask busy text only near the ink and release the backing when the background clears");
+            "adaptive backing masks busy text only near the ink and clears over plain backgrounds");
 
         var stripes = glass.SamplePoints.Distinct().ToDictionary(point => point,
             point => point.Y % 15 < 7 ? Colors.Tomato : Colors.SteelBlue);

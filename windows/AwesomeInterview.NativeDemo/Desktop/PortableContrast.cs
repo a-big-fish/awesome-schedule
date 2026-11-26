@@ -21,7 +21,6 @@ internal sealed partial class DesktopIntegration
     static readonly SineEase PortableInkEase = CreatePortableInkEase();
     readonly PortableContrastCadence portableContrastCadence = new();
     readonly List<PortableGlyphText> displayedPortableText = new();
-    readonly HashSet<PortableGlassStrip> displayedPortableStrips = new();
     DispatcherTimer? portableContrastTimer;
     HwndSource? portableContrastSource;
     PortableForegroundWatcher? portableForegroundWatcher;
@@ -105,15 +104,26 @@ internal sealed partial class DesktopIntegration
 
     void ClearPortableGlass(bool restoreInk = false)
     {
-        var clearedStrips = displayedPortableStrips.Where(strip => strip.SetGlass(null, null)).ToArray();
-        foreach (var label in displayedPortableText)
+        ClearPortableGlassTree(portableHeader, restoreInk);
+        ClearPortableGlassTree(portableContent, restoreInk);
+        ClearPortableGlassTree(portableUnlock?.Content as Visual, restoreInk);
+    }
+
+    static void ClearPortableGlassTree(Visual? visual, bool restoreInk, bool clearedAncestor = false)
+    {
+        if (visual == null) return;
+        if (visual is PortableGlassStrip strip)
+            clearedAncestor |= strip.SetGlass(null, null);
+        if (visual is PortableGlyphText { GlyphLayout: { } layout } label)
         {
-            if (label.GlyphLayout is not { } layout) continue;
             bool cleared = layout.SetGlass(null, null);
-            if (restoreInk && (cleared || clearedStrips.Any(strip => strip.IsAncestorOf(label))) &&
-                label.NativeInk is { } original)
+            if (restoreInk && (cleared || clearedAncestor) && label.NativeInk is { } original)
                 foreach (var glyph in layout.Glyphs) PaintPortableGlyph(glyph, new(original.Color, null), false);
+            return;
         }
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(visual); i++)
+            if (VisualTreeHelper.GetChild(visual, i) is Visual child)
+                ClearPortableGlassTree(child, restoreInk, clearedAncestor);
     }
 
     void SchedulePortableContrast(bool resetCadence = true)
@@ -148,7 +158,6 @@ internal sealed partial class DesktopIntegration
         portableSessionLocked = false;
         portableContrastUrgent = false;
         displayedPortableText.Clear();
-        displayedPortableStrips.Clear();
     }
 
     async void SamplePortableContrast(object? sender, EventArgs args)
@@ -166,8 +175,6 @@ internal sealed partial class DesktopIntegration
             CollectPortableLabels(unlock, labels);
         displayedPortableText.Clear();
         displayedPortableText.AddRange(labels.Select(sample => sample.Label));
-        displayedPortableStrips.Clear();
-        displayedPortableStrips.UnionWith(labels.Select(label => label.Strip).OfType<PortableGlassStrip>());
 
         if (SystemParameters.HighContrast)
         {
@@ -191,7 +198,8 @@ internal sealed partial class DesktopIntegration
         var style = ActivePortableStyle;
         bool hasGlass = style.GlassStrength != 0;
         var grouped = new HashSet<PortableGlassStrip>();
-        var glass = NeedsPortableLabelBacking
+        bool needsBacking = NeedsPortableLabelBacking;
+        var glass = needsBacking
             ? labels.Select(label => label.Strip is not { } strip ? PlanPortableGlass(label, style, labels, clockInk)
                 : grouped.Add(strip) ? PlanPortableStrip(strip, style) : null).ToArray()
             : new PortableGlass?[labels.Count];
@@ -238,8 +246,8 @@ internal sealed partial class DesktopIntegration
                 if (label.Label.GlyphLayout != label.Layout || label.Label.NativeInk is not { } source) continue;
                 if (label.Strip is { } strip)
                 {
-                    if (glass[index] is { } groupGlass)
-                        backgroundChanged |= strip.SetGlass(groupGlass, glassFrames[index]);
+                    if (glass[index] != null || !needsBacking)
+                        backgroundChanged |= strip.SetGlass(glass[index], glassFrames[index]);
                 }
                 else backgroundChanged |= label.Layout.SetGlass(glass[index], glassFrames[index]);
 

@@ -34,7 +34,8 @@ internal sealed partial class DesktopIntegration
     double PortableTextOpacity => Math.Clamp(preferences.PortableTextOpacity, .10, 1);
     double PortableBorderOpacity => Math.Clamp(preferences.PortableBorderOpacity, 0, 1);
     PortableStyle ActivePortableStyle => preferences.PortableStyle is { IsValid: true } style ? style : PortableStyle.Default;
-    bool NeedsPortableLabelBacking => ActivePortableStyle.GlassStrength > 0 || PortableBackgroundOpacity * PortableOverallOpacity < .90;
+    bool NeedsPortableLabelBacking => !preferences.UsesClearOutline &&
+        (ActivePortableStyle.GlassStrength > 0 || PortableBackgroundOpacity * PortableOverallOpacity < .90);
     Forms.ToolStripMenuItem? unlockPortable;
     Border? portableNowLine;
     TextBlock? portableClock;
@@ -61,7 +62,7 @@ internal sealed partial class DesktopIntegration
         bool pinned = button == portablePinTool && preferences.PortableTopmost;
         string fill = pinned ? "#EBF2FF" : "#F6F9FF";
         string ink = pinned ? "#2357CE" : "#192C46";
-        button.Background = active ? Brush(fill) : PortableFill(fill);
+        button.Background = active && (!preferences.UsesClearOutline || SystemParameters.HighContrast) ? Brush(fill) : PortableFill(fill);
         button.Foreground = active ? Brush(PortableInkColor(ink)) : PortableInk(ink);
         UpdatePortableToolInk(button);
         SchedulePortableContrast();
@@ -417,6 +418,7 @@ internal sealed partial class DesktopIntegration
         }
         foreach (var button in portableToolbarButtons) PaintPortableTool(button);
         ApplyPortableUnlockAppearance();
+        ApplyPortableHoverCueAppearance();
         SchedulePortableContrast();
     }
 
@@ -453,12 +455,13 @@ internal sealed partial class DesktopIntegration
     void PaintPortableUnlock(Button unlock)
     {
         bool active = unlock.IsMouseOver || unlock.IsKeyboardFocused || SystemParameters.HighContrast;
-        unlock.Background = active ? Brush("#F6F9FF") : Brushes.Transparent;
+        bool filled = active && (!preferences.UsesClearOutline || SystemParameters.HighContrast);
+        unlock.Background = filled ? Brush("#F6F9FF") : Brushes.Transparent;
         unlock.BorderBrush = active ? Brush("#ABBAD0") : Brush("#26657A98");
         unlock.Foreground = Brush("#192C46");
-        unlock.ContentTemplateSelector = active ? null : PortableGlyphTemplateSelector.Instance;
-        if (unlock.Effect is DropShadowEffect shadow) shadow.Opacity = active ? 0 : .22;
-        if (!active) SchedulePortableContrast();
+        unlock.ContentTemplateSelector = filled ? null : PortableGlyphTemplateSelector.Instance;
+        if (unlock.Effect is DropShadowEffect shadow) shadow.Opacity = active || preferences.UsesClearOutline ? 0 : .22;
+        if (!filled) SchedulePortableContrast();
     }
 
     void AddPortablePreferences(StackPanel body)

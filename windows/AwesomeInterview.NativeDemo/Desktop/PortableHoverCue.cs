@@ -8,10 +8,12 @@ namespace AwesomeInterview.NativeDemo;
 internal sealed partial class DesktopIntegration
 {
     const double PortableHoverCueSize = 46;
+    static readonly Brush PortableHoverFrost = CreatePortableHoverFrost();
+    static readonly Brush PortableHoverOutline = CreatePortableHoverOutline();
     Canvas? portableHoverCueLayer;
     Ellipse? portableHoverCue;
 
-    Canvas CreatePortableHoverCueLayer()
+    static Brush CreatePortableHoverFrost()
     {
         var frost = new RadialGradientBrush();
         frost.GradientStops.Add(new(Colors.Transparent, .24));
@@ -21,14 +23,33 @@ internal sealed partial class DesktopIntegration
         frost.GradientStops.Add(new(Color.FromArgb(112, 105, 130, 159), .87));
         frost.GradientStops.Add(new(Color.FromArgb(0, 105, 130, 159), 1));
         frost.Freeze();
+        return frost;
+    }
+
+    static Brush CreatePortableHoverOutline()
+    {
+        var outline = new SolidColorBrush(Color.FromArgb(156, 121, 149, 186));
+        outline.Freeze();
+        return outline;
+    }
+
+    Canvas CreatePortableHoverCueLayer()
+    {
         portableHoverCue = new Ellipse
         {
-            Width = PortableHoverCueSize, Height = PortableHoverCueSize, Fill = frost,
+            Width = PortableHoverCueSize, Height = PortableHoverCueSize, StrokeThickness = 1.5,
             IsHitTestVisible = false, Visibility = Visibility.Collapsed
         };
         portableHoverCueLayer = new Canvas { IsHitTestVisible = false, ClipToBounds = true };
         portableHoverCueLayer.Children.Add(portableHoverCue);
         return portableHoverCueLayer;
+    }
+
+    void ApplyPortableHoverCueAppearance()
+    {
+        if (portableHoverCue is not { } cue) return;
+        cue.Fill = preferences.UsesClearOutline ? null : PortableHoverFrost;
+        cue.Stroke = preferences.UsesClearOutline ? PortableHoverOutline : null;
     }
 
     void UpdatePortableHoverCue(Point? local)
