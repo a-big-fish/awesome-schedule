@@ -1,8 +1,10 @@
 import asyncio
 import json
+import logging
 
 import httpx
 import pymupdf
+import pytest
 from fastapi.testclient import TestClient
 
 from app.controller import personal_resume_assistant_controller as assistant_controller
@@ -14,6 +16,7 @@ from app.mapper.resume_model_store import ResumeModelStore
 from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider, discover_resume_models, model_endpoint
 from app.service.ai_providers.static import StaticAIInterviewProvider
 from app.core.dependencies import get_ai_interview_provider, get_interview_experience_mapper
+from app.model.ai_interview import AIModelConfig
 from app.model.auth import AuthUser
 from app.model.interview_experience import InterviewExperience, InterviewQuestion
 from app.service.ai_providers.base import AIInterviewProvider
@@ -211,6 +214,7 @@ def test_custom_models_compare_identical_context_concurrently_and_keep_all_sugge
             **payload, "model_ids": model_ids, "stream_suggestions": True,
         }))
         first_model = [event for event in streamed if event.get("model_id") == model_ids[0]]
+        assert first_model.pop(0)["phase"] == "answer"
         assert [event["type"] for event in first_model] == ["model_suggestion"] * 7 + ["model_done"]
         assert first_model[-1]["page_count"] == 1
         assert streamed[-1] == {"type": "done"}
@@ -266,9 +270,69 @@ def test_review_stream_validates_complete_items_and_keeps_them_when_provider_int
     asyncio.run(check())
 
 
-def test_custom_api_requires_https_and_public_addresses():
-    import pytest
+@pytest.mark.parametrize("final_content, expected_issue", [
+    ('{"suggestions":[{"category":"evidence","page":1,"original":"Built a cache",'
+     '"issue":"给出验证口径。","rewrite":""}]}', "给出验证口径。"),
+    ('{"suggestions":[{"category":"evidence","page":1,"original":"Built a cache",'
+     '"issue":"说明缓存的对照测量方法","rewrite":"替', "说明缓存的对照测量方法"),
+    ('{"suggestions":[{"category":"evidence","page":1,"original":"Built a cache",'
+     '"issue":"说明缓存的对照测量方法', "说明缓存的对照测量方法…"),
+    ("", None),
+])
+def test_truncated_review_keeps_final_chunk_and_diagnoses_reasoning_only(final_content, expected_issue, caplog):
+    requests = []
+    private_reasoning = "synthetic private reasoning"
 
+    async def upstream(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 1:
+            assert payload["thinking"] == {"type": "disabled"}
+            return httpx.Response(400, json={"error": {"param": "thinking"}})
+        assert "thinking" not in payload
+        frames = [
+            {"choices": [{"delta": {"reasoning_content": private_reasoning}}]},
+            {"choices": [{"delta": {"content": final_content}, "finish_reason": "length"}]},
+        ]
+        return httpx.Response(200, text="".join(f"data: {json.dumps(frame)}\n\n" for frame in frames))
+
+    async def check():
+        provider = CustomResumeProvider(
+            Settings(_env_file=None, ai_max_completion_tokens=8192), httpx.MockTransport(upstream), review_mode=True,
+        )
+        config = AIModelConfig(base_url="https://mock.example/v1", model="DeepSeek-V4.1-Flash",
+                               api_key="synthetic-secret")
+        outgoing = asyncio.Queue()
+        await assistant_controller._stream_model_review(
+            "test-model", provider, config, [], ResumeContext(1, {1: "Built a cache"}),
+            True, outgoing, "test-request",
+        )
+        events = []
+        while not outgoing.empty():
+            frame, _ = outgoing.get_nowait()
+            events.append(json.loads(frame.removeprefix("data: ")))
+        assert events[0]["phase"] == "reasoning"
+        assert all(private_reasoning not in json.dumps(event) for event in events)
+        assert events[-1]["type"] == "model_error"
+        suggestions = [event["item"] for event in events if event["type"] == "model_suggestion"]
+        if expected_issue:
+            assert events[1]["phase"] == "answer"
+            assert [item["issue"] for item in suggestions] == [expected_issue]
+            assert suggestions[0]["rewrite"] == ""
+        else:
+            assert not suggestions
+            assert "尚未生成建议正文" in events[-1]["message"]
+
+    with caplog.at_level(logging.INFO, logger="app"):
+        asyncio.run(check())
+    assert len(requests) == 2
+    assert "request_id=test-request" in caplog.text and "finish=length" in caplog.text
+    assert "first_reasoning_ms=" in caplog.text and "first_suggestion_ms=" in caplog.text
+    assert "outcome=truncated" in caplog.text
+    assert private_reasoning not in caplog.text and "synthetic-secret" not in caplog.text
+
+
+def test_custom_api_requires_https_and_public_addresses():
     for url in ("http://example.com/v1", "https://[::1]", "https://127.0.0.1", "https://local:pass@example.com",
                 "https://example.com/v1?key=secret", "https://[::ffff:127.0.0.1]"):
         with pytest.raises(AIInterviewError):

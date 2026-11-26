@@ -36,3 +36,7 @@ class ResumeFileNotFoundError(Exception):
 
 class AIInterviewError(Exception):
     """Raised when an AI interview assistant request cannot be processed."""
+
+
+class AIOutputTruncatedError(AIInterviewError):
+    """Raised after delivering all text from an output length limited stream."""

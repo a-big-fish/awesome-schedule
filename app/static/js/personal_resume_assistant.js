@@ -463,6 +463,10 @@
           if (waiting.has(event.model_id)) {
             const card = modelPanels.get(event.model_id);
             switch (event.type) {
+              case 'model_progress':
+                card.querySelector('[data-optimize-summary]').textContent =
+                  event.phase === 'reasoning' ? '模型正在推理…' : '正在生成建议…';
+                break;
               case 'model_suggestion':
                 appendSuggestion(card, event.item);
                 updateModelSummary(card);

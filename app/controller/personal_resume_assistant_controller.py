@@ -6,6 +6,7 @@ import logging
 from contextlib import aclosing
 from collections.abc import AsyncIterator
 from pathlib import Path
+from time import perf_counter
 from typing import TypeVar
 
 from cryptography.fernet import InvalidToken
@@ -20,7 +21,7 @@ from app.core.dependencies import (
     get_ai_interview_provider, get_interview_experience_service,
     get_personal_resume_state_service, get_resume_parser_service,
 )
-from app.core.exceptions import AIInterviewError, ResumeFileNotFoundError
+from app.core.exceptions import AIInterviewError, AIOutputTruncatedError, ResumeFileNotFoundError
 from app.core.postgres_pool import release_shared_connection
 from app.mapper.resume_model_store import ResumeModel, ResumeModelStore
 from app.model.ai_interview import AIInterviewMessage, AIModelConfig
@@ -30,7 +31,7 @@ from app.service.ai_providers.resume_model_endpoint import CustomResumeProvider,
 from app.service.interview_experience_service import InterviewExperienceService
 from app.service.personal_resume_service import PersonalResumeStateService
 from app.service.resume_assistant_service import (
-    ResumeContext, ResumeSuggestionReview, assistant_messages, select_experience_questions,
+    ResumeContext, ResumeSuggestion, ResumeSuggestionReview, assistant_messages, select_experience_questions,
 )
 from app.service.resume_parser_service import ResumeParserService
 
@@ -145,43 +146,74 @@ def _event(kind: str, **payload) -> str:
 async def _stream_model_review(
     model_id: str | None, provider: AIInterviewProvider, config: AIModelConfig | None,
     messages: list[AIInterviewMessage], context: ResumeContext, progressive: bool,
-    outgoing: asyncio.Queue[tuple[str, bool]],
+    outgoing: asyncio.Queue[tuple[str, bool]], request_id: str | None = None,
 ) -> None:
     review = ResumeSuggestionReview(context)
+    started = perf_counter()
+    first_suggestion_ms = None
+    count = 0
+
+    async def stage(phase: str) -> None:
+        if progressive:
+            await outgoing.put((_event("model_progress", model_id=model_id, phase=phase), False))
+
+    async def send_suggestions(suggestions: list[ResumeSuggestion]) -> None:
+        nonlocal count, first_suggestion_ms
+        for suggestion in suggestions:
+            if first_suggestion_ms is None:
+                first_suggestion_ms = round((perf_counter() - started) * 1000)
+            count += 1
+            await outgoing.put((_event("model_suggestion", model_id=model_id,
+                                       item=suggestion.model_dump()), False))
 
     async def analyze() -> str:
         size = 0
-        async with aclosing(provider.stream(messages, config)) as stream:
+        if isinstance(provider, OpenAICompatibleProvider):
+            stream = provider.stream(messages, config, on_stage=stage, request_id=request_id, model_id=model_id)
+        else:
+            stream = provider.stream(messages, config)
+        async with aclosing(stream):
             async for chunk in stream:
                 size += len(chunk)
                 if size > 96000:
-                    raise AIInterviewError("分析结果超出单次响应容量，请缩小分析范围后重试。")
-                for suggestion in review.append(chunk, progressive=progressive):
-                    await outgoing.put((_event("model_suggestion", model_id=model_id,
-                                               item=suggestion.model_dump()), False))
+                    raise AIOutputTruncatedError("分析结果超出单次响应容量。")
+                await send_suggestions(review.append(chunk, progressive=progressive))
         remaining = review.finish()
         if progressive:
-            for suggestion in remaining:
-                await outgoing.put((_event("model_suggestion", model_id=model_id,
-                                           item=suggestion.model_dump()), False))
+            await send_suggestions(remaining)
             return _event("model_done", model_id=model_id, page_count=context.page_count)
         result = {"page_count": context.page_count, "items": [item.model_dump() for item in remaining]}
         if model_id is None:
             return _event("suggestions", **result)
         return _event("model_suggestions", model_id=model_id, **result)
 
+    outcome = "completed"
+    message = ""
     try:
         terminal = await asyncio.wait_for(analyze(), timeout=120)
     except asyncio.TimeoutError:
-        terminal = _review_error(model_id, "等待模型分析超时，请稍后重试。")
+        outcome, message = "timeout", "等待模型分析超时，请稍后重试。"
+    except AIOutputTruncatedError as exc:
+        outcome, message = "truncated", str(exc)
     except AIInterviewError as exc:
-        terminal = _review_error(model_id, str(exc))
+        outcome, message = "provider_error", str(exc)
     except ValueError:
-        terminal = _review_error(model_id, "模型返回的建议无法对应简历原文，请重试。")
+        outcome, message = "invalid_review", "模型返回的建议无法对应简历原文，或输出不完整。"
     except Exception as exc:
-        logger.warning("Resume review stream failed: %s", type(exc).__name__)
-        terminal = _review_error(model_id, "模型分析中断，请稍后重试。")
+        logger.warning("Resume review stream failed request_id=%s error=%s", request_id, type(exc).__name__)
+        outcome, message = "error", "模型分析中断，请稍后重试。"
+    if outcome != "completed":
+        if progressive:
+            await send_suggestions(review.recover_partial())
+        terminal = _review_error(model_id, message or "模型分析中断，请稍后重试。")
+    if progressive:
+        logger.info(
+            "Resume model review request_id=%s model_id=%s outcome=%s first_suggestion_ms=%s "
+            "total_ms=%s suggestions=%s",
+            request_id, model_id, outcome, first_suggestion_ms, round((perf_counter() - started) * 1000), count,
+        )
     await outgoing.put((terminal, True))
+
 
 
 def _review_error(model_id: str | None, message: str) -> str:
@@ -253,7 +285,8 @@ def resume_assistant(
         if targets:
             outgoing: asyncio.Queue[tuple[str, bool]] = asyncio.Queue(maxsize=8)
             tasks = [asyncio.create_task(
-                _stream_model_review(*target, messages, context, payload.stream_suggestions, outgoing)
+                _stream_model_review(*target, messages, context, payload.stream_suggestions, outgoing,
+                                     getattr(request.state, "request_id", None))
             ) for target in targets]
             try:
                 pending_models = len(tasks)
