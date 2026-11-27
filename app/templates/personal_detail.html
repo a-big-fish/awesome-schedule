@@ -1,5 +1,5 @@
 {% extends "personal_base.html" %}
-{% block title %}{{ event.title if event else '日程' }} - Awesome Interview{% endblock %}
+{% block title %}{{ event.title if event else '日程' }} - Awesome Schedule{% endblock %}
 {% block content %}
 <section class="card personal-form-page">
   <div class="personal-toolbar"><div><span class="personal-type-pill">{{ event_labels[event.type] }}</span><h1 class="section-title">{{ event.title }}</h1></div><a class="btn secondary" href="/my-schedule">返回日程表</a></div>

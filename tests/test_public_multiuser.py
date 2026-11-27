@@ -137,7 +137,7 @@ def test_public_mode_closes_enterprise_routes_and_requires_login(tmp_path):
     with TestClient(app, base_url="https://testserver") as client:
         home = client.get("/")
         assert home.status_code == 200
-        assert "Awesome Interview" in home.text
+        assert "Awesome Schedule" in home.text
         assert "会议日程" not in home.text
         assert client.get("/my-schedule", follow_redirects=False).headers["location"].startswith("/auth/login")
         assert client.post("/my-schedule/events", data={}).status_code == 401

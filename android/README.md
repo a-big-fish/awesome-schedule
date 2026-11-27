@@ -1,4 +1,4 @@
-# Awesome Interview Android
+# Awesome Schedule Android
 
 Android 1.0-A.1 测试版（`1.0.0-alpha2`）。首页和月／周日历为原生界面，其他在线业务复用个人站点；原生层还提供系统日程提醒、加密的本人只读缓存和文件选择。
 

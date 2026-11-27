@@ -43,7 +43,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
         if settings.registration_mode == "invite" and not settings.registration_invite_code:
             raise RuntimeError("邀请码注册必须配置 REGISTRATION_INVITE_CODE")
     application = FastAPI(
-        title="Awesome Interview" if public else "会议日程规划器",
+        title="Awesome Schedule" if public else "会议日程规划器",
         version="0.1.0",
         docs_url=None if public else "/docs",
         redoc_url=None if public else "/redoc",

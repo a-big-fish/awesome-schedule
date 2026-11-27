@@ -1,4 +1,4 @@
-# Awesome Interview for Windows · App 1.0-W
+# Awesome Schedule for Windows · App 1.0-W
 
 Windows 10/11 x64 测试版。运行 `AwesomeInterview.exe` 前，先设置自己的 HTTPS 服务地址。首次在线登录后，应用会同步个人日程与面经；服务器暂时不可用时可查看最近一次同步的只读副本。
 
