@@ -908,7 +908,7 @@ body.personal-navigation-loading .page-header::after { content: ''; position: ab
 .personal-completed-toggle { order: 3; }
 .personal-event-summary h1 { margin: 16px 0 24px; font-size: clamp(26px, 3vw, 36px); }
 .personal-event-summary dl { margin: 0 0 24px; border-top: 1px solid var(--border); }
-.personal-event-summary dl div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 14px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+.personal-event-summary dl > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 14px; padding: 15px 0; border-bottom: 1px solid var(--border); }
 .personal-event-summary dt { color: var(--muted); }
 .personal-event-summary dd { margin: 0; overflow-wrap: anywhere; }
 .personal-summary-note { white-space: pre-wrap; }

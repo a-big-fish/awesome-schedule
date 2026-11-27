@@ -7,7 +7,7 @@ from app.core.performance import timed_phase
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.mapper.base_personal_event_mapper import BasePersonalEventMapper
 from app.model.meeting_entry import MeetingEntry
-from app.model.personal_event import PersonalEvent, PersonalEventType
+from app.model.personal_event import DEFAULT_EVENT_PRIORITY, PersonalEvent, PersonalEventPriority, PersonalEventType
 from app.shared.invitation_parser import InvitationParser
 
 
@@ -142,6 +142,7 @@ class PersonalScheduleService:
         repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
         workday_only: bool = False,
+        priority: PersonalEventPriority = DEFAULT_EVENT_PRIORITY,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
         source_idea_id: str | None = None,
@@ -158,6 +159,7 @@ class PersonalScheduleService:
             type=event_type,
             repeat_weekdays=repeat_weekdays or [],
             workday_only=workday_only,
+            priority=priority,
             skip_weekends=skip_weekends if skip_weekends is not None else start_at.weekday() < 5,
             title=title.strip(),
             start_at=_localize(start_at, timezone),
@@ -199,6 +201,7 @@ class PersonalScheduleService:
         repeat_weekdays: list[int] | None = None,
         skip_weekends: bool | None = None,
         workday_only: bool = False,
+        priority: PersonalEventPriority = DEFAULT_EVENT_PRIORITY,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
         """Preview a shared parser result as a personal event without persisting it."""
@@ -212,6 +215,7 @@ class PersonalScheduleService:
             type=resolved_type,
             repeat_weekdays=repeat_weekdays or [],
             workday_only=workday_only,
+            priority=priority,
             skip_weekends=skip_weekends if skip_weekends is not None else (start_at or facts.start_time).weekday() < 5,
             title=(title or facts.subject or ("未命名面试" if resolved_type == "interview" else "未命名会议")).strip(),
             start_at=_localize(start_at, timezone) if start_at else facts.start_time,
@@ -258,6 +262,19 @@ class PersonalScheduleService:
 
     def delete_event(self, event_id: str) -> bool:
         return self.mapper.delete(event_id.split("~", 1)[0], self.owner_id)
+
+    def set_event_priority(self, event_id: str, priority: int, priority_order: str | None = None) -> PersonalEvent:
+        """Change only the priority of the event or its owning repeat series."""
+        current = self.get_event(event_id.split("~", 1)[0])
+        if current is None:
+            raise LookupError("日程不存在")
+        values = current.model_dump()
+        values["priority"] = priority
+        if priority_order is not None:
+            values["priority_order"] = priority_order
+        updated = PersonalEvent.model_validate(values)
+        updated.updated_at = datetime.now(ZoneInfo(current.timezone))
+        return self.mapper.save(updated)
 
     def set_event_completed(self, event_id: str, completed: bool) -> PersonalEvent:
         """Mark an owned event complete or restore it without changing its schedule."""

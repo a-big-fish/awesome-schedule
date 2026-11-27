@@ -1,10 +1,12 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from app.model.personal_event import PersonalEventType, ReferenceLink
+from app.model.personal_event import DEFAULT_EVENT_PRIORITY, LegacyEventPriority, PersonalEventType, PriorityOrder, ReferenceLink
+
+SyncPriority = Annotated[int, Field(strict=True, ge=1, le=100)]
 
 
 class CalendarEventInput(BaseModel):
@@ -29,14 +31,18 @@ class CalendarEventInput(BaseModel):
     room_number: str | None = Field(default=None, max_length=100)
     meeting_url: str | None = None
     source_idea_id: UUID | None = None
+    priority: SyncPriority | LegacyEventPriority = DEFAULT_EVENT_PRIORITY
 
 
 class CalendarSyncInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["create", "edit", "completion", "delete", "defer", "cancel", "close_repeat"]
+    action: Literal["create", "edit", "priority", "completion", "delete", "defer", "cancel", "close_repeat"]
     event_id: UUID
     occurrence_day: date | None = None
     event: CalendarEventInput | None = None
     completed: bool | None = None
     end_at: datetime | None = None
     confirm_overlap: bool = False
+    priority: SyncPriority | None = None
+    priority_scale: Literal[20, 100] = 20
+    priority_order: PriorityOrder | None = None

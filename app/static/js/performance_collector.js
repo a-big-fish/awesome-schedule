@@ -24,7 +24,7 @@
       if (path.startsWith('/resumes/') && (/\/images\//.test(path) || /\/(pdf|download)$/.test(path))) return 'resume_file';
       if (!path.startsWith('/my-schedule')) return null;
       const tail = path.slice('/my-schedule'.length);
-      if (tail === '/ideas' || tail.startsWith('/ideas/')) return 'ideas';
+      if (['/ideas','/ideas-data'].includes(tail) || tail.startsWith('/ideas/') || tail.startsWith('/idea-sync/')) return 'ideas';
       if (tail === '/resume/current') return 'resume_state';
       if (tail === '/reference-title') return 'reference_titles';
       if (tail.startsWith('/admin') || tail.startsWith('/telemetry')) return null;

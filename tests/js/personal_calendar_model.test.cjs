@@ -11,6 +11,30 @@ test('month markup identifies the selected day separately from today', () => {
   assert.match(html, /is-today"><a class="personal-period-date"[^>]*date_value=2026-11-13/);
 });
 
+test('browser projection matches the shared synthetic calendar contract', () => {
+  const fixture = require('../fixtures/calendar_projection_v1.json');
+  for (const [day, expected] of Object.entries(fixture.days)) {
+    const ctx = model.project(fixture, day, 'day', Date.parse(fixture.now));
+    const visible = ctx.expanded.map(event => ctx.segment(event, day)).filter(Boolean);
+    assert.deepEqual(visible.map(item => [item.id, item.startMin, item.endMin, !!item.completed_at]), expected);
+    const overdueHtml = model.sideHTML(ctx, '', false).split('personal-overdue-section')[1].split('</section>')[0];
+    const ids = [...overdueHtml.matchAll(/class="personal-overdue-row"><a href="\/my-schedule\/events\/([^"]+)"/g)]
+      .map(match => decodeURIComponent(match[1]));
+    assert.deepEqual(ids, fixture.overdue);
+  }
+});
+
+test('an optimistic arranged event has a pending label in every view until confirmed', () => {
+  const day = '2026-11-13';
+  const item = event({start_at: day + 'T13:00:00+08:00', end_at: day + 'T14:00:00+08:00'});
+  const op = {state: 'pending', command: {action: 'create', event_id: item.id, event: {source_idea_id: 'idea'}}};
+  for (const view of ['day', 'week', 'month']) {
+    const data = {...snapshot([item]), outbox: [op]};
+    assert.match(model[view + 'HTML'](model.project(data, day, view, now)), /任务 · 待同步/);
+    assert.doesNotMatch(model[view + 'HTML'](model.project({...data, outbox: []}, day, view, now)), /待同步/);
+  }
+});
+
 test('local projection clips work hours, skips weekends and keeps midnight end exclusive',()=>{
   const ctx=model.project(snapshot([event({workday_only:true,skip_weekends:true})]),'2026-11-13','week',now);
   const e=ctx.expanded[0],friday=ctx.segment(e,'2026-11-13');

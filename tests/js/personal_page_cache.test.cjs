@@ -5,6 +5,26 @@ const vm = require('node:vm');
 const source = fs.readFileSync('app/static/js/personal_page_cache.js', 'utf8');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('persisted experience list appears before its background GET and preserves new form input', async () => {
+  const app=browser();
+  app.context.window.awesomeInterviewPrivatePages={get:async()=>({html:'durable-list',time:Date.now()}),put:async()=>{}};
+  await app.navigate('/my-schedule/experiences?q=cache&visibility=private');
+  assert.equal(app.rendered.at(-1),'durable-list');
+  assert.equal(app.calls.length,1);
+  app.events.input({target:{closest:()=>true}});
+  await app.reply(app.calls[0],'background-list');
+  assert.equal(app.rendered.at(-1),'durable-list');
+});
+
+test('failed background list refresh keeps a durable snapshot visible without navigation',async()=>{
+  const app=browser();
+  app.context.window.awesomeInterviewPrivatePages={get:async()=>({html:'offline-list',time:0})};
+  await app.navigate('/my-schedule/experiences');
+  assert.equal(app.rendered.at(-1),'offline-list');
+  await app.reply(app.calls[0],'unavailable',503);
+  assert.equal(app.rendered.at(-1),'offline-list');assert.equal(app.assigned.length,0);
+});
+
 test('deadline refresh fetches once without first rendering stale cache or navigating', async () => {
   const app = browser({hidden:false, scrolling:true, initialPath:'/my-schedule?view=day&date_value=2026-11-06'});
   const before = app.context.location.href;

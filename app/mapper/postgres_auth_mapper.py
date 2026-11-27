@@ -1,6 +1,8 @@
 """PostgreSQL accounts, one-time tokens, and revocable sessions."""
 
 from datetime import date, datetime
+from threading import Lock
+from time import monotonic
 from typing import Callable
 
 import psycopg
@@ -18,12 +20,34 @@ class PostgresAuthMapper(BaseAuthMapper):
         self,
         settings: Settings | None = None,
         connection_factory: Callable[[], psycopg.Connection[DictRow]] | None = None,
+        *,
+        defer_schema: bool = False,
     ) -> None:
         self.settings = settings
         self._connection_factory = connection_factory or self._default_connection
-        if settings:
-            ensure_postgres_database(settings)
-        self._ensure_schema()
+        self._schema_lock = Lock()
+        self._schema_ready = False
+        self._schema_retry_at = 0.0
+        if not defer_schema:
+            self.prepare_schema()
+
+    def prepare_schema(self) -> None:
+        """Initialize at most once after PostgreSQL becomes reachable."""
+        if self._schema_ready:
+            return
+        with self._schema_lock:
+            if self._schema_ready:
+                return
+            if monotonic() < self._schema_retry_at:
+                raise psycopg.OperationalError("Database schema initialization is waiting to retry")
+            try:
+                if self.settings:
+                    ensure_postgres_database(self.settings)
+                self._ensure_schema()
+            except psycopg.OperationalError:
+                self._schema_retry_at = monotonic() + 3
+                raise
+            self._schema_ready = True
 
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:
@@ -31,10 +55,11 @@ class PostgresAuthMapper(BaseAuthMapper):
         return timed_postgres_connect(self.settings.postgres_dsn, row_factory=dict_row)
 
     def _connect(self) -> psycopg.Connection[DictRow]:
+        self.prepare_schema()
         return self._connection_factory()
 
     def _ensure_schema(self) -> None:
-        with self._connect() as connection:
+        with self._connection_factory() as connection:
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS personal_users (
                     id TEXT PRIMARY KEY,

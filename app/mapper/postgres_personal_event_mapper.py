@@ -122,7 +122,7 @@ class PostgresPersonalEventMapper(BasePersonalEventMapper):
                 "SELECT payload FROM personal_schedule_events WHERE id = %s AND owner_id = %s",
                 (event_id, owner_id),
             ).fetchone()
-        return PersonalEvent.model_validate(row["payload"]) if row else None
+        return PersonalEvent.from_storage(row["payload"]) if row else None
 
     def list_all(self, owner_id: str = "local") -> list[PersonalEvent]:
         with self._connect() as connection:
@@ -131,7 +131,7 @@ class PostgresPersonalEventMapper(BasePersonalEventMapper):
                 "ORDER BY start_at, id",
                 (owner_id,),
             ).fetchall()
-        return [PersonalEvent.model_validate(row["payload"]) for row in rows]
+        return [PersonalEvent.from_storage(row["payload"]) for row in rows]
 
     def delete(self, event_id: str, owner_id: str = "local") -> bool:
         with self._connect() as connection:

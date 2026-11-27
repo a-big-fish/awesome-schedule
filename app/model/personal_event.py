@@ -1,16 +1,28 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, HttpUrl, model_validator
 
 from interviewschedule.utils.time_utils import ensure_timezone
 
 PersonalEventType = Literal[
     "interview", "exam", "course", "recruiting", "meeting", "personal"
 ]
+DEFAULT_EVENT_PRIORITY = 10
+PersonalEventPriority = Annotated[int, Field(strict=True, ge=1, le=20)]
+LegacyEventPriority = Literal["high", "normal", "low"]
+PriorityOrder = Annotated[str, Field(min_length=1, max_length=256, pattern=r"^[0-9a-z]*[1-9a-z]$")]
+
+
+def normalize_legacy_priority(value, scale: int = 20):
+    if isinstance(value, str):
+        return {"low": 1, "normal": DEFAULT_EVENT_PRIORITY, "high": 18}.get(value, value)
+    if scale == 100 and type(value) is int:
+        return (value + 4) // 5
+    return value
 
 
 def is_map_url(value: str) -> bool:
@@ -41,6 +53,9 @@ class PersonalEvent(BaseModel):
     owner_id: str = "local"
     type: PersonalEventType
     title: str = Field(min_length=1, max_length=200)
+    priority: Annotated[PersonalEventPriority, BeforeValidator(normalize_legacy_priority)] = DEFAULT_EVENT_PRIORITY
+    priority_scale: Literal[20] = 20
+    priority_order: PriorityOrder | None = None
     start_at: datetime
     end_at: datetime
     timezone: str = "Asia/Shanghai"
@@ -69,6 +84,12 @@ class PersonalEvent(BaseModel):
     cancelled_at: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
+
+    @classmethod
+    def from_storage(cls, payload: dict) -> "PersonalEvent":
+        if "priority" in payload and payload.get("priority_scale") != 20:
+            payload = {**payload, "priority": normalize_legacy_priority(payload["priority"], 100), "priority_scale": 20}
+        return cls.model_validate(payload)
 
     @model_validator(mode="before")
     @classmethod

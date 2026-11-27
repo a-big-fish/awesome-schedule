@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {rebase,acknowledge,reject,eventId,SyncEngine}=require('../../app/static/js/personal_calendar_outbox.js');
+const {rebase,acknowledge,reject,eventId,retryPlan,SyncEngine}=require('../../app/static/js/personal_calendar_outbox.js');
 const base=()=>({user_id:'owner',events:[],confirmed_events:[{id:'one',title:'原任务',repeat_weekdays:[],completed_at:null}],outbox:[]});
 const operation=(action,extra={})=>({id:'operation',state:'pending',created_at:'2026-11-13T04:00:00Z',command:{event_id:'one',action,...extra}});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -36,6 +36,18 @@ test('daily completion and restore affect only that repeat occurrence',()=>{
 
 test('UUID generation matches the server namespace UUIDv5',async()=>{
   assert.equal(await eventId('https://example.com'),'4fd35a71-71ef-5a55-a9d9-aa75c889a6d0');
+});
+
+test('confirming a rejected overlap sends a new command and keeps the arranged idea event identity', async () => {
+  const op = operation('create', {event:{title:'安排草稿', source_idea_id:'idea'}});
+  const state = {...base(), confirmed_events:[], outbox:[op]};
+  reject(state, op, '时间冲突', 409);
+  assert.deepEqual(state.events, []);
+  const retry = await retryPlan(op, state.user_id, 'replacement');
+  rebase(retry(state));
+  assert.equal(state.outbox[0].id, 'replacement');
+  assert.equal(state.outbox[0].command.confirm_overlap, true);
+  assert.equal(state.events[0].id, 'one');
 });
 
 function harness(send){

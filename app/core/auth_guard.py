@@ -7,9 +7,16 @@ from fastapi import Request
 
 from app.model.auth import AuthUser
 from app.core.performance import measure_phase
+from app.service.auth_service import token_hash
 
 
 SESSION_COOKIE = "schedule_session"
+
+
+def browser_session_key(request: Request) -> str:
+    """Derive a browser cache key without exposing a session token or authorizing a request."""
+    token = request.cookies.get(SESSION_COOKIE)
+    return token_hash("browser-cache:" + token) if token else ""
 
 
 class AuthRequired(Exception):
@@ -34,6 +41,7 @@ async def require_current_user(request: Request) -> AuthUser:
     user, session = result
     request.state.user = user
     request.state.csrf_token = session.csrf_token
+    request.state.browser_session_key = browser_session_key(request)
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
         form = await request.form()
         submitted = str(form.get("csrf_token", "")) or request.headers.get("X-CSRF-Token", "")

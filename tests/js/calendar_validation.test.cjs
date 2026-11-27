@@ -2,6 +2,58 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+const {between, makeSlots, nearestSlot} = require('../../app/static/js/personal_calendar_priority_drag.js');
+
+test('overlapping day cards favor priority, keep ties stable and reuse space for non-overlapping cards', () => {
+  const source = fs.readFileSync('app/static/js/personal_calendar_filter.js', 'utf8');
+  const code = source.slice(source.indexOf('  const dayStart'), source.indexOf('  function packOverlaps'));
+  const card = (id, start, duration, priority) => ({
+    id, dataset: {priority},
+    style: {getPropertyValue: key => key === '--start-min' ? start : duration}
+  });
+  const cards = [card('normal', 480, 120, '13'), card('high1', 510, 60, '14'),
+    card('high2', 510, 60, '14'), card('low', 530, 30, '2'), card('later', 600, 30)];
+  const positions = vm.runInNewContext(code + '; Object.fromEntries(packDayCards(cards, () => 100).map(x => [x.card.id, x.left]));', {cards});
+  assert.deepEqual({...positions}, {high1: 10, high2: 130, normal: 250, later: 10, low: 370});
+});
+
+test('drag previews reachable slots, preserving the original value and allowing ties at the bounds', () => {
+  const source = {priority: 7, left: 230, order: 'p'};
+  const peers = [{priority: 20, order: 'm3'}, {priority: 13, order: 'm4'}];
+  const slots = makeSlots(source, peers, priority => priority === 20 ? 10 : priority >= 13 ? 120 : 230);
+  assert.deepEqual(slots, [{left: 10, priority: 20, order: 'p'}, {left: 120, priority: 16, order: 'p'}, source]);
+  assert.equal(nearestSlot(slots, 175, 230).priority, 7);
+  assert.equal(nearestSlot(slots, 119, 230).priority, 16);
+  assert.equal(nearestSlot(slots, 20, 230).priority, 20);
+});
+
+test('same-score slots carry a persistent key on both sides of a peer', () => {
+  const peer = {priority: 20, order: 'm2'};
+  for (const [order, left] of [['m1', 10], ['m3', 130]]) {
+    const source = {priority: 20, order, left};
+    const slots = makeSlots(source, [peer], (priority, key) => priority === 20 && key < peer.order ? 10 : 130);
+    const next = slots.find(slot => slot.left !== left);
+    assert.equal(next.priority, 20);
+    assert.equal(next.order < peer.order, left === 130);
+  }
+  assert.ok(between('m1', 'm100001') > 'm1');
+  assert.ok(between('m1', 'm100001') < 'm100001');
+});
+
+test('dragging beyond the last tied slot lowers the priority even at the same rendered position', () => {
+  const peers = [{priority: 20, order: 'm1'}, {priority: 20, order: 'm2'}];
+  const place = (priority, key) => priority < 20 ? 250 : key < 'm1' ? 10 : key < 'm2' ? 130 : 250;
+  for (const [left, order] of [[10, 'h'], [250, 's']]) {
+    const slots = makeSlots({priority: 20, order, left, width: 100}, peers, place);
+    assert.equal(nearestSlot(slots, 250, left).priority, 20);
+    const lower = nearestSlot(slots, 310, left);
+    assert.equal(lower.priority, 19);
+    assert.equal(lower.left, 250);
+  }
+  const lowest = makeSlots({priority: 1, order: 's', left: 130}, [{priority: 1, order: 'm'}],
+    (_, key) => key < 'm' ? 10 : 130);
+  assert.equal(nearestSlot(lowest, 260, 130).priority, 1);
+});
 
 test('calendar defaults hidden and binds a freshly restored calendar', () => {
   const handlers = {};

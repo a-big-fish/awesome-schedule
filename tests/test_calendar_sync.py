@@ -14,6 +14,56 @@ from app.service.auth_service import hash_password
 from tests.test_public_multiuser import _public_fixture, _login
 
 
+def test_priority_sync_defaults_to_normal_and_legacy_edits_preserve_existing_priority(tmp_path):
+    app, users, _, _, *_ = _public_fixture(tmp_path)
+    user = AuthUser(email="priority@example.com", password_hash=hash_password("password"), email_verified=True)
+    users.create_user(user)
+    operation = str(uuid4())
+    event_id = str(uuid5(NAMESPACE_URL, f"calendar:{user.id}:{operation}"))
+    event = {"title": "日程", "type": "personal",
+             "start_at": "2026-11-13T08:00:00+08:00", "end_at": "2026-11-13T09:00:00+08:00"}
+    with TestClient(app, base_url="https://testserver") as client:
+        headers = {"X-CSRF-Token": _login(client, user.email, "password")}
+
+        def post(action, values, operation_id):
+            return client.post(f"/my-schedule/calendar-sync/{operation_id}",
+                               json={"action": action, "event_id": event_id, "event": values}, headers=headers)
+
+        assert post("create", event, operation).json()["event"]["priority"] == 10
+        assert post("edit", {**event, "priority": "high"}, uuid4()).json()["event"]["priority"] == 18
+        assert post("edit", {**event, "title": "旧客户端"}, uuid4()).json()["event"]["priority"] == 18
+        for invalid in (0, 21, 101, "invalid", 1.5, 10.0, True):
+            assert post("edit", {**event, "priority": invalid}, uuid4()).status_code == 422
+        legacy = {"action": "priority", "event_id": event_id, "priority": 37, "priority_scale": 100}
+        assert client.post(f"/my-schedule/calendar-sync/{uuid4()}", json=legacy,
+                           headers=headers).json()["event"]["priority"] == 8
+        command = {"action": "priority", "event_id": event_id, "priority": 8,
+                   "priority_scale": 20, "priority_order": "m2r"}
+        path = f"/my-schedule/calendar-sync/{uuid4()}"
+        saved = client.post(path, json=command, headers=headers)
+        assert saved.json()["event"]["priority"] == 8
+        assert saved.json()["event"]["priority_order"] == "m2r"
+        assert client.post(path, json=command, headers=headers).json() == saved.json()
+        assert saved.json()["event"]["title"] == "旧客户端"
+        assert client.get("/my-schedule/calendar-data").json()["events"][0]["priority_order"] == "m2r"
+        edit = client.get(f"/my-schedule/events/{event_id}/edit")
+        assert 'type="range" name="priority" min="1" max="20" step="1" value="8"' in edit.text
+        direct = client.post(f"/my-schedule/events/{event_id}/priority", data={
+            "csrf_token": headers["X-CSRF-Token"], "priority": "16",
+        }, follow_redirects=False)
+        assert direct.status_code == 303
+        after = client.get("/my-schedule/calendar-data").json()["events"][0]
+        assert (after["priority"], after["priority_order"], after["priority_scale"]) == (16, "m2r", 20)
+
+
+def test_stored_priority_migration_preserves_new_scores():
+    event = {"type": "personal", "title": "任务", "start_at": "2026-11-13T08:00:00+08:00",
+             "end_at": "2026-11-13T09:00:00+08:00"}
+    assert PersonalEvent.from_storage({**event, "priority": 95}).priority == 19
+    assert PersonalEvent.from_storage({**event, "priority": 18}).priority == 4
+    assert PersonalEvent.from_storage({**event, "priority": 18, "priority_scale": 20}).priority == 18
+
+
 def test_sync_retries_replay_committed_receipt_and_never_resurrect_deleted_event(tmp_path):
     app, users, _, events, *_ = _public_fixture(tmp_path)
     user = AuthUser(email='outbox@example.com', password_hash=hash_password('password'), email_verified=True)

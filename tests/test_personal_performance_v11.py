@@ -27,7 +27,7 @@ def test_auth_join_uses_one_query_and_preserves_datetime_and_revocation_predicat
     connection.execute.return_value.fetchone.return_value = {
         **session.__dict__, "user_data": {**user.__dict__, "created_at": now.isoformat()}}
     mapper = object.__new__(PostgresAuthMapper)
-    mapper._connection_factory = lambda: connection
+    mapper._connect = lambda: connection
     found, found_session = mapper.authenticate_session("hash", now)
     assert found.created_at == now and found_session == session
     assert connection.execute.call_count == 1
@@ -103,18 +103,18 @@ def test_owned_list_batches_counts_without_returning_full_text(tmp_path):
         assert all(text not in html for text in ("不应返回感受", "不应返回原文", "不应返回题目"))
     connection = MagicMock()
     connection.__enter__.return_value = connection
-    connection.execute.return_value.fetchall.return_value = [{"payload": item.model_dump(mode="json"), "question_count": 1}]
-    connection.execute.return_value.fetchone.return_value = {"total": 1}
+    connection.execute.return_value.fetchall.return_value = [{"payload": item.model_dump(mode="json"), "question_count": 1, "total": 1}]
     postgres = object.__new__(PostgresInterviewExperienceMapper)
     postgres._connection_factory = lambda: connection
     rows, total = postgres.list_owned_summaries(user.id, limit=20)
     assert rows[0]["question_count"] == 1 and total == 1
-    assert connection.execute.call_count == 2  # one filtered count plus one bounded page
-    count_sql = connection.execute.call_args_list[0].args[0]
-    page_sql = connection.execute.call_args_list[1].args[0]
-    assert count_sql.startswith("SELECT COUNT(*)")
+    assert connection.execute.call_count == 1
+    page_sql = connection.execute.call_args.args[0]
+    assert "SELECT COUNT(*) AS total FROM eligible" in page_sql
     assert "- 'raw_text_draft' - 'feeling'" in page_sql
-    assert "ORDER BY e.updated_at DESC" in page_sql and "LIMIT %s OFFSET %s" in page_sql
+    assert "ORDER BY updated_at DESC" in page_sql and "LIMIT %s OFFSET %s" in page_sql
+    connection.execute.return_value.fetchall.return_value = [{"payload": None, "total": 5, "question_count": 0}]
+    assert postgres.list_owned_summaries(user.id, offset=100) == ([], 5)
 
 
 def test_postgres_event_notes_filter_owner_and_event_before_reading_payloads():

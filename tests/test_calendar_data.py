@@ -34,6 +34,11 @@ def test_calendar_snapshot_is_owner_scoped_one_read_and_excludes_raw_files(tmp_p
         assert body['user_id'] == user.id and len(body['events']) == 1
         assert not {'resume_id', 'raw_invitation', 'attachment_refs', 'owner_id'} & body['events'][0].keys()
         assert 'personal-calendar' in body['shell']
+        calls.clear()
+        local = client.get('/my-schedule/calendar-data?format=json').json()
+        assert calls == [user.id]
+        assert local['events'] == body['events']
+        assert 'shell' not in local
 
 
 def test_calendar_writes_return_authoritative_parent_and_delete_patch(tmp_path):

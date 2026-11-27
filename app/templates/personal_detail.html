@@ -10,6 +10,13 @@
     {% if event.repeat_weekdays %}<p class="personal-repeat-stats">重复任务 · 连续完成 {{ event.repeat_streak }} 天 · 累积未完成 {{ event.repeat_missed }} 天</p>{% endif %}
     <dl>
       <div><dt>时间</dt><dd>{{ event.start_at.strftime('%Y-%m-%d %H:%M') }} — {{ event.end_at.strftime('%Y-%m-%d %H:%M') }}</dd></div>
+      <div><dt>优先级</dt><dd>
+        <form class="personal-priority-form" action="/my-schedule/events/{{ event.id }}/priority" method="post">
+          {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">{% endif %}
+          {% include '_personal_priority.html' %}
+          <button class="btn secondary small" type="submit">保存优先级</button>
+        </form>
+      </dd></div>
       {% if event.room_number %}<div><dt>会议号</dt><dd>{{ event.room_number }}</dd></div>{% endif %}
       {% if event.meeting_url %}<div><dt>会议链接</dt><dd><a class="btn" href="{{ event.meeting_url }}" target="_blank" rel="noopener noreferrer">点击入会</a></dd></div>{% endif %}
       {% if event.location_text or event.location_url %}<div><dt>地点</dt><dd>{{ event.location_text or '' }}{% if event.location_url %} <a href="{{ event.location_url }}" target="_blank" rel="noopener noreferrer">查看地图</a>{% endif %}</dd></div>{% endif %}
@@ -30,6 +37,7 @@
     {% if warnings %}<input type="hidden" name="confirm_overlap" value="true">{% endif %}
     <label>标题 <input class="input" name="title" required value="{{ values.title if values else event.title }}"></label>
     <label>类型 <select class="input" name="event_type" data-event-type>{% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type if values else event.type) == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    {% include '_personal_priority.html' %}
     <div class="personal-form-pair">
       <label>开始 <input class="input" type="datetime-local" name="start_at" required value="{{ values.start_at if values else event.start_at.strftime('%Y-%m-%dT%H:%M') }}"></label>
       <label>结束 <input class="input" type="datetime-local" name="end_at" required value="{{ values.end_at if values else event.end_at.strftime('%Y-%m-%dT%H:%M') }}"></label>

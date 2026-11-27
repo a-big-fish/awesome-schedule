@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 if TYPE_CHECKING:
     from app.controller.schema.calendar_sync_dto import CalendarSyncInput
 from app.mapper.base_personal_event_mapper import BasePersonalEventMapper, SyncResult
+from app.model.personal_event import normalize_legacy_priority
 from app.service.personal_idea_service import PersonalIdeaService
 from app.service.personal_schedule_service import PersonalScheduleService
 
@@ -18,9 +19,19 @@ class CalendarSyncService:
     @staticmethod
     def apply(service: PersonalScheduleService, ideas: PersonalIdeaService, operation_id: str,
               command: CalendarSyncInput) -> SyncResult:
-        # Old clients never sent room_number. Keep their persisted request fingerprints valid.
-        room_supplied = command.event is not None and "room_number" in command.event.model_fields_set
-        exclude = None if room_supplied else {"event": {"room_number"}}
+        # Keep the fingerprints of requests queued or acknowledged by older clients.
+        optional_fields = {"room_number", "priority"}
+        supplied = command.event.model_fields_set if command.event else set()
+        omitted = optional_fields - supplied
+        room_supplied = "room_number" in supplied
+        exclude = {"event": omitted} if command.event and omitted else {}
+        # The transport hint was absent from receipts created before the scale change.
+        if command.priority_scale == 100 or "priority_scale" not in command.model_fields_set:
+            exclude["priority_scale"] = True
+        if "priority" not in command.model_fields_set:
+            exclude["priority"] = True
+        if "priority_order" not in command.model_fields_set:
+            exclude["priority_order"] = True
         digest = sha256(command.model_dump_json(exclude=exclude).encode()).hexdigest()
 
         def execute(mapper: BasePersonalEventMapper) -> SyncResult:
@@ -31,9 +42,9 @@ class CalendarSyncService:
             if command.action in {"create", "edit"}:
                 if command.event is None:
                     raise ValueError("缺少日程内容")
-                values = command.event.model_dump(mode="python", exclude={"source", "raw_text", "source_idea_id"})
-                if not room_supplied:
-                    values.pop("room_number", None)
+                values = command.event.model_dump(mode="python", exclude={"source", "raw_text", "source_idea_id"} | omitted)
+                if "priority" in values:
+                    values["priority"] = normalize_legacy_priority(values["priority"], command.priority_scale)
                 values["reference_links"] = [link.model_dump(mode="json") for link in command.event.reference_links]
                 if command.action == "create":
                     idea_id = command.event.source_idea_id
@@ -60,6 +71,11 @@ class CalendarSyncService:
                     if not room_supplied:
                         values.pop("meeting_url", None)
                     event = schedule.update_event(event_id, confirm_overlap=command.confirm_overlap, **values)
+            elif command.action == "priority":
+                if command.priority is None:
+                    raise ValueError("缺少优先级")
+                priority = normalize_legacy_priority(command.priority, command.priority_scale)
+                event = schedule.set_event_priority(event_id, priority, command.priority_order)
             elif command.action == "delete":
                 schedule.delete_event(event_id)  # Repeating a successful delete remains successful.
             elif command.action == "completion":

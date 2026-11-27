@@ -1,7 +1,7 @@
 from datetime import date as date_type, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
@@ -76,7 +76,9 @@ def _build_entry_view(entry: Any, now: datetime, display_zone: ZoneInfo | None =
     )
     return view
 
-def _assign_entry_columns(entry_views: list[dict[str, Any]]) -> None:
+def _assign_entry_columns(entry_views: list[dict[str, Any]],
+                          priority: Callable[[dict[str, Any]], int] | None = None,
+                          order: Callable[[dict[str, Any]], str] | None = None) -> None:
     """Assign CSS grid columns for overlapping entries."""
     if not entry_views:
         return
@@ -98,6 +100,23 @@ def _assign_entry_columns(entry_views: list[dict[str, Any]]) -> None:
         clusters.append(current)
 
     for cluster in clusters:
+        if priority is not None:
+            lanes: list[list[tuple[int, int, int]]] = []
+            for entry in sorted(cluster, key=lambda item: (-priority(item), order(item) if order else "")):
+                start = entry["start_minutes"]
+                end = start + entry["duration_minutes"]
+                rank = priority(entry)
+                first = max((i + 1 for i, lane in enumerate(lanes)
+                             if any(a < end and start < b and p > rank for a, b, p in lane)), default=0)
+                index = next((i for i in range(first, len(lanes))
+                              if all(a >= end or b <= start for a, b, _ in lanes[i])), len(lanes))
+                if index == len(lanes):
+                    lanes.append([])
+                lanes[index].append((start, end, rank))
+                entry["column"] = index + 1
+            for entry in cluster:
+                entry["columns"] = len(lanes)
+            continue
         column_ends: list[int] = []
         for entry in cluster:
             start = entry["start_minutes"]

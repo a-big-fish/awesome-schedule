@@ -13,15 +13,14 @@
     if (opener?.isConnected) opener.focus();
   }
   function paint(html) {
-    const parsed = new DOMParser().parseFromString(html, 'text/html');
-    const section = parsed.querySelector('.personal-form-page');
+    const section = typeof html === 'string' ?
+      new DOMParser().parseFromString(html, 'text/html').querySelector('.personal-form-page') : html;
     if (!section) throw new Error('无法载入日程，请稍后重试。');
     content.replaceChildren(document.importNode(section, true));
     // Never inject a whole document or execute scripts from a fetched page.
     content.querySelectorAll('script').forEach(script => script.remove());
     dialog.scrollTop = 0; dirty = false;
     document.dispatchEvent(new CustomEvent('personal:event-dialog-rendered'));
-    window.awesomeInterviewCalendarData?.rememberForm(content.querySelector('.personal-event-form'));
     content.querySelector('h1')?.setAttribute('tabindex', '-1');
     content.querySelector('h1')?.focus({preventScroll: true});
   }

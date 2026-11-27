@@ -120,6 +120,7 @@ test('handlesMutation still owns every local-first calendar write', () => {
   const form = action => ({method: 'post', action});
   assert.equal(app.api.handlesMutation(form('/my-schedule/events')), true);
   assert.equal(app.api.handlesMutation(form('/my-schedule/events/abc/edit')), true);
+  assert.equal(app.api.handlesMutation(form('/my-schedule/events/abc/priority')), true);
   assert.equal(app.api.handlesMutation(form('/my-schedule/events/abc/completion')), true);
   assert.equal(app.api.handlesMutation(form('/my-schedule/events/abc/overdue')), true);
   assert.equal(app.api.handlesMutation(form('/my-schedule/events/abc/close-repeat')), true);

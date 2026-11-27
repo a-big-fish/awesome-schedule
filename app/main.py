@@ -1,10 +1,13 @@
 from pathlib import Path
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 from psycopg import OperationalError
+from psycopg.errors import ConnectionTimeout
+from psycopg_pool import PoolTimeout
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -27,7 +30,7 @@ from app.controller import (
     public_page_controller,
     windows_download_controller,
 )
-from app.core.auth_guard import AuthRequired, InvalidCsrf, require_current_user
+from app.core.auth_guard import AuthRequired, InvalidCsrf, browser_session_key, require_current_user
 from app.core.config import Settings, get_settings
 from app.core.dependencies import (
     get_interview_experience_mapper,
@@ -55,6 +58,13 @@ def _warm_metadata_schema() -> None:
         factory()
 
 
+async def _warm_metadata_in_background() -> None:
+    try:
+        await run_in_threadpool(_warm_metadata_schema)
+    except Exception as exc:  # Optional warm-up; real requests can retry.
+        logger.warning("Metadata schema warm-up failed: %s", type(exc).__name__)
+
+
 def create_app(settings: Settings | None = None, auth_service: AuthService | None = None) -> FastAPI:
     deployment = settings is None
     settings = settings or get_settings()
@@ -77,16 +87,14 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
     @asynccontextmanager
     async def lifespan(_application):
         application_logs.start()
-        # Tests inject their own mappers, so only the deployment path pre-creates the schema.
-        if deployment and settings.storage_backend in PERSISTENT_STORAGE:
-            try:
-                await run_in_threadpool(_warm_metadata_schema)
-            except Exception as exc:  # noqa: BLE001 - a temporarily unreachable database must not stop startup
-                logger.warning("Metadata schema warm-up failed: %s", type(exc).__name__)
+        warmup = (asyncio.create_task(_warm_metadata_in_background())
+                  if deployment and settings.storage_backend in PERSISTENT_STORAGE else None)
         performance.start()
         try:
             yield
         finally:
+            if warmup is not None:
+                await warmup
             performance.stop()
             reference_titles.close()
             close_pools()
@@ -108,8 +116,20 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
         logger.error("Database temporarily unavailable request_id=%s node=%s error=%s",
                        getattr(request.state, "request_id", "unknown"),
                        node_for_path(request.url.path, request.method), type(exc).__name__)
-        return JSONResponse({"detail": "数据库连接暂时不可用，请稍后重试"}, status_code=503,
-                            headers={"Retry-After": "30", "Cache-Control": "no-store"})
+        detail = ("数据库连接超时" if isinstance(exc, (ConnectionTimeout, PoolTimeout))
+                  else "数据库连接暂时不可用")
+        unavailable = "timeout" if isinstance(exc, (ConnectionTimeout, PoolTimeout)) else "1"
+        headers = {"Retry-After": "30", "Cache-Control": "no-store", "X-Database-Unavailable": unavailable}
+        path = request.url.path
+        if (request.method == "GET" and "text/html" in request.headers.get("accept", "")
+                and (path == "/my-schedule" or path.startswith("/my-schedule/"))):
+            request.state.database_unavailable = True
+            request.state.browser_session_key = browser_session_key(request)
+            return page_controller.templates.TemplateResponse(
+                request, "personal_database_unavailable.html", {"database_error": detail},
+                status_code=503, headers=headers,
+            )
+        return JSONResponse({"detail": f"{detail}，请稍后重试"}, status_code=503, headers=headers)
 
     application.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
     application.include_router(windows_download_controller.router)
@@ -178,7 +198,8 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
                        extra={"request_status": status})
 
     if public:
-        application.state.auth_service = auth_service or AuthService(PostgresAuthMapper(settings), settings)
+        application.state.auth_service = auth_service or AuthService(
+            PostgresAuthMapper(settings, defer_schema=True), settings)
 
         @application.middleware("http")
         async def prevent_private_cache(request: Request, call_next):

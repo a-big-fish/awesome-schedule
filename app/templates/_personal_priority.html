@@ -1,0 +1,11 @@
+{% set initial_priority = event.priority if event else 10 %}
+{% set selected_priority = (values.priority|default(initial_priority) if values else initial_priority) %}
+{% set selected_priority = {'low':1, 'normal':10, 'high':18}.get(selected_priority, selected_priority)|int(default=10) %}
+{% set selected_priority = [[selected_priority, 1]|max, 20]|min %}
+<div class="personal-priority-control" data-priority-control>
+  <label class="personal-priority-slider">
+    <span><span class="personal-priority-name">优先级</span> <span class="personal-priority-value" data-priority-value aria-hidden="true">{{ selected_priority }}</span></span>
+    <input type="range" name="priority" min="1" max="20" step="1" value="{{ selected_priority }}" aria-describedby="event-priority-hint">
+  </label>
+  <small id="event-priority-hint">1–20，数字越大，优先级越高。</small>
+</div>

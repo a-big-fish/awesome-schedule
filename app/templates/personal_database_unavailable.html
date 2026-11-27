@@ -1,0 +1,9 @@
+{% extends "personal_base.html" %}
+{% block title %}日程工作台 · 数据库暂时不可用{% endblock %}
+{% block content %}
+<section class="card personal-form-page" data-database-fallback>
+  <h1 class="section-title">日程工作台</h1>
+  <p data-database-cache-status>正在读取此浏览器的日程缓存…</p>
+  <a class="btn secondary" href="/my-schedule" data-database-retry>重新连接</a>
+</section>
+{% endblock %}

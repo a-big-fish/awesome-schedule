@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 import logging
+import re
 from typing import Any
 from itertools import zip_longest
 from hashlib import sha256
@@ -20,7 +21,7 @@ from app.core.exceptions import MeetingParseError, PersonalEventConflictWarning,
 from app.core.postgres_pool import release_shared_connection
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.model.my_resume_profile import MyResumeProfile
-from app.model.personal_event import PersonalEvent, ReferenceLink
+from app.model.personal_event import DEFAULT_EVENT_PRIORITY, PersonalEvent, ReferenceLink, normalize_legacy_priority
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.interview_experience_service import InterviewExperienceService
 from app.model.interview_experience import CATEGORY_LABELS
@@ -52,6 +53,23 @@ def _reference_form(form) -> list[dict[str, str]]:
     return [{"title": str(title).strip(), "url": str(url).strip()}
             for title, url in zip_longest(form.getlist("reference_title"), form.getlist("reference_url"), fillvalue="")
             if str(title).strip() or str(url).strip()]
+
+
+def _form_priority(value: str | int) -> int:
+    try:
+        priority = int(normalize_legacy_priority(value))
+    except ValueError as exc:
+        raise ValueError("优先级必须是 1 至 20 的整数") from exc
+    if not 1 <= priority <= 20:
+        raise ValueError("优先级必须是 1 至 20 的整数")
+    return priority
+
+
+def _day_priority_order(item: dict[str, Any]) -> str:
+    if item.get("priority_order"):
+        return item["priority_order"]
+    identity = re.sub(r"[^0-9a-z]", "", item["id"].split("~", 1)[0].lower())
+    return f"m{item['start_minutes']:04d}{1440 - item['duration_minutes']:04d}{identity}m"
 
 
 def _calendar_event_data(event: PersonalEvent) -> dict[str, Any]:
@@ -127,7 +145,7 @@ def _week_day_segments(events: list[dict[str, Any]], day: date) -> list[dict[str
             "continues_before": start < day_start,
             "continues_after": end > day_end,
         })
-    _assign_entry_columns(segments)
+    _assign_entry_columns(segments, lambda item: item.get("priority", DEFAULT_EVENT_PRIORITY), _day_priority_order)
     return segments
 
 
@@ -183,6 +201,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                             if (occurrence := service.repeat_occurrence(item, day)) is not None)
         else:
             expanded.append(item)
+    expanded.sort(key=lambda item: (item.start_at, item.id))
     event_views = [{**_event_view(item, now), "display_workday_start": workday_start,
                     "display_workday_end": workday_end} for item in expanded]
     calendar_views = event_views if show_completed else [item for item in event_views if not item["completed_at"] and not item["cancelled_at"]]
@@ -199,7 +218,7 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
                  if not item["completed_at"] and not item["cancelled_at"] and (item["end_time"] > now or (item["repeat_weekdays"] and item["start_time"].date() == now.date()))]
     overdue = sorted((item for item in event_views if not item["completed_at"]
                       and not item["cancelled_at"] and not item["repeat_weekdays"] and item["end_time"] <= now),
-                     key=lambda item: item["end_time"])
+                     key=lambda item: (item["end_time"], item["id"]))
     upcoming_today = [item for item in remaining if item["start_time"] < tomorrow_start and not (item.get("skip_weekends") and now.weekday() >= 5)]
     completed_today = sorted(
         (item for item in event_views if item["completed_time"] and
@@ -264,7 +283,8 @@ def _dashboard_context(service: PersonalScheduleService, selected_date: date,
     originals_by_id = {item["id"]: item for item in calendar_views}
     if selected_view == "week":
         board_items = sorted((item for day in calendar_days for item in day["week_segments"]),
-                             key=lambda item: (item["start_time"].date() == item["end_time"].date(),
+                             key=lambda item: (-item.get("priority", DEFAULT_EVENT_PRIORITY),
+                                               item["start_time"].date() == item["end_time"].date(),
                                                item["start_time"], item["id"]))
         for item in board_items:
             board_rows.setdefault(item["id"].split("~", 1)[0], len(board_rows) + 1)
@@ -368,11 +388,14 @@ def personal_dashboard(
 
 @router.get("/calendar-data")
 def personal_calendar_data(request: Request,
+                           format: str = "legacy",
                            service: PersonalScheduleService = Depends(get_personal_schedule_service)):
     user = getattr(request.state, "user", None)
     work_start, work_end = (user.workday_start, user.workday_end) if user else ("08:00", "18:00")
     events = service.list_events()
     payload = _calendar_payload(service.owner_id, events, work_start, work_end)
+    if format == "json":
+        return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     # The empty SSR workspace is a reusable shell, not a separate request per date.
     context = _dashboard_context(service, datetime.now(DISPLAY_ZONE).date(), events=[],
                                  workday_start=work_start, workday_end=work_end)
@@ -620,6 +643,7 @@ async def create_personal_event(
             "event_type": values["event_type"],
             "skip_weekends": values["skip_weekends"],
             "workday_only": values["workday_only"],
+            "priority": _form_priority(values.get("priority", DEFAULT_EVENT_PRIORITY)),
             "repeat_weekdays": values["repeat_weekdays"],
             "timezone": values.get("timezone") or "Asia/Shanghai",
             "position": values.get("position") or None,
@@ -631,7 +655,7 @@ async def create_personal_event(
             event = service.create_from_invitation(
                 values.get("raw_text", ""),
                 confirm_overlap=confirmed,
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"], priority=common["priority"],
                 timezone=common["timezone"], position=common["position"], note=common["note"],
                 reminder_offsets_minutes=common["reminder_offsets_minutes"],
                 start_at=start, end_at=end,
@@ -642,7 +666,7 @@ async def create_personal_event(
             )
         else:
             event = service.create_manual(
-                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"],
+                title=common["title"], event_type=common["event_type"], skip_weekends=common["skip_weekends"], workday_only=common["workday_only"], repeat_weekdays=common["repeat_weekdays"], priority=common["priority"],
                 start_at=start, end_at=end, timezone=common["timezone"],
                 location_text=values.get("location_text") or None,
                 location_url=values.get("location_url") or None,
@@ -693,6 +717,24 @@ def close_personal_repeat(event_id: str, request: Request, service: PersonalSche
     if result := _calendar_mutation(request, service, event):
         return result
     return RedirectResponse("/my-schedule", status_code=303)
+
+
+@router.post("/events/{event_id}/priority")
+async def change_personal_event_priority(
+    event_id: str, request: Request,
+    service: PersonalScheduleService = Depends(get_personal_schedule_service),
+):
+    form = await request.form()
+    try:
+        priority = _form_priority(str(form.get("priority", "")))
+        event = await run_in_threadpool(service.set_event_priority, event_id, priority)
+    except LookupError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    if result := _calendar_mutation(request, service, event):
+        return result
+    return RedirectResponse(f"/my-schedule/events/{event_id}", status_code=303)
 
 
 @router.get("/events/{event_id}/reference-titles")
@@ -754,6 +796,7 @@ async def edit_personal_event(
             type=values["event_type"],
             skip_weekends=values["skip_weekends"],
             workday_only=values["workday_only"],
+            **({"priority": _form_priority(values["priority"])} if "priority" in values else {}),
             repeat_weekdays=values["repeat_weekdays"],
             start_at=datetime.fromisoformat(values["start_at"]),
             end_at=datetime.fromisoformat(values["end_at"]),
@@ -921,10 +964,14 @@ async def upload_personal_resume(
     service: PersonalScheduleService = Depends(get_personal_schedule_service),
     profile_mapper: BaseMyResumeMapper = Depends(get_my_resume_mapper),
     resume_service: ResumeParserService = Depends(get_resume_parser_service),
+    state_service: PersonalResumeStateService = Depends(get_personal_resume_state_service),
 ):
+    wants_json = "application/json" in request.headers.get("accept", "")
     try:
         parsed = await resume_service.parse_upload(resume, owner_id=service.owner_id)
     except ResumeParseError as exc:
+        if wants_json:
+            raise HTTPException(422, str(exc)) from exc
         context = _interview_workspace_context(service, datetime.now(DISPLAY_ZONE).date(),
             getattr(request.state.user, "workday_start", "08:00") if hasattr(request.state, "user") else "08:00",
             getattr(request.state.user, "workday_end", "18:00") if hasattr(request.state, "user") else "18:00")
@@ -932,4 +979,7 @@ async def upload_personal_resume(
         context["resume_error"] = str(exc)
         return templates.TemplateResponse(request, "personal_interviews.html", context, status_code=422)
     profile_mapper.save(MyResumeProfile(id=service.profile_id, resume_id=parsed.id))
+    if wants_json:
+        return JSONResponse({"resume": state_service.current(), "cache_scope": _resume_cache_scope(request)},
+                            headers={"Cache-Control": "no-store"})
     return RedirectResponse(url="/my-schedule/interviews", status_code=303)

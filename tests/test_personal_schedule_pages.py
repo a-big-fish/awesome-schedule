@@ -65,7 +65,8 @@ def test_personal_manual_create_edit_and_delete_pages():
             detail = client.get(f"/my-schedule/events/{event.id}")
             assert detail.status_code == 200
             assert "编辑日程" in detail.text and "教学楼 A" in detail.text
-            assert 'action="/my-schedule/events/' not in detail.text
+            assert f'action="/my-schedule/events/{event.id}/priority"' in detail.text
+            assert f'action="/my-schedule/events/{event.id}/delete"' not in detail.text
             edit_page = client.get(f"/my-schedule/events/{event.id}/edit")
             assert edit_page.status_code == 200
             assert 'name="title"' in edit_page.text
@@ -292,7 +293,7 @@ def test_month_calendar_shows_later_lanes_even_when_earlier_tasks_have_ended():
         with TestClient(app) as client:
             page = client.get("/my-schedule?view=month&date_value=2026-10-01")
         assert page.status_code == 200
-        assert f'style="grid-row: 5;" href="/my-schedule/events/{continuing.id}"' in page.text
+        assert f'grid-row: 5;" href="/my-schedule/events/{continuing.id}"' in page.text
         assert 'grid-template-rows: repeat(5, 20px)' in page.text
         assert "另有 " not in page.text
     finally:

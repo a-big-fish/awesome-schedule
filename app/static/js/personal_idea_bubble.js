@@ -1,7 +1,7 @@
 (() => {
   const bubble = document.querySelector('[data-idea-bubble]');
   if (!bubble) return;
-  let snapshot = null, painted = null, updated = 0, pending = null, generation = 0, attempted = -Infinity;
+  let snapshot = null, painted = null, paintRevision = 0;
   const onCalendar = () => location.pathname.replace(/\/$/, '') === '/my-schedule';
   const close = () => { bubble.open = false; };
   function paint() {
@@ -41,41 +41,28 @@
     }
   }
   async function refresh() {
+    const version=++paintRevision;
+    if (!onCalendar()) {paint(); return;}
+    const api = window.awesomeInterviewIdeaData;
+    if (!api) return;
+    const data = await api.ensure();
+    if (!data) { snapshot = null; paint(); return; }
+    const calendar = window.awesomeInterviewCalendarData?.snapshot?.();
+    const eventIds = new Set((calendar?.events || []).map(event => event.id));
+    const arranged = new Set();
+    for (const item of data.ideas) {
+      const id = await window.awesomeInterviewCalendarOutbox.eventId(`idea:${data.user_id}:${item.id}`);
+      if (calendar ? eventIds.has(id) : data.scheduled?.[item.id]) arranged.add(item.id);
+    }
+    const items = [...data.ideas].reverse().filter(item => item.status === 'pending' && !arranged.has(item.id));
+    if(version!==paintRevision)return;
+    snapshot = {total: items.length, items: items.slice(0,5)};
     paint();
-    if (!onCalendar() || document.hidden || pending || Date.now() - attempted < 30000 ||
-        (snapshot && Date.now() - updated < 60000)) return;
-    attempted = Date.now();
-    const version = generation;
-    const controller = new AbortController();
-    pending = controller;
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    try {
-      const response = await fetch('/my-schedule/ideas/summary', {
-        credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-        headers: {Accept: 'application/json'},
-      });
-      if (response.status === 401 || response.status === 403 || response.redirected) {
-        snapshot = null; paint(); return;
-      }
-      if (!response.ok) return;
-      const data = await response.json();
-      if (version !== generation || !Number.isInteger(data.total) || data.total < 0 ||
-          !Array.isArray(data.items) || data.items.some(item => typeof item.id !== 'string' || typeof item.title !== 'string')) return;
-      snapshot = {total: data.total, items: data.items.slice(0, 5)};
-      updated = Date.now(); paint();
-    } catch { /* Retain cached titles when offline; no polling or reload. */ }
-    finally { clearTimeout(timeout); if (pending === controller) pending = null; }
   }
-  const invalidate = () => {
-    generation++; pending?.abort(); pending = null; snapshot = null; updated = 0; attempted = -Infinity; paint();
-  };
-  const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('awesome-interview-pages') : null;
-  channel?.addEventListener('message', () => { invalidate(); refresh(); });
+  document.addEventListener('personal:ideas-changed', refresh);
+  document.addEventListener('personal:calendar-mutated', refresh);
   document.addEventListener('personal:navigated', refresh);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-  document.addEventListener('submit', event => {
-    if (event.target.method?.toUpperCase() === 'POST') invalidate();
-  });
   bubble.querySelector('[data-idea-close]').addEventListener('click', () => {
     close(); bubble.querySelector('summary').focus();
   });
@@ -83,5 +70,5 @@
     if (event.key === 'Escape' && bubble.open) { close(); bubble.querySelector('summary').focus(); }
   });
   document.addEventListener('click', event => { if (!bubble.contains(event.target)) close(); });
-  setTimeout(refresh, 300);
+  document.addEventListener('DOMContentLoaded', refresh);
 })();

@@ -1,0 +1,22 @@
+{% with selected_date=none, today_date=none, selected_view='day', prev_date='', next_date='', completed_query='', show_completed=true %}
+<template id="local-calendar-template">
+  <main>
+    <div class="personal-toolbar"><div><h1 class="section-title">我的日程</h1><p class="section-description">北京时间 · 面试、笔试、课程与其他安排集中查看</p></div></div>
+    <div class="personal-layout has-quick-calendar">
+      {% include '_personal_quick_calendar.html' %}
+      <section class="card personal-calendar hide-completed" data-calendar-completed="incomplete">
+        {% include '_personal_calendar_toolbar.html' %}
+        <div data-local-calendar-view></div>
+      </section>
+      <aside class="card personal-upcoming" aria-label="日程任务"></aside>
+    </div>
+  </main>
+</template>
+{% endwith %}
+{% with local_template=true, ideas=[], abandoned=false, selected=none, values={}, error=none, scheduled={} %}
+<template id="local-ideas-template"><main>{% include '_personal_ideas_content.html' %}</main></template>
+{% endwith %}
+{% with local_template=true, values={'workday_only':false,'skip_weekends':false}, error=none, warnings=[], preview=false, date_only=true,
+    event_labels={'personal':'个人事项','interview':'面试','meeting':'普通会议','exam':'笔试','course':'课程','recruiting':'招聘活动'} %}
+<template id="local-event-form-template"><main>{% include '_personal_new_content.html' %}</main></template>
+{% endwith %}
