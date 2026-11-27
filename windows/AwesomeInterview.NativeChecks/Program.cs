@@ -230,8 +230,8 @@ try {
         Check(restartItem.NextAttempt>DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             "a failed transport schedules a durable backoff instead of hammering the server");
         var restartOperation=restartItem.Id;
-        await repo.FlushCacheAsync();
-        Check(File.Exists(outboxFile),"the pending queue survives on disk for the next start");
+        await repo.FlushForUpdateAsync(CancellationToken.None);
+        Check(File.Exists(outboxFile),"update restart flushes the pending queue for the next start");
         behaviour="ack";
         await Task.Delay(1100);
         using(var restored=new WorkspaceRepository(queueCache,address=>new NativeApi(address,ideaTransport))){
@@ -387,6 +387,7 @@ if (server != null && cookie != null) {
         catch(ApiFailure e){Console.WriteLine($"REAL capability {path.Split('/')[^1]} unverified: HTTP {e.Status}; server update may be required.");}
     }
 } else Console.WriteLine("Real-account acceptance pending login; no simulated result claimed as real.");
+await WindowsUpdateChecks.RunAsync(Check);
 Console.WriteLine($"{passed} checks passed.");
 
 sealed class Reply(string body,string type,HttpStatusCode code) : HttpMessageHandler {

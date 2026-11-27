@@ -6,7 +6,7 @@ using static AwesomeInterview.NativeDemo.WorkspaceControls;
 
 namespace AwesomeInterview.NativeDemo;
 
-internal sealed class SettingsPage(MainWindow shell, WorkspaceProfile accountProfile, DesktopIntegration desktop) : WorkspacePage(shell)
+internal sealed partial class SettingsPage(MainWindow shell, WorkspaceProfile accountProfile, DesktopIntegration desktop) : WorkspacePage(shell)
 {
     string category = "账号";
 
@@ -45,8 +45,7 @@ internal sealed class SettingsPage(MainWindow shell, WorkspaceProfile accountPro
                 desktop.AddSettings(body);
                 break;
             default:
-                body.Children.Add(Text("Awesome Interview", 22));
-                body.Children.Add(Text("Windows 1.6.0-W Preview 30 · WPF / .NET 10", 14, "#64748B", new(0, 12, 0, 0)));
+                ShowWindowsUpdates(body);
                 break;
         }
         Content.Children.Add(Surface(layout, new(26)));

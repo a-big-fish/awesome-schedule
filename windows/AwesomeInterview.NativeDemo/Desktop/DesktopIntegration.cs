@@ -66,12 +66,13 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         unlockPortable=new Forms.ToolStripMenuItem("恢复随身日程交互"){Enabled=false};unlockPortable.Click+=(_,_)=>shell.Dispatcher.Invoke(()=>SetPortableLocked(false));menu.Items.Add(unlockPortable);
         menu.Items.Add("设置", null, (_, _) => shell.Dispatcher.Invoke(() => { shell.RestoreMain(); showSettings(); }));
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("退出应用", null, (_, _) => shell.Dispatcher.Invoke(() => { if (shell.CanLeaveForm()) { exiting = true; shell.Close(); } }));
+        menu.Items.Add("退出应用", null, (_, _) => shell.Dispatcher.Invoke(() => { if (!shell.PreparingUpdate && shell.CanLeaveForm()) { exiting = true; shell.Close(); } }));
         tray = new Forms.NotifyIcon { Text = "Awesome Interview", ContextMenuStrip = menu,
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Visible = true };
         tray.DoubleClick += (_, _) => shell.Dispatcher.Invoke(shell.RestoreMain);
         tray.BalloonTipClicked+=(_,_)=>shell.Dispatcher.Invoke(OpenNotification);
         shell.Closing += (_, args) => {
+            if (!exiting && shell.PreparingUpdate) { args.Cancel = true; return; }
             if (!exiting && !shell.CanLeaveForm()) { args.Cancel = true; return; }
             if (!exiting && preferences.CloseToTray) {
                 args.Cancel = true;
@@ -84,6 +85,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         };
         shell.Closed += (_, _) => { exiting = true; dayTimer.Stop(); portable?.Close(); tray?.Dispose(); System.Windows.Application.Current.Shutdown(); };
         dayTimer.Tick += (_, _) => {
+            if (shell.PreparingUpdate) return;
             if (portableDay != AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date) { portableDay = AwesomeInterview.NativeDemo.Data.CalendarProjection.Now.Date; RefreshPortable(); if (shell.Route == PageRoute.Today && !shell.FormDirty) schedule.ShowTasks(false); }
             if(shell.Repository.Online&&!shell.Repository.Busy&&shell.Repository.Current!=null&&DateTimeOffset.UtcNow-shell.Repository.Current.ServerTime>TimeSpan.FromHours(18))shell.Run(shell.Repository.SynchronizeAsync);
             if(!shell.Repository.Busy&&!shell.Repository.SyncBusy&&shell.Repository.HasPendingSync)shell.Run(shell.Repository.SyncNowAsync);
@@ -93,7 +95,13 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         dayTimer.Start();
     }
 
-    bool SavePreferences()
+    internal void ExitForUpdate()
+    {
+        exiting = true;
+        shell.Close();
+    }
+
+    internal bool SavePreferences()
     {
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(PreferencesPath)!);
@@ -104,6 +112,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
 
     void ToggleTask(PortableTask task)
     {
+        if (shell.PreparingUpdate) return;
         shell.Run(()=>shell.Repository.CompleteEventQueuedAsync(task.Event));
     }
 

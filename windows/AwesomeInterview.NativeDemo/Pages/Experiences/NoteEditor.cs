@@ -64,6 +64,29 @@ internal sealed partial class ExperienceWorkspace
         }));body.Children.Add(save);var cancel=Button("取消",()=>dialog.Close());cancel.IsCancel=true;body.Children.Add(cancel);dialog.ShowDialog();
     }
 
+    readonly Dictionary<string, (Uri Server, ExperienceData Draft)> pendingLocalDrafts = new();
+
+    async Task SaveLocalDraftAsync(Uri server, ExperienceData draft)
+    {
+        if (Repository.Api?.Server != server || !await Repository.SaveEditorDraftAsync(draft))
+            return;
+        if (pendingLocalDrafts.TryGetValue(draft.Id, out var pending) && ReferenceEquals(draft, pending.Draft))
+            pendingLocalDrafts.Remove(draft.Id);
+    }
+
+    internal async Task FlushDraftsForUpdateAsync(CancellationToken token)
+    {
+        foreach (var (server, draft) in pendingLocalDrafts.Values.ToArray())
+        {
+            if (Repository.Api?.Server != server || Repository.Current?.UserId != draft.OwnerId ||
+                Repository.Current.Experiences.All(item => item.Id != draft.Id))
+                continue;
+            await SaveLocalDraftAsync(server, draft).WaitAsync(token);
+            if (pendingLocalDrafts.ContainsKey(draft.Id))
+                throw new UpdatePreparationException("有面经草稿尚未保存，请保存草稿后重试。");
+        }
+    }
+
     int noteEditorGeneration;
     void ShowNoteEditor(ExperienceData original,bool newNote=false)
     {
@@ -106,8 +129,9 @@ internal sealed partial class ExperienceWorkspace
         void Changed()
         {
             revision++;FormDirty=true;feedback.Text="尚未同步 · 正在保存本机草稿…";debounce?.Cancel();debounce=new();var token=debounce.Token;var value=draft;
+            pendingLocalDrafts[value.Id] = (api.Server, value);
             Run(async()=>{
-                try{await Task.Delay(450,token);await Repository.SaveEditorDraftAsync(value);if(token.IsCancellationRequested)return;feedback.Text="已保存本机草稿";await Task.Delay(1550,token);if(Route == PageRoute.NoteEditor&&generation==noteEditorGeneration)await SaveDraft(false);}
+                try{await Task.Delay(450,token);await SaveLocalDraftAsync(api.Server,value);if(token.IsCancellationRequested)return;feedback.Text="已保存本机草稿";await Task.Delay(1550,token);if(Route == PageRoute.NoteEditor&&generation==noteEditorGeneration)await SaveDraft(false);}
                 catch(OperationCanceledException){}
             });
         }
@@ -215,7 +239,7 @@ internal sealed partial class ExperienceWorkspace
             }
         }
         toolbar.Children.Add(Button("逐题录入",()=>{mode="questions";RenderMode();}));toolbar.Children.Add(Button("全文录入",()=>{mode="text";RenderMode();}));toolbar.Children.Add(Button("文件导入",()=>{mode="file";RenderMode();}));
-        toolbar.Children.Add(publicBox);publicBox.Click+=(_,_)=>{FormDirty=true;};
+        toolbar.Children.Add(publicBox);publicBox.Click+=(_,_)=>{draft=draft with{IsPublic=publicBox.IsChecked==true};Changed();};
         toolbar.Children.Add(Button("保存面经",()=>Run(()=>SaveDraft(true))));toolbar.Children.Add(Button("返回我的面经",()=>Navigate(ShowExperience)));
         RenderMode();FormDirty=false;
     }

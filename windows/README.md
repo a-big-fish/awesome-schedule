@@ -7,6 +7,14 @@
 
 原生预览的完整发布验收仍在进行。[原生验收记录](acceptance/2026-11-21/README.md)
 
+## 下载与更新
+
+[下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows)会显示当前发布版本。Preview 30 以 ZIP 提供，解压后运行 `Install.cmd`。首个签名的 Velopack 版本发布后，同一入口会提供 EXE 安装程序。
+
+从 Preview 30 升级前，通过系统托盘菜单退出旧应用，再使用同一 Windows 账号运行 EXE。新版沿用原有的账号缓存、面经草稿、离线同步队列和随身日程外观目录。打开新版的「设置与版本 → 关于与版本」后，可查看当前版本、检查更新和阅读更新说明。选择「下载并重启」后，程序会在后台下载，保存本机数据后安装并重开。需要继续编辑时，可以先保存内容，再回到设置完成重启。
+
+Windows 与 Web 共用源码仓库，Windows 独立编号和打包。维护者见 [Windows 发布流程](WINDOWS-RELEASE.md)。
+
 ## WebView2 测试版 1.0-W
 
 Windows 10/11 x64 测试版。运行 `AwesomeInterview.exe` 前，先设置自己的 HTTPS 服务地址。首次在线登录后，应用会同步个人日程与面经；服务器暂时不可用时可查看最近一次同步的只读副本。

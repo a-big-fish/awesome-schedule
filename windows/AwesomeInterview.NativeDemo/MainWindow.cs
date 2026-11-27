@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Awesome Interview · Windows 1.6.0-W Preview 30";
+        Title = $"Awesome Interview · Windows {WindowsUpdater.Version}";
         Width = 1280; Height = 850; MinWidth = 940; MinHeight = 640;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
@@ -234,6 +234,36 @@ public sealed partial class MainWindow : Window
     }
 
     internal void ShowAccount() => account.ShowAccount();
+
+    internal bool PreparingUpdate { get; private set; }
+
+    internal async Task RestartForUpdateAsync(Action apply)
+    {
+        if (PreparingUpdate || FormDirty || Route != PageRoute.Settings)
+            throw new UpdatePreparationException("请保存正在编辑的内容，再回到设置与版本重启。");
+
+        PreparingUpdate = true;
+        IsEnabled = false;
+        try
+        {
+            using var deadline = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await experiences.FlushDraftsForUpdateAsync(deadline.Token);
+            await Repository.FlushForUpdateAsync(deadline.Token);
+            if (!desktop.SavePreferences())
+                throw new UpdatePreparationException("桌面设置尚未保存，请检查磁盘后重试。");
+            apply();
+            desktop.ExitForUpdate();
+        }
+        catch (OperationCanceledException)
+        {
+            throw new UpdatePreparationException("本机数据仍在保存，请稍后重试。");
+        }
+        finally
+        {
+            PreparingUpdate = false;
+            IsEnabled = true;
+        }
+    }
 
     internal void Navigate(Action action)
     {

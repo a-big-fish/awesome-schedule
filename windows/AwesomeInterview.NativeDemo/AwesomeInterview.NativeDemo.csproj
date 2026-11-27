@@ -1,1 +1,23 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>disable</ImplicitUsings><UseWindowsForms>true</UseWindowsForms><Nullable>enable</Nullable><AssemblyName>AwesomeInterview.NativeDemo</AssemblyName><Version>1.6.0-preview.30</Version><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>../AwesomeInterview.Desktop/Assets/app.ico</ApplicationIcon></PropertyGroup><ItemGroup><Resource Include="../../icon/logo2.png" Link="Assets/logo2.png" /><None Update="PortableStyles/*.json;PortableStyles/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AwesomeInterview.NativeDemo</AssemblyName>
+    <Version>1.6.0-preview.31</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../AwesomeInterview.Desktop/Assets/app.ico</ApplicationIcon>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <WindowsUpdateFeed Condition="'$(WindowsUpdateFeed)' == ''">https://schedule.hunaochufang.xyz/download/windows/updates/</WindowsUpdateFeed>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <AssemblyMetadata Include="WindowsUpdateFeed" Value="$(WindowsUpdateFeed)" />
+    <AssemblyMetadata Include="WindowsUpdatePublicKey" Value="$(WindowsUpdatePublicKey)" />
+    <Resource Include="../../icon/logo2.png" Link="Assets/logo2.png" />
+    <None Update="PortableStyles/*.json;PortableStyles/README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

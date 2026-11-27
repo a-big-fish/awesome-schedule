@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><PackageReference Include="Velopack" Version="1.2.161" /></ItemGroup>
   <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Services/*.cs" Link="Data/%(Filename)%(Extension)" /></ItemGroup>
   <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Controls/QuietScrollViewer.cs" Link="UI/QuietScrollViewer.cs" /></ItemGroup>
   <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableHoverGesture.cs" Link="UI/PortableHoverGesture.cs" /></ItemGroup>

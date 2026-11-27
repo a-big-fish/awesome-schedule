@@ -17,6 +17,7 @@ public sealed partial class WorkspaceRepository : IDisposable
     Task persistTail = Task.CompletedTask;
     Task syncTail = Task.CompletedTask;
     Exception? queuePersistenceError;
+    bool cachePersistenceFailed;
     bool outboxUnavailable;
     SavedConnection? identity;
     int epoch;
@@ -212,8 +213,21 @@ public sealed partial class WorkspaceRepository : IDisposable
     async Task PersistAfterAsync(Task previous, Snapshot value, SavedConnection? saved, string server, int version)
     {
         await previous;
-        try { await cache.SaveSnapshotAsync(server,value); if(saved != null) await cache.SaveConnectionAsync(saved); }
-        catch(Exception error) when(Expected(error)) { if(version == epoch) { Message="服务端操作已成功，但本机缓存保存失败；请稍后同步。"; Changed?.Invoke(); } }
+        try
+        {
+            await cache.SaveSnapshotAsync(server, value);
+            if (saved != null) await cache.SaveConnectionAsync(saved);
+            if (version == epoch) cachePersistenceFailed = false;
+        }
+        catch (Exception error) when (Expected(error))
+        {
+            if (version == epoch)
+            {
+                cachePersistenceFailed = true;
+                Message = "服务端操作已成功，但本机缓存保存失败；请稍后同步。";
+                Changed?.Invoke();
+            }
+        }
     }
     async Task PersistOutboxAfterAsync(Task previous, SyncOutbox value, SavedConnection saved, string server, int version)
     {
@@ -222,6 +236,24 @@ public sealed partial class WorkspaceRepository : IDisposable
         catch(Exception error) when(Expected(error)) { if(version == epoch) { queuePersistenceError=error;Message="待同步修改尚未写入磁盘，仅保留在内存；请勿退出。"; Changed?.Invoke(); } }
     }
     public Task FlushCacheAsync() => persistTail;
+
+    internal async Task FlushForUpdateAsync(CancellationToken token)
+    {
+        await syncGate.WaitAsync(token);
+        try
+        {
+            if (Current != null && (cachePersistenceFailed || queuePersistenceError != null))
+                QueuePersist();
+            await persistTail.WaitAsync(token);
+            if (Current != null && (cachePersistenceFailed || queuePersistenceError != null || outboxUnavailable))
+                throw new UpdatePreparationException("本机缓存或待同步队列尚未安全写盘，请处理同步提示后重试。");
+        }
+        finally
+        {
+            syncGate.Release();
+        }
+    }
+
     public async Task SynchronizeAsync() => await RefreshAsync(true);
     public async Task RefreshCalendarAsync() => await RefreshAsync(false);
     async Task RefreshAsync(bool full)
