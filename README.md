@@ -2,11 +2,11 @@
 
 **一个开源的个人日程工作台。** 把工作、学习和求职安排放进同一张日历，记下还没定时间的想法，按优先级处理今天的事。遇到面试，还可以在这里读简历、记录追问和复盘。
 
-[在线日程表](https://schedule.hunaochufang.xyz/my-schedule) · [面经广场](https://schedule.hunaochufang.xyz/my-schedule/experiences/plaza) · [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows) · [当前开发分支](https://github.com/a-big-fish/awesome-schedule/tree/codex/android-native-pages)
+[在线日程表](https://schedule.hunaochufang.xyz/my-schedule) · [面经广场](https://schedule.hunaochufang.xyz/my-schedule/experiences/plaza) · [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows) · [提交记录](https://github.com/a-big-fish/awesome-schedule/commits/main/)
 
 Awesome Schedule is a self-hosted calendar and task organizer with offline-friendly scheduling, an idea inbox, and tools for interview notes and resume review. It has a Web app and native Android and Windows clients.
 
-本文按在线站点和当前开发分支整理。GitHub 默认分支保留了较早的源码，自建时请使用上述开发分支。游客可先试用示例日程或浏览面经广场列表，登录后进入自己的日程表。
+可从 `main` 分支获取源码。游客可先试用示例日程或浏览面经广场列表，登录后进入自己的日程表。
 
 ## 日程与待安排
 
@@ -28,39 +28,39 @@ Awesome Schedule is a self-hosted calendar and task organizer with offline-frien
 
 - **我的面试**　集中查看面试安排、入会链接和当前 PDF 简历，给一场面试关联对应的面经。
 - **面经整理**　可逐题记录、粘贴全文或导入 Markdown、文字层 PDF。保留多级追问、现场回答和复盘答案，支持预览及导出 Markdown 或 PDF。选择公开的记录可在面经广场按公司浏览。
-- **Web 简历助手**　「练一练」围绕上传的简历提问，可参考个人面经里的相关题目。「简历优化」在原文旁给改写建议并定位 PDF 页码，支持自定义模型、最多双模型流式对照和查看分析历史。日程和面经的常用功能无需配置模型。 [模型与运维说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/app/README.md)
+- **Web 简历助手**　「练一练」围绕上传的简历提问，可参考个人面经里的相关题目。「简历优化」在原文旁给改写建议并定位 PDF 页码，支持自定义模型、最多双模型流式对照和查看分析历史。日程和面经的常用功能无需配置模型。 [模型与运维说明](app/README.md)
 
 ## 客户端
 
 | 客户端 | 可用范围 |
 | --- | --- |
 | Web | FastAPI、Jinja2 和浏览器本地缓存。个人日程为主要入口，自建本地模式也提供企业会议日程。 |
-| Android | 开发分支提供测试版源码。1.3 的业务页原生化和加密离线队列已在本地通过模拟器合成数据验证，待合入开发分支并完成真机验收。 [Android 构建说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/android/README.md) |
-| Windows | WPF 原生预览，含桌面托盘和外观可调的随身日程。下载页现提供 Preview 31 的 ZIP，应用内更新已接入 Velopack，正式签名包和迁移验收待完成。 [Windows 使用与发布说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/windows/README.md) |
+| Android | 原生测试版，提供日程、待办、面经、面试和简历。模拟器已验证加密离线队列和待办断线重连，系统提醒待真机验收。 [Android 构建说明](android/README.md) |
+| Windows | WPF 原生预览，含桌面托盘和外观可调的随身日程。下载页现提供 Preview 31 的 ZIP，应用内更新已接入 Velopack，正式签名包和迁移验收待完成。 [Windows 使用与发布说明](windows/README.md) |
 
-## 开发展望
+## 开发进展
 
-### 已实现
+### 已完成
 
-- [x] **PRD 2.0–2.2 · 个人日程与多用户**　日历、会议邀请解析、日程冲突提醒和个人账号隔离。
-- [x] **PRD 2.3、2.5 · 面经记录和面经广场**　逐题与全文录入、多级追问、文件导入、预览导出，以及公开面经的公司筛选。
-- [x] **PRD 2.6–2.7 · 性能观测和待安排**　服务端请求观测、可拖动的待安排浮窗，以及将 idea 排入日历。
-- [x] **PRD 3.0 · Web 本地优先**　日历和待安排用 JSON 和 IndexedDB 渲染，离线修改走幂等队列。各端使用同一组样例验证核心日视图规则。
-- [x] **近日日程交互**　左侧快速日历、日视图长按排序和 1–20 级优先级。
-- [x] **PRD 3.2 · 简历助手第一阶段**　基于简历的文字练习与逐条优化建议、自定义模型、双模型流式对照和分析历史。
-- [x] **Android 1.3 本地验证与 Windows 原生预览**　Android 原生工作台和加密离线队列已完成模拟器验证。Windows 已提供日程与面试工作台、随身日程和网页下载入口。
+- **日历与日程编辑**　日、周、月视图支持跨天展示、重叠并排和快速跳日。已接入邀请解析、参考资料、个人工作时段、跳过周末、重复任务，以及完成、恢复和逾期处理。
+- **优先级与待安排**　日程可设置 1–20 级优先级，日视图支持长按调整优先级和同级顺序。待安排浮窗可拖动并记住位置，idea 可直接排入日历。
+- **本地读取与后台同步**　Web 日历和待安排从 IndexedDB 读取已有数据，修改先显示，再由队列提交。增加幂等回执、失败退回和断线恢复。数据库暂时不可用时，网页可打开并继续使用已有缓存。Web、服务端和原生客户端用共享样例检查日视图行为。
+- **面试与面经**　面试列表支持搜索、筛选和分页。面经支持多级追问、全文解析、文件导入和 Markdown／PDF 导出，公开面经可按公司浏览。
+- **简历助手**　基于上传的简历练习和改写，建议可定位到原文页。支持添加自定义模型、两个模型并排流式输出，以及回看分析历史。流式回答中途截断时保留已经验证的建议。
+- **Android 与 Windows**　Android 主要业务页面已原生化，日程、待安排和待办使用加密队列，已在模拟器验证待办断线重连。Windows 提供托盘、可调外观的随身日程、网页下载和 Velopack 更新入口，当前可下载 Preview 31。
+- **性能排查**　增加按页面和客户端区分的请求监测，记录简历助手首条建议的耗时。面经列表在一次查询中读取摘要、题目数和总数。
 
-### 待开发或验收
+### 待完成
 
-- [ ] **PRD 3.0 · 同步后续**　根据性能数据评估按资源增量拉取、多设备并发编辑和旧接口下线。
-- [ ] **PRD 3.1 · Web 样式迁移**　保持现有视觉，使用 Tailwind 整理样式并验证桌面、平板和手机布局。
-- [ ] **PRD 2.4、2.8 · 面经复习与游客数据**　面经记忆卡片和逐题 AI 复习，游客自建日程及登录后的数据合并。
-- [ ] **PRD 2.9、3.2 · 模拟面试与复盘**　按企业、岗位和轮次归纳面经里的考察重点及追问，引用这些观察辅助简历优化。补齐目标岗位模拟面试、复盘及评分。
-- [ ] **客户端发布**　Android 1.3 代码合入，以及通知、锁屏、重启和 Doze 的真机验收，Windows 首次签名安装、Preview 30 迁移和端到端自动更新验收。
+- **跨设备日程同步**　评估独立资源的增量拉取与删除同步，明确多设备同时修改的处理方式，再逐步移除旧接口。
+- **网页多端适配**　用 Tailwind 整理现有样式，保持视觉一致，并验证桌面、平板和手机布局。
+- **游客日程与面经复习**　允许游客先保存自己的日程，登录后合并；补充逐题 AI 复习和记忆卡片。
+- **模拟面试与复盘**　按企业、岗位和轮次归纳面经中的考察重点和追问方式，附来源和样本；用于简历优化及模拟面试，并补齐会后复盘与评分。
+- **原生客户端发布验收**　Android 待验证真机提醒、锁屏、重启和 Doze。Windows 待发布签名 EXE，并验证从 ZIP 预览版迁移、重启后恢复数据和自动更新。
 
 ## 自建 Web
 
-服务端需要 Python 3.10+ 和 [uv](https://docs.astral.sh/uv/)。切到当前开发分支后，在仓库根目录运行。
+服务端需要 Python 3.10+ 和 [uv](https://docs.astral.sh/uv/)。在仓库根目录运行。
 
 ```bash
 cp .env.example .env
