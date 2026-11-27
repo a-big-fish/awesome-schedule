@@ -1,34 +1,32 @@
 # Awesome Interview
 
-**开源面试准备工具：面经管理、求职日程、面试复盘与提醒。**
+**开源面试准备工具，支持求职日程、面经复盘和 AI 简历助手。**
 
 [在线体验](https://schedule.hunaochufang.xyz/) · [Android 客户端](android/README.md) · [Windows 客户端](windows/README.md) · [MIT License](LICENSE)
 
-Awesome Interview is a self-hosted interview preparation and job search organizer. Manage interview schedules, collect interview questions and follow-ups, review your answers, and export interview notes to Markdown or PDF. Built with Python, FastAPI and Jinja2, with Android and Windows clients.
+Awesome Interview is a self-hosted workspace for interview scheduling, interview notes, and AI-assisted resume review. It uses FastAPI and Jinja2 and includes Android and Windows clients.
 
 ## 在线体验
 
-访问 **[schedule.hunaochufang.xyz](https://schedule.hunaochufang.xyz/)**。面经广场和个人功能需要登录；可浏览公开面经，并管理自己的日程、简历与面试复盘。注册是否开放以网站当前提示为准，也可以按照下方说明自行部署。
+访问 **[schedule.hunaochufang.xyz](https://schedule.hunaochufang.xyz/)**。面经广场支持游客浏览公开记录，登录后可管理自己的日程、简历和面经。注册状态以站点提示为准。
 
-适用于面试准备、面经整理、求职进度管理及个人日历安排；支持中文内容。普通日程和面经功能无需 LLM 或 AI API 密钥。
+普通日程、面经记录和导出可直接使用。AI 简历助手需要可用的模型配置。
 
-面向求职者的日程与面经工作台，也保留企业集中安排面试的会议日程模块。仓库同时包含 Web 服务、Android 客户端和 Windows 桌面客户端。Web 服务使用 FastAPI 和 Jinja2；两个客户端连接同一个服务端账号与数据。
-
-> 当前状态：Web 功能可运行；Android 为个人测试用 alpha 版，Windows 为个人测试版。客户端提醒、离线场景和安装流程仍需在更多真实设备上验收。iOS 尚未实现。
+Web 服务同时包含个人工作台与企业会议日程。Android 为 alpha 测试版，Windows 提供原生预览和旧版 WebView2 客户端。两端共用服务端账号和数据，设备验收范围见各自说明。
 
 ## 功能
 
-- **个人日程**：录入面试、笔试、课程、会议等安排；解析会议邀请；查看日程冲突。
-- **面试与面经**：逐题、全文或 Markdown／文字层 PDF 导入；记录多级追问、现场回答、复盘答案与面试感受；预览并导出 Markdown／PDF。
-- **面经广场**：登录后浏览用户选择公开且有内容的面经，按面试时间排序、按公司筛选。
-- **企业会议日程**：集中解析和安排会议、面试，并设置工作与休息时段。公开个人模式不会注册此模块。
-- **客户端**：Android 提供原生待办首页、日历和系统提醒；Windows 提供托盘与系统提醒。两端保存受保护的本人只读快照，服务器不可用时可查看上次同步的内容。列表页在线切换时先显示会话内缓存，再在后台刷新。
+- **个人日程**支持日、周、月视图、会议邀请解析及冲突检查。Web 日历可先读取本地缓存，支持本地优先写入并在后台同步。
+- **面经管理**支持逐题录入、全文解析、Markdown 或文字层 PDF 导入，记录多级追问与复盘，并导出 Markdown 或 PDF。
+- **面经广场**展示公开面经，可按公司筛选。
+- **Web 简历助手**在「我的面试」中提供 PDF 预览、基于简历的专项练习，以及可定位原文的改写建议。简历优化可选最多两个模型，对照逐条流式结果并回看分析历史。详见 [Web 使用与运维说明](app/README.md)。
+- **企业会议日程**集中解析和安排会议与面试，可设置工作与休息时段。本地模式提供企业入口。
 
 ## 仓库结构
 
 | 目录 | 内容 |
 | --- | --- |
-| `app/` | Web 服务、页面、API、业务逻辑和静态资源 |
+| `app/` | Web 服务、页面、API、业务逻辑和静态资源。参见 [Web 说明](app/README.md) |
 | `interviewschedule/` | 跨模块的时间处理工具 |
 | `android/` | Android 应用，详见 [Android 说明](android/README.md) |
 | `windows/` | Windows 桌面应用，详见 [Windows 说明](windows/README.md) |
@@ -56,7 +54,7 @@ Windows PowerShell 可用 `Copy-Item .env.example .env` 代替 `cp`。访问 `ht
 
 在 `.env` 中设置 `APP_MODE=public_personal`、持久化存储，以及你自己的 HTTPS `PUBLIC_BASE_URL`。此模式只开放个人应用与账号相关路由。注册默认关闭；如需邀请或开放注册，设置 `REGISTRATION_MODE`，并按需要配置邀请码、邮箱验证和 SMTP。对外部署前应检查 HTTPS、数据库备份、账号与文件访问控制；不要直接把开发服务器暴露到公网。
 
-`.env.example` 只提供空凭据。AI 面试功能若使用外部模型，需要自行配置 `AI_PROVIDER`、`AI_API_BASE_URL`、`AI_API_KEY` 和模型名；普通日程与面经功能不依赖 AI 密钥。
+默认 AI 模型和自定义模型均在服务端调用。配置、数据存储和请求排查见 [Web 使用与运维说明](app/README.md)。
 
 ## 构建客户端
 
@@ -68,13 +66,7 @@ Windows PowerShell 可用 `Copy-Item .env.example .env` 代替 `cp`。访问 `ht
 .\gradlew.bat assembleDebug -PserverOrigin=https://your-domain.example
 ```
 
-**Windows**：安装 .NET 10 SDK，在根目录运行：
-
-```powershell
-dotnet publish windows/AwesomeInterview.Desktop/AwesomeInterview.Desktop.csproj -c Release -r win-x64 --self-contained true -o windows/publish/AwesomeInterview-win-x64
-```
-
-运行 Windows 客户端前，设置 `AWESOME_INTERVIEW_SERVER_URL` 为你的 HTTPS 服务地址；客户端使用 WebView2 Runtime。客户端的构建、提醒和离线限制详见各自目录的 README。
+**Windows** 提供 WPF 原生预览和旧版 WebView2 客户端。选择版本后，按 [Windows 客户端说明](windows/README.md) 构建并配置服务端地址。
 
 ## 测试
 
@@ -82,27 +74,15 @@ dotnet publish windows/AwesomeInterview.Desktop/AwesomeInterview.Desktop.csproj 
 uv run pytest -q
 ```
 
-Android 可在 `android/` 执行 `./gradlew lintDebug`；Windows 可执行 `dotnet build windows/AwesomeInterview.Desktop/AwesomeInterview.Desktop.csproj`。自动化测试不能代替真实设备上的提醒、权限及离线验收。
+前端 JavaScript 测试使用 `node --test tests/js/*.test.cjs`。Android 可在 `android/` 执行 `./gradlew lintDebug`。Windows 的构建和原生检查见 [Windows 客户端说明](windows/README.md)。提醒送达、系统权限和离线行为需在对应设备验证。
 
 ## 安全与数据
 
 - `.env`、本机数据库、`data/`、构建产物、签名材料和运行日志都应留在本机。提交前运行 `git status`，不要提交真实简历、面经或账号数据。
 - `mockups/sample-resume.pdf` 及对应 HTML 是合成样例，仅供界面原型使用。
 - 仓库历史可能仍保留早期开发环境的路径或域名；发布完整 Git 历史前应单独审查历史记录。
-- 本地 `docs/` 以工作文档为主，默认被 Git 忽略；本 README 与客户端 README 包含公开运行所需信息。
+- `docs/` 存放本地 PRD 与工作文档，由 Git 忽略。公开运行说明维护在仓库与各客户端的 README。
 
 ## 许可证
 
 本项目自有代码采用 [MIT License](LICENSE)。`app/static/vendor/` 中的第三方脚本保留各自文件头部的版权与许可证声明。
-
-
-### 运行日志与错误排查
-
-服务启动后，后台线程将日志写入本机 `data/logs/`：
-
-- `app.log`：应用运行日志、HTTP 请求摘要、Uvicorn 日志和数据库连接池日志（INFO 及以上）。简历解析的 DEBUG 详情仍在原有 `resume_parser.log`。
-- `error.log`：上述日志中的 ERROR/CRITICAL 和 HTTP 5xx，包括数据库不可用的 503。普通 404、表单校验失败和慢请求警告不会进入错误日志。
-
-请求摘要包含时间、请求编号、方法、路由模板、状态码和耗时；通过响应头 `X-Request-ID` 可关联同一次请求。新增摘要不采集请求正文、Cookie 或查询参数；异常保存类型及堆栈位置，省略可能含数据库参数的异常值。Uvicorn 原有控制台日志仍由启动配置控制。
-
-每份文件达到 10 MiB 后轮转，保留 5 份备份（如 `error.log.1`），两组日志合计约 120 MiB 上限，不含原有解析日志。可通过 `LOG_DIR`、`LOG_MAX_BYTES`、`LOG_BACKUP_COUNT` 调整。队列最多 10000 条，极端积压时丢弃新日志以避免阻塞业务；不是审计日志。当前适用于单个服务工作进程，多个工作进程应分别设置日志目录。历史控制台输出不会补写进文件，进程启动前的失败仍需查看控制台。日志已被 Git 忽略，不提供公开下载入口。
