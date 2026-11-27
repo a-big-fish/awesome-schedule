@@ -35,7 +35,7 @@ Awesome Interview is a self-hosted calendar and task organizer with offline-frie
 | 客户端 | 可用范围 |
 | --- | --- |
 | Web | FastAPI、Jinja2 和浏览器本地缓存。个人日程为主要入口，自建本地模式也提供企业会议日程。 |
-| Android | 原生测试版，含日历、待安排、待办、面经和简历。日程相关操作使用设备加密缓存和离线队列，系统提醒仍在做真机验收。 [Android 构建说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/android/README.md) |
+| Android | 开发分支提供测试版源码。1.3 的业务页原生化和加密离线队列已在本地通过模拟器合成数据验证，待合入开发分支并完成真机验收。 [Android 构建说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/android/README.md) |
 | Windows | WPF 原生预览，含桌面托盘和外观可调的随身日程。下载页现提供 Preview 30 的 ZIP，应用内更新已接入 Velopack，正式签名包和迁移验收待完成。 [Windows 使用与发布说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/windows/README.md) |
 
 ## 开发展望
@@ -48,7 +48,7 @@ Awesome Interview is a self-hosted calendar and task organizer with offline-frie
 - [x] **PRD 3.0 · Web 本地优先**　日历和待安排用 JSON 和 IndexedDB 渲染，离线修改走幂等队列。各端使用同一组样例验证核心日视图规则。
 - [x] **近日日程交互**　左侧快速日历、日视图长按排序和 1–20 级优先级。
 - [x] **PRD 3.2 · 简历助手第一阶段**　基于简历的文字练习与逐条优化建议、自定义模型、双模型流式对照和分析历史。
-- [x] **Android 1.3 与 Windows 原生预览**　Android 原生工作台和加密离线队列，Windows 日程与面试工作台、随身日程和网页下载入口。
+- [x] **Android 1.3 本地验证与 Windows 原生预览**　Android 原生工作台和加密离线队列已完成模拟器验证。Windows 已提供日程与面试工作台、随身日程和网页下载入口。
 
 ### 待开发或验收
 
@@ -56,7 +56,7 @@ Awesome Interview is a self-hosted calendar and task organizer with offline-frie
 - [ ] **PRD 3.1 · Web 样式迁移**　保持现有视觉，使用 Tailwind 整理样式并验证桌面、平板和手机布局。
 - [ ] **PRD 2.4、2.8 · 面经复习与游客数据**　面经记忆卡片和逐题 AI 复习，游客自建日程及登录后的数据合并。
 - [ ] **PRD 2.9、3.2 · 模拟面试与复盘**　按企业、岗位和轮次归纳面经里的考察重点及追问，引用这些观察辅助简历优化。补齐目标岗位模拟面试、复盘及评分。
-- [ ] **客户端发布**　Android 真机通知、锁屏、重启和 Doze 验收，Windows 首次签名安装、Preview 30 迁移和端到端自动更新验收。
+- [ ] **客户端发布**　Android 1.3 代码合入，以及通知、锁屏、重启和 Doze 的真机验收，Windows 首次签名安装、Preview 30 迁移和端到端自动更新验收。
 
 ## 自建 Web
 
