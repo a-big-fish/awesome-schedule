@@ -41,6 +41,16 @@ $screens = @(
 if ($Round -eq 'native-experiences') {
     $screens = @(@{ Mode = 'native-experiences'; Name = '01-native-experiences.png' })
 }
+if ($Round -eq 'android-1-3') {
+    $screens = @(
+        @{ Mode = 'calendar-contract'; Name = '01-calendar-contract.png' },
+        @{ Mode = 'native-outbox'; Name = '02-native-outbox.png' },
+        @{ Mode = 'native-experiences'; Name = '03-native-experiences.png' },
+        @{ Mode = 'event'; Name = '04-native-event-form.png' },
+        @{ Mode = 'event-detail'; Name = '05-native-event-detail.png' },
+        @{ Mode = 'export'; Name = '06-native-pdf-export.png' }
+    )
+}
 if ($Round -in @('buttons', 'web-sync-v1-1', 'native-calendar-v1-2', 'skill-redesign')) {
     $screens += @{ Mode = 'dashboard-home'; Name = '06-native-home-buttons.png' }
     $screens += @{ Mode = 'dashboard-calendar'; Name = '07-native-calendar-buttons.png' }

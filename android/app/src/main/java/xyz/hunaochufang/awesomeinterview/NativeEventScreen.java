@@ -20,7 +20,6 @@ import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -33,6 +32,10 @@ final class NativeEventScreen extends ScrollView {
         void parse(String rawText);
         void delete(String eventId);
         void complete(String eventId, boolean completed);
+        void resolve(String eventId, String action, ZonedDateTime end);
+        void openResume();
+        java.time.LocalTime workTime(boolean starting);
+        void openSeries(String eventId);
         void back();
     }
 
@@ -48,6 +51,8 @@ final class NativeEventScreen extends ScrollView {
     private TextView startLabel;
     private TextView endLabel;
     private String rawInvitation;
+    private JSONObject sourceIdea;
+    private boolean dateOnly;
 
     NativeEventScreen(Context context, Actions actions) {
         super(context);
@@ -63,6 +68,8 @@ final class NativeEventScreen extends ScrollView {
     String editingEventId() { return eventId; }
 
     void showNew() {
+        dateOnly = false;
+        sourceIdea = null;
         event = null;
         eventId = null;
         rawInvitation = null;
@@ -71,11 +78,34 @@ final class NativeEventScreen extends ScrollView {
         showForm(null);
     }
 
+    void arrangeIdea(JSONObject idea) {
+        dateOnly = false;
+        event = null;
+        eventId = null;
+        rawInvitation = null;
+        sourceIdea = idea;
+        start = ZonedDateTime.now(ZONE).plusHours(1).withMinute(0).withSecond(0).withNano(0);
+        end = start.plusHours(1);
+        showForm(idea);
+    }
+
     void showEvent(JSONObject value) {
+        dateOnly = false;
         event = value;
         eventId = value.optString("id");
         rawInvitation = null;
         renderDetail();
+    }
+
+    void showDraft(JSONObject draft, String id) {
+        dateOnly = false;
+        event = null;
+        eventId = id;
+        rawInvitation = draft.optString("raw_text", "");
+        if (rawInvitation.isEmpty()) rawInvitation = null;
+        sourceIdea = draft.isNull("source_idea_id") ? null :
+                NativeWorkspace.object("id", draft.optString("source_idea_id"));
+        showForm(draft);
     }
 
     void applyParsed(JSONObject value, String rawText) {
@@ -153,27 +183,41 @@ final class NativeEventScreen extends ScrollView {
 
     private void pickDateTime(boolean starting) {
         ZonedDateTime current = starting ? start : end;
-        new DatePickerDialog(getContext(), (picker, year, month, day) ->
-                new TimePickerDialog(getContext(), (clock, hour, minute) -> {
-                    ZonedDateTime picked = LocalDateTime.of(year, month + 1, day, hour, minute).atZone(ZONE);
-                    if (starting) {
-                        start = picked;
-                        end = picked.plusHours(1);
-                    } else end = picked;
-                    startLabel.setText(displayDate(start));
-                    endLabel.setText(displayDate(end));
-                }, current.getHour(), current.getMinute(), true).show(),
+        new DatePickerDialog(getContext(), (picker, year, month, day) -> {
+            var date = java.time.LocalDate.of(year, month + 1, day);
+            if (dateOnly) {
+                acceptDateTime(starting, date.atTime(actions.workTime(starting)).atZone(current.getZone()));
+            } else new TimePickerDialog(getContext(), (clock, hour, minute) ->
+                    acceptDateTime(starting, date.atTime(hour, minute).atZone(current.getZone())),
+                    current.getHour(), current.getMinute(), true).show();
+        },
                 current.getYear(), current.getMonthValue() - 1, current.getDayOfMonth()).show();
     }
 
+    private void acceptDateTime(boolean starting, ZonedDateTime picked) {
+        if (starting) {
+            start = picked;
+            if (eventId == null) end = dateOnly
+                    ? picked.toLocalDate().atTime(actions.workTime(false)).atZone(picked.getZone())
+                    : picked.plusHours(1);
+        } else end = picked;
+        startLabel.setText(displayDate(start));
+        endLabel.setText(displayDate(end));
+    }
+
     private void showForm(JSONObject initial) {
-        if (initial != null) {
+        if (initial != null && initial.has("start_at")) {
             start = parseDate(initial.optString("start_at"), ZonedDateTime.now(ZONE));
             end = parseDate(initial.optString("end_at"), start.plusHours(1));
+            try {
+                ZoneId zone = ZoneId.of(initial.optString("timezone", ZONE.getId()));
+                start = start.withZoneSameInstant(zone);
+                end = end.withZoneSameInstant(zone);
+            } catch (java.time.DateTimeException ignored) { }
         }
         addHeading(eventId == null ? "添加日程" : "编辑日程");
         LinearLayout invitationGroup = null;
-        if (eventId == null) {
+        if (eventId == null && sourceIdea == null) {
             invitationGroup = new LinearLayout(getContext());
             invitationGroup.setOrientation(LinearLayout.VERTICAL);
             body.addView(invitationGroup);
@@ -219,6 +263,20 @@ final class NativeEventScreen extends ScrollView {
         String initialType = initial == null ? "interview" : initial.optString("type", "interview");
         for (int i = 0; i < VALUES.length; i++) if (VALUES[i].equals(initialType)) type.setSelection(i);
         body.addView(type, new LinearLayout.LayoutParams(-1, dp(52)));
+        CheckBox dateMode = new CheckBox(getContext());
+        dateMode.setText("仅选日期，使用个人工作时间");
+        dateMode.setMinHeight(dp(48));
+        dateMode.setChecked(dateOnly);
+        dateMode.setOnCheckedChangeListener((view, checked) -> {
+            dateOnly = checked;
+            if (checked) {
+                start = start.toLocalDate().atTime(actions.workTime(true)).atZone(start.getZone());
+                end = end.toLocalDate().atTime(actions.workTime(false)).atZone(end.getZone());
+                startLabel.setText(displayDate(start));
+                endLabel.setText(displayDate(end));
+            }
+        });
+        body.addView(dateMode);
         addLabel("开始时间");
         startLabel = text(displayDate(start), 16, false);
         startLabel.setGravity(Gravity.CENTER_VERTICAL);
@@ -233,7 +291,7 @@ final class NativeEventScreen extends ScrollView {
         endLabel.setBackground(background(Color.WHITE));
         endLabel.setOnClickListener(v -> pickDateTime(false));
         body.addView(endLabel, new LinearLayout.LayoutParams(-1, dp(52)));
-        EditText position = field("应聘岗位（面试可选）", initial == null ? "" : initial.optString("position"));
+        EditText position = field("应聘岗位（面试可选）", NativeWorkspace.value(initial, "position"));
         View positionLabel = body.getChildAt(body.getChildCount() - 2);
         LinearLayout finalInvitationGroup = invitationGroup;
         type.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
@@ -241,12 +299,40 @@ final class NativeEventScreen extends ScrollView {
                 position.setVisibility(selected == 0 ? View.VISIBLE : View.GONE);
                 positionLabel.setVisibility(selected == 0 ? View.VISIBLE : View.GONE);
                 if (finalInvitationGroup != null)
-                    finalInvitationGroup.setVisibility(selected == 0 ? View.VISIBLE : View.GONE);
+                    finalInvitationGroup.setVisibility(selected == 0 || "meeting".equals(VALUES[selected]) ? View.VISIBLE : View.GONE);
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
         });
-        EditText location = field("地点", initial == null ? "" : initial.optString("location_text"));
-        EditText note = field("备注", initial == null ? "" : initial.optString("note"));
+        EditText room = field("会议号", NativeWorkspace.value(initial, "room_number"));
+        EditText meeting = field("入会链接", NativeWorkspace.value(initial, "meeting_url"));
+        EditText location = field("地点", NativeWorkspace.value(initial, "location_text"));
+        EditText zoneField = field("时区（例如 Asia/Shanghai）", initial == null ? ZONE.getId() : initial.optString("timezone", ZONE.getId()));
+        EditText map = field("地图链接", initial == null || initial.isNull("location_url") ? "" : initial.optString("location_url"));
+        CheckBox workday = new CheckBox(getContext()), skipWeekend = new CheckBox(getContext()), repeatTask = new CheckBox(getContext());
+        workday.setText("仅工作时间显示");
+        skipWeekend.setText("任务跳过周末");
+        repeatTask.setText("添加为重复任务");
+        workday.setChecked(initial != null && initial.optBoolean("workday_only"));
+        skipWeekend.setChecked(initial != null && initial.optBoolean("skip_weekends"));
+        JSONArray oldDays = initial == null ? null : initial.optJSONArray("repeat_weekdays");
+        repeatTask.setChecked(oldDays != null && oldDays.length() > 0);
+        body.addView(workday); body.addView(skipWeekend); body.addView(repeatTask);
+        LinearLayout repeatDays = new LinearLayout(getContext());
+        repeatDays.setOrientation(LinearLayout.VERTICAL);
+        CheckBox[] weekdays = new CheckBox[7];
+        for (int i = 0; i < weekdays.length; i++) {
+            weekdays[i] = new CheckBox(getContext());
+            weekdays[i].setText("周" + "一二三四五六日".charAt(i));
+            for (int j = 0; oldDays != null && j < oldDays.length(); j++)
+                if (oldDays.optInt(j) == i) weekdays[i].setChecked(true);
+            repeatDays.addView(weekdays[i]);
+        }
+        repeatDays.setVisibility(repeatTask.isChecked() ? VISIBLE : GONE);
+        repeatTask.setOnCheckedChangeListener((button, enabled) -> repeatDays.setVisibility(enabled ? VISIBLE : GONE));
+        body.addView(repeatDays);
+        EditText references = field("参考资料（每行一条，可用 名称 | 链接）", referenceText(initial));
+        references.setSingleLine(false);
+        EditText note = field("备注", NativeWorkspace.value(initial, "note"));
         note.setHint("补充准备事项或其他信息（选填）");
         addLabel("系统提醒（默认关闭）");
         int[] offsets = {10, 60, 1440};
@@ -271,13 +357,50 @@ final class NativeEventScreen extends ScrollView {
                 JSONObject payload = new JSONObject();
                 payload.put("title", title.getText().toString().trim());
                 payload.put("event_type", VALUES[type.getSelectedItemPosition()]);
-                payload.put("start_at", start.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
-                payload.put("end_at", end.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
-                payload.put("timezone", "Asia/Shanghai");
+                ZoneId zone;
+                try {zone = ZoneId.of(zoneField.getText().toString().trim());}
+                catch (java.time.DateTimeException error) {zoneField.setError("请输入有效时区"); return;}
+                ZonedDateTime localStart = start.toLocalDateTime().atZone(zone);
+                ZonedDateTime localEnd = end.toLocalDateTime().atZone(zone);
+                JSONArray repeat = new JSONArray();
+                if (repeatTask.isChecked()) {
+                    for (int i = 0; i < weekdays.length; i++) if (weekdays[i].isChecked()) repeat.put(i);
+                    if (repeat.length() == 0 || !localStart.toLocalDate().equals(localEnd.toLocalDate())) {
+                        repeatTask.setError("请选择星期，重复任务的起止必须在同一天"); return;
+                    }
+                }
+                payload.put("start_at", localStart.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+                payload.put("end_at", localEnd.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+                payload.put("timezone", zone.getId());
+                payload.put("repeat_weekdays", repeat);
+                payload.put("workday_only", workday.isChecked());
+                payload.put("skip_weekends", !repeatTask.isChecked() && skipWeekend.isChecked());
+                String roomNumber = room.getText().toString().trim();
+                String meetingUrl = meeting.getText().toString().trim();
+                if (!meetingUrl.isEmpty() && !isWebUrl(meetingUrl)) {meeting.setError("请输入有效的 HTTP 或 HTTPS 链接"); return;}
+                payload.put("room_number", roomNumber.isEmpty() ? JSONObject.NULL : roomNumber);
+                payload.put("meeting_url", meetingUrl.isEmpty() ? JSONObject.NULL : meetingUrl);
+                payload.put("location_url", map.getText().toString().trim().isEmpty() ? JSONObject.NULL : map.getText().toString().trim());
+                JSONArray links = new JSONArray();
+                for (String line : references.getText().toString().split("\n")) {
+                    if (line.trim().isEmpty()) continue;
+                    String[] parts = line.split("\\|", 2);
+                    String url = parts[parts.length - 1].trim();
+                    android.net.Uri uri = android.net.Uri.parse(url);
+                    if (links.length() >= 20 || uri.getHost() == null ||
+                            (!"http".equals(uri.getScheme()) && !"https".equals(uri.getScheme())) || uri.getUserInfo() != null) {
+                        references.setError("请输入最多 20 条有效的 HTTP 或 HTTPS 链接"); return;
+                    }
+                    links.put(new JSONObject().put("title", parts.length == 2 ? parts[0].trim() : "").put("url", url));
+                }
+                payload.put("reference_links", links);
                 payload.put("position", position.getText().toString().trim());
                 payload.put("location_text", location.getText().toString().trim());
                 payload.put("note", note.getText().toString().trim());
                 if (rawInvitation != null && eventId == null) payload.put("raw_invitation", rawInvitation);
+                if (sourceIdea != null && eventId == null) {
+                    payload.put("source_idea_id", sourceIdea.getString("id"));
+                }
                 JSONArray choices = new JSONArray();
                 for (int i = 0; i < checks.length; i++) if (checks[i].isChecked()) choices.put(offsets[i]);
                 payload.put("reminder_offsets_minutes", choices);
@@ -286,6 +409,18 @@ final class NativeEventScreen extends ScrollView {
         });
         button("返回", NativeButtons.Role.OUTLINED).setOnClickListener(v -> actions.back());
         scrollTo(0, 0);
+    }
+
+    private String referenceText(JSONObject initial) {
+        JSONArray links = initial == null ? null : initial.optJSONArray("reference_links");
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; links != null && i < links.length(); i++) {
+            JSONObject link = links.optJSONObject(i);
+            if (link == null) continue;
+            if (!link.optString("title").isEmpty()) result.append(link.optString("title")).append(" | ");
+            result.append(link.optString("url")).append('\n');
+        }
+        return result.toString();
     }
 
     private void renderDetail() {
@@ -307,16 +442,80 @@ final class NativeEventScreen extends ScrollView {
                 body.addView(text(value, 16, false));
             }
         }
-        button("编辑日程", NativeButtons.Role.PRIMARY).setOnClickListener(v -> showForm(event));
+        if (event.optBoolean("workday_only")) body.addView(text("仅在设定的上班时段显示", 14, false));
+        if (event.optBoolean("skip_weekends")) body.addView(text("跳过周末", 14, false));
+        addLink("查看地图", NativeWorkspace.value(event, "location_url"));
+        String room = NativeWorkspace.value(event, "room_number");
+        if (!room.isEmpty()) {addLabel("会议号"); body.addView(text(room, 16, false));}
+        addLink("加入会议", NativeWorkspace.value(event, "meeting_url"));
+        for (JSONObject link : NativeWorkspace.rows(event, "reference_links")) {
+            String title = NativeWorkspace.value(link, "title");
+            String url = NativeWorkspace.value(link, "url");
+            addLink(title.isEmpty() ? url : title, url);
+        }
+        if ("interview".equals(event.optString("type")))
+            button("查看当前简历", NativeButtons.Role.OUTLINED).setOnClickListener(v -> actions.openResume());
+        if (eventId.contains("~")) {
+            button("查看重复系列", NativeButtons.Role.PRIMARY).setOnClickListener(v -> actions.openSeries(eventId.split("~", 2)[0]));
+        } else {
+            button("编辑日程", NativeButtons.Role.PRIMARY).setOnClickListener(v -> showForm(event));
+        }
         boolean done = !event.isNull("completed_at") && !event.optString("completed_at").isEmpty();
-        button(done ? "恢复为未完成" : "标记为已完成", NativeButtons.Role.TONAL)
-                .setOnClickListener(v -> {
-                    actions.complete(eventId, !done);
-                });
+        boolean cancelled = !event.isNull("cancelled_at");
+        if (!cancelled) button(done ? "恢复为未完成" : "标记为已完成", NativeButtons.Role.TONAL)
+                .setOnClickListener(v -> actions.complete(eventId, !done));
+        else body.addView(text("已废除", 14, true));
+        JSONArray repeat = event.optJSONArray("repeat_weekdays");
+        boolean series = repeat != null && repeat.length() > 0 && !eventId.contains("~");
+        if (series && event.isNull("repeat_closed_on"))
+            button("结束重复系列", NativeButtons.Role.OUTLINED).setOnClickListener(v ->
+                    confirm("结束重复系列？", () -> actions.resolve(eventId, "close_repeat", null)));
+        if (!done && !cancelled && !series && !eventId.contains("~") &&
+                parseDate(event.optString("end_at"), ZonedDateTime.now(ZONE)).isBefore(ZonedDateTime.now(ZONE))) {
+            button("延期", NativeButtons.Role.OUTLINED).setOnClickListener(v -> chooseDeadline());
+            button("废除日程", NativeButtons.Role.DANGER).setOnClickListener(v ->
+                    confirm("废除已到期日程？", () -> actions.resolve(eventId, "cancel", null)));
+        }
         button("返回日历", NativeButtons.Role.OUTLINED).setOnClickListener(v -> actions.back());
-        Button delete = button("删除日程", NativeButtons.Role.TEXT);
-        delete.setTextColor(Color.rgb(174, 45, 64));
-        delete.setOnClickListener(v -> actions.delete(eventId));
+        if (!eventId.contains("~")) {
+            Button delete = button("删除日程", NativeButtons.Role.TEXT);
+            delete.setTextColor(Color.rgb(174, 45, 64));
+            delete.setOnClickListener(v -> actions.delete(eventId));
+        }
         scrollTo(0, 0);
+    }
+
+    private void addLink(String title, String url) {
+        if (!isWebUrl(url)) return;
+        android.net.Uri link = android.net.Uri.parse(url);
+        button(title, NativeButtons.Role.TEXT).setOnClickListener(view -> {
+            try {getContext().startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, link));}
+            catch (android.content.ActivityNotFoundException ignored) {
+                android.widget.Toast.makeText(getContext(), "无法打开链接", android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private boolean isWebUrl(String url) {
+        android.net.Uri link = android.net.Uri.parse(url);
+        return ("https".equalsIgnoreCase(link.getScheme()) || "http".equalsIgnoreCase(link.getScheme()))
+                && link.getHost() != null && link.getUserInfo() == null;
+    }
+
+    private void chooseDeadline() {
+        ZonedDateTime initial = ZonedDateTime.now(ZONE).plusHours(1);
+        new DatePickerDialog(getContext(), (picker, year, month, day) ->
+                new TimePickerDialog(getContext(), (clock, hour, minute) -> {
+                    ZonedDateTime deadline = ZonedDateTime.of(year, month + 1, day, hour, minute, 0, 0, ZONE);
+                    if (!deadline.isAfter(ZonedDateTime.now(ZONE))) {
+                        android.widget.Toast.makeText(getContext(), "新结束时间必须晚于当前时间", android.widget.Toast.LENGTH_SHORT).show();
+                    } else actions.resolve(eventId, "defer", deadline);
+                }, initial.getHour(), initial.getMinute(), true).show(),
+                initial.getYear(), initial.getMonthValue() - 1, initial.getDayOfMonth()).show();
+    }
+
+    private void confirm(String title, Runnable action) {
+        new android.app.AlertDialog.Builder(getContext()).setTitle(title).setNegativeButton("取消", null)
+                .setPositiveButton("确认", (dialog, button) -> action.run()).show();
     }
 }

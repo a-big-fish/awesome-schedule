@@ -9,6 +9,13 @@ android {
     compileSdk = 36
 
     buildFeatures { buildConfig = true }
+    sourceSets.getByName("debug").assets.srcDir("../../tests/fixtures")
+    buildTypes.getByName("debug") {
+        if (providers.gradleProperty("emulatorFixture").orNull == "true") {
+            applicationIdSuffix = ".acceptance"
+            buildConfigField("String", "SERVER_ORIGIN", "\"http://10.0.2.2:8878\"")
+        }
+    }
 
     defaultConfig {
         applicationId = "xyz.hunaochufang.awesomeinterview"

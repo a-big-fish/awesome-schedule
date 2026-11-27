@@ -11,10 +11,13 @@ public final class BootReceiver extends BroadcastReceiver {
                 && !Intent.ACTION_TIMEZONE_CHANGED.equals(action)
                 && !Intent.ACTION_TIME_CHANGED.equals(action)
                 && !"android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED".equals(action)) return;
-        try {
-            ReminderScheduler.reschedule(context, OfflineStore.load(context));
-        } catch (Exception ignored) {
-            // No signed-in user's snapshot exists on this device.
-        }
+        PendingResult completion = goAsync();
+        Context app = context.getApplicationContext();
+        new Thread(() -> {
+            try {ReminderScheduler.reschedule(app, OfflineStore.load(app));}
+            catch (Exception ignored) {
+                // No valid signed-in snapshot is available on this device.
+            } finally {completion.finish();}
+        }, "restore-reminders").start();
     }
 }
