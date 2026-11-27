@@ -1,12 +1,81 @@
+import asyncio
 import json
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from time import perf_counter
 
 import httpx
 
 from app.core.config import Settings
-from app.core.exceptions import AIInterviewError
+from app.core.exceptions import AIInterviewError, AIOutputTruncatedError
 from app.model.ai_interview import AIInterviewMessage, AIModelConfig
 from app.service.ai_providers.base import AIInterviewProvider
+
+
+logger = logging.getLogger(__name__)
+
+
+async def _rejected_field(response: httpx.Response, fields: tuple[str, ...]) -> str | None:
+    """Name the request field a gateway rejected, before any output was streamed."""
+    error_body = bytearray()
+    async for chunk in response.aiter_bytes():
+        error_body.extend(chunk[:4096 - len(error_body)])
+        if len(error_body) >= 4096:
+            break
+    try:
+        error = json.loads(error_body).get("error", {})
+        param = error.get("param") if isinstance(error, dict) else None
+    except (AttributeError, ValueError):
+        param = None
+    message = error_body.decode(errors="replace").lower()
+    unsupported = ("unsupported", "not supported", "unknown field", "unrecognized",
+                   "unexpected", "extra inputs", "extra fields", "invalid")
+    for field in fields:
+        if param in (field, f"{field}.type", f"{field}.enabled"):
+            return field
+        if field in message and any(phrase in message for phrase in unsupported):
+            return field
+    return None
+
+
+class _InlineThinking:
+    """Separate an optional leading GLM <think> block from the answer."""
+
+    _start = "<think>"
+    _end = "</think>"
+
+    def __init__(self) -> None:
+        self._pending = ""
+        self._inside = False
+        self._finished = False
+
+    def split(self, chunk: str) -> tuple[int, str]:
+        if self._finished:
+            return 0, chunk
+        self._pending += chunk
+        if not self._inside:
+            text = self._pending.lstrip()
+            if text.startswith(self._start):
+                self._inside = True
+                self._pending = text[len(self._start):]
+            elif self._start.startswith(text):
+                self._pending = text
+                return 0, ""
+            else:
+                self._finished = True
+                return 0, text
+        end = self._pending.find(self._end)
+        if end >= 0:
+            answer = self._pending[end + len(self._end):]
+            self._pending = ""
+            self._finished = True
+            return end, answer
+        # Carry a possible partial closing tag across SSE chunks.
+        remaining = next((size for size in range(len(self._end) - 1, 0, -1)
+                          if self._pending.endswith(self._end[:size])), 0)
+        length = len(self._pending) - remaining
+        self._pending = self._pending[length:]
+        return length, ""
 
 
 class OpenAICompatibleProvider(AIInterviewProvider):
@@ -16,9 +85,15 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         self,
         settings: Settings,
         transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        review_mode: bool = False,
     ) -> None:
         self.settings = settings
         self.transport = transport
+        self.review_mode = review_mode
+
+    def _make_transport(self) -> httpx.AsyncBaseTransport | None:
+        return self.transport
 
     @property
     def name(self) -> str:
@@ -53,11 +128,12 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         self,
         messages: list[AIInterviewMessage],
         model_config: AIModelConfig | None = None,
+        *,
+        on_stage: Callable[[str], Awaitable[None]] | None = None,
+        request_id: str | None = None,
+        model_id: str | None = None,
     ) -> AsyncIterator[str]:
-        base_url, model, api_key = self._resolve_model_settings(
-            self.settings,
-            model_config,
-        )
+        base_url, model, api_key = self._resolve_model_settings(self.settings, model_config)
         if not base_url:
             raise AIInterviewError("AI API URL 未配置，请检查模型配置")
         if not model:
@@ -65,50 +141,134 @@ class OpenAICompatibleProvider(AIInterviewProvider):
         if not api_key:
             raise AIInterviewError("AI API Key 未配置，请检查模型配置或 .env 配置")
 
+        chat_url = self._chat_url(base_url)
+        host = httpx.URL(chat_url).host
         payload = {
             "model": model,
             "messages": [message.model_dump() for message in messages],
-            "max_completion_tokens": self.settings.ai_max_completion_tokens,
             "stream": True,
         }
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        received = False
+        if not self.review_mode:
+            # Reviews deliberately run without an output cap: the upstream default applies.
+            payload["max_completion_tokens"] = self.settings.ai_max_completion_tokens
+        if self.review_mode and host == "api.deepseek.com" and model.casefold().startswith(("deepseek-v4", "deepseek-flash")):
+            payload["thinking"] = {"type": "disabled"}
+        glm_53_review = self.review_mode and model.casefold().rsplit("/", 1)[-1].startswith("glm-5.3")
+        effort = self.settings.ai_reasoning_effort
+        if glm_53_review and effort and effort not in {"low", "high", "max"}:
+            effort = "low"
+        if self.review_mode and effort:
+            payload["reasoning_effort"] = effort
+        inline_thinking = _InlineThinking() if glm_53_review else None
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        started = perf_counter()
+        headers_ms = reasoning_ms = content_ms = None
+        reasoning_chars = content_chars = status = 0
+        finish = "eof"
+
+        def elapsed_ms() -> int:
+            return round((perf_counter() - started) * 1000)
+
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.ai_timeout_seconds,
-                transport=self.transport,
+                transport=self._make_transport(),
             ) as client:
-                async with client.stream(
-                    "POST", self._chat_url(base_url), json=payload, headers=headers
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        payload_text = line[5:].strip()
-                        if not payload_text or payload_text == "[DONE]":
-                            if payload_text == "[DONE]":
-                                break
-                            continue
-                        try:
-                            body = json.loads(payload_text)
-                            choices = body.get("choices")
-                            if not choices:
+                while True:
+                    async with client.stream("POST", chat_url, json=payload, headers=headers) as response:
+                        status = response.status_code
+                        headers_ms = elapsed_ms()
+                        if status in {400, 422} and ("reasoning_effort" in payload or "thinking" in payload):
+                            rejected = await _rejected_field(response, ("reasoning_effort", "thinking"))
+                            if rejected:
+                                logger.info("Resume model compatibility retry request_id=%s host=%s model=%r field=%s",
+                                            request_id, host, model, rejected)
+                                payload.pop(rejected)
                                 continue
-                            delta = choices[0].get("delta", {})
-                            content = delta.get("content")
-                        except (AttributeError, TypeError, json.JSONDecodeError) as exc:
-                            raise AIInterviewError("AI 服务返回的数据格式无效") from exc
-                        if isinstance(content, str) and content:
-                            received = True
-                            yield content
+                        response.raise_for_status()
+                        if on_stage is not None:
+                            # The upstream accepted the request; tell the user before the first token.
+                            await on_stage("accepted")
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            payload_text = line[5:].strip()
+                            if payload_text == "[DONE]":
+                                if finish == "eof":
+                                    finish = "done"
+                                break
+                            if not payload_text:
+                                continue
+                            try:
+                                body = json.loads(payload_text)
+                                if body.get("error"):
+                                    finish = "upstream_error"
+                                    raise AIInterviewError("AI 服务中断了回复，请稍后重试。")
+                                choices = body.get("choices")
+                                if not choices:
+                                    continue
+                                choice = choices[0]
+                                delta = choice.get("delta") or {}
+                                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                                content = delta.get("content")
+                                reason = choice.get("finish_reason")
+                            except (AttributeError, IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                                finish = "invalid_stream"
+                                raise AIInterviewError("AI 服务返回的数据格式无效") from exc
+                            thought_chars = len(reasoning) if isinstance(reasoning, str) else 0
+                            if inline_thinking and isinstance(content, str) and content:
+                                inline_chars, content = inline_thinking.split(content)
+                                thought_chars += inline_chars
+                            if self.review_mode and thought_chars:
+                                reasoning_chars += thought_chars
+                                if reasoning_ms is None:
+                                    reasoning_ms = elapsed_ms()
+                                    if on_stage and content_ms is None:
+                                        await on_stage("reasoning")
+                            if isinstance(content, str) and content:
+                                content_chars += len(content)
+                                if content_ms is None and content.strip():
+                                    content_ms = elapsed_ms()
+                                    if on_stage:
+                                        await on_stage("answer")
+                                yield content
+                            if reason:
+                                finish = reason if reason in ("stop", "length", "content_filter", "tool_calls",
+                                                              "aborted", "insufficient_system_resource") else "other"
+                            if self.review_mode and reason == "length":
+                                message = ("模型达到输出上限，已返回的建议可能不完整。" if content_ms is not None else
+                                           "模型达到输出上限，尚未生成建议正文。")
+                                raise AIOutputTruncatedError(message)
+                        break
         except httpx.HTTPStatusError as exc:
+            finish = "http_error"
+            if self.review_mode and exc.response.status_code in {401, 403}:
+                raise AIInterviewError("模型服务拒绝访问，请检查 API Key 和模型权限。") from exc
+            if self.review_mode and exc.response.status_code == 429:
+                raise AIInterviewError("该接口当前请求过多或额度不足，请稍后重试。") from exc
             raise AIInterviewError("AI 服务返回错误，请稍后重试") from exc
-        except httpx.HTTPError as exc:
+        except httpx.TimeoutException as exc:
+            finish = "timeout"
+            if self.review_mode:
+                raise AIInterviewError("等待模型服务返回数据超时。") from exc
             raise AIInterviewError("无法连接 AI 服务，请检查网络和配置") from exc
+        except httpx.HTTPError as exc:
+            finish = "network_error"
+            raise AIInterviewError("无法连接 AI 服务，请检查网络和配置") from exc
+        except asyncio.CancelledError:
+            finish = "cancelled"
+            raise
+        finally:
+            if self.review_mode:
+                logger.info(
+                    "Resume model upstream request_id=%s model_id=%s host=%s model=%r status=%s headers_ms=%s "
+                    "first_reasoning_ms=%s first_content_ms=%s total_ms=%s finish=%s "
+                    "reasoning_chars=%s content_chars=%s token_budget=%s",
+                    request_id, model_id, host, model, status, headers_ms, reasoning_ms, content_ms, elapsed_ms(), finish,
+                    reasoning_chars, content_chars,
+                    "unlimited" if self.review_mode else self.settings.ai_max_completion_tokens,
+                )
 
-        if not received:
-            raise AIInterviewError("AI 服务返回了空回复")
+        if (self.review_mode and content_ms is None) or not content_chars:
+            message = "模型只返回了推理进度，尚未生成建议正文。" if reasoning_chars else "AI 服务返回了空回复"
+            raise AIInterviewError(message)

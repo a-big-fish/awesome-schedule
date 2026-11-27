@@ -1,7 +1,11 @@
 {% extends "personal_base.html" %}
 {% block title %}{{ heading }} - Awesome Schedule{% endblock %}
+{% block body_class %}personal-app personal-scroll-page auth-page {{ 'auth-embedded' if embedded else '' }}{% endblock %}
 {% block navigation %}<nav class="page-nav"><a class="nav-link" href="/">首页</a>{% if mode != 'login' %}<a class="nav-link" href="/auth/login">登录</a>{% endif %}</nav>{% endblock %}
 {% block content %}
+{% if mode == 'login' %}
+{% include '_auth_login_panel.html' %}
+{% else %}
 <section class="card personal-form-page">
   <h1 class="section-title">{{ heading }}</h1>
   {% if message %}<p class="parse-tip">{{ message }}</p>{% endif %}
@@ -36,4 +40,6 @@
   {% if mode == 'login' %}<p>{% if request.app.state.settings.smtp_host %}<a href="/auth/forgot-password">忘记密码？</a> · <a href="/auth/resend-verification">重新发送验证邮件</a>{% endif %}{% if request.app.state.settings.registration_mode != 'closed' %}<a href="/auth/register">创建账号</a>{% endif %}</p>{% endif %}
   {% if mode == 'register' and email_verification_required %}<p><a href="/auth/resend-verification">没有收到验证邮件？重新发送</a></p>{% endif %}
 </section>
+{% endif %}
 {% endblock %}
+{% block scripts %}{{ super() }}<script src="{{ asset_url('js/auth_panel.js') }}" defer></script>{% endblock %}

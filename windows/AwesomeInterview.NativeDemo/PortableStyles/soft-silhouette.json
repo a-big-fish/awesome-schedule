@@ -1,0 +1,13 @@
+{
+  "Version": 1,
+  "Name": "清透淡影",
+  "OverallTransparency": 50,
+  "BackgroundTransparency": 100,
+  "BorderTransparency": 100,
+  "TextTransparency": 30,
+  "Style": {
+    "GlassStrength": 0,
+    "GlassRadius": 8,
+    "GlassFeather": 10
+  }
+}

@@ -220,29 +220,66 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 60000 - Date.now() % 60000 + 25);
   }
 
+  let nowScrollGeneration = 0;
   function centerNowLine() {
+    const generation = ++nowScrollGeneration;
     const wrap = document.querySelector('.time-grid-wrap');
-    const line = document.querySelector('[data-now-line]');
+    const line = wrap?.querySelector('[data-now-line]');
     if (!wrap || !line || line.hidden) return;
+    wrap.scrollTo({top: 0, behavior: 'instant'});
+    // Paint the top once before beginning the adaptive scroll to the current time.
     requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+      if (generation !== nowScrollGeneration || !wrap.isConnected || line.hidden) return;
       const wrapRect = wrap.getBoundingClientRect();
       const lineRect = line.getBoundingClientRect();
       const lineTop = lineRect.top - wrapRect.top + wrap.scrollTop;
       const targetTop = lineTop + lineRect.height / 2 - wrap.clientHeight / 2;
-      wrap.scrollTop = Math.max(0, targetTop);
+      wrap.scrollTo({top: Math.max(0, targetTop),
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'});
+      });
+    });
+  }
+
+  function focusCalendarDate() {
+    const month = document.querySelector('.personal-period-month');
+    if (!month) {
+      centerNowLine();
+      return;
+    }
+    const day = month.querySelector('.personal-period-day.is-selected')
+      || month.querySelector('.personal-period-day.is-today:not(.outside-month)');
+    if (!day) return;
+    requestAnimationFrame(() => {
+      if (!month.isConnected) return;
+      const dayRect = day.getBoundingClientRect();
+      const maxTop = month.scrollHeight - month.clientHeight;
+      if (maxTop > 0) {
+        const viewportTop = month.getBoundingClientRect().top + month.clientTop;
+        const target = month.scrollTop + dayRect.top - viewportTop
+          + (dayRect.height - month.clientHeight) / 2;
+        month.scrollTo({top: Math.max(0, Math.min(maxTop, target)), behavior: 'instant'});
+      } else if (dayRect.top < 0 || dayRect.bottom > window.innerHeight) {
+        day.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'});
+      }
     });
   }
 
   updateNowLines();
-  centerNowLine();
+  focusCalendarDate();
   scheduleNowLineUpdate();
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) updateNowLines();
     scheduleNowLineUpdate();
   });
-  document.addEventListener('personal:navigated', () => {
+  document.addEventListener('personal:navigated', (event) => {
     updateNowLines();
+    if (event.detail?.resetScroll !== false) focusCalendarDate();
     scheduleNowLineUpdate();
+  });
+  document.addEventListener('personal:focus-now', () => {
+    updateNowLines();
+    focusCalendarDate();
   });
 
   const dateScope = document.querySelector('[data-date-scope]');

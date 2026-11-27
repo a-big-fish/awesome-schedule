@@ -1,11 +1,13 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from uuid import uuid5, NAMESPACE_URL
 
 from app.core.exceptions import PersonalEventConflictWarning
+from app.core.performance import timed_phase
 from app.mapper.base_my_resume_mapper import BaseMyResumeMapper
 from app.mapper.base_personal_event_mapper import BasePersonalEventMapper
 from app.model.meeting_entry import MeetingEntry
-from app.model.personal_event import PersonalEvent, PersonalEventType
+from app.model.personal_event import DEFAULT_EVENT_PRIORITY, PersonalEvent, PersonalEventPriority, PersonalEventType
 from app.shared.invitation_parser import InvitationParser
 
 
@@ -35,16 +37,83 @@ class PersonalScheduleService:
     def list_events(self) -> list[PersonalEvent]:
         return self.mapper.list_all(self.owner_id)
 
+    @timed_phase("interview_options")
+    def list_interview_options(self) -> list[dict]:
+        """Load the small projection used by interview-note association forms."""
+        options = self.mapper.list_interview_options(self.owner_id)
+        return [{**option, "start_at": option["start_at"].astimezone(ZoneInfo("Asia/Shanghai"))}
+                for option in options]
+
     def get_event(self, event_id: str) -> PersonalEvent | None:
+        if "~" in event_id:
+            parent_id, day_text = event_id.rsplit("~", 1)
+            parent = self.mapper.find_by_id(parent_id, self.owner_id)
+            try:
+                day = date.fromisoformat(day_text)
+            except ValueError:
+                return None
+            return self.repeat_occurrence(parent, day) if parent else None
         return self.mapper.find_by_id(event_id, self.owner_id)
+
+    @staticmethod
+    def repeat_occurrence(event: PersonalEvent, day: date) -> PersonalEvent | None:
+        zone = ZoneInfo(event.timezone)
+        start, end = event.start_at.astimezone(zone), event.end_at.astimezone(zone)
+        if (not event.repeat_weekdays or day.weekday() not in event.repeat_weekdays or day < start.date()
+                or (event.repeat_closed_on and day.isoformat() >= event.repeat_closed_on)):
+            return None
+        today = datetime.now(zone).date()
+        streak = missed = 0
+        cursor = start.date()
+        while cursor <= min(day, today):
+            if cursor.weekday() in event.repeat_weekdays:
+                if cursor.isoformat() in event.repeat_completions:
+                    streak += 1
+                elif datetime.combine(cursor, end.time(), zone) < datetime.now(zone):
+                    missed += 1
+                    streak = 0
+            cursor += timedelta(days=1)
+        return event.model_copy(update={
+            "id": f"{event.id}~{day.isoformat()}",
+            "start_at": datetime.combine(day, start.time(), zone),
+            "end_at": datetime.combine(day, end.time(), zone),
+            "completed_at": event.repeat_completions.get(day.isoformat()),
+            "repeat_streak": streak, "repeat_missed": missed,
+        })
+
+    def close_repeat(self, event_id: str) -> PersonalEvent:
+        parent = self.get_event(event_id.split("~", 1)[0])
+        if not parent or not parent.repeat_weekdays:
+            raise LookupError("重复任务不存在")
+        parent.repeat_closed_on = (datetime.now(ZoneInfo(parent.timezone)).date() + timedelta(days=1)).isoformat()
+        parent.updated_at = datetime.now(ZoneInfo(parent.timezone))
+        return self.mapper.save(parent)
 
     def conflicting_events(self, proposed: PersonalEvent) -> list[PersonalEvent]:
         return [
             event for event in self.list_events()
             if event.id != proposed.id
+            and event.cancelled_at is None
             and proposed.start_at < event.end_at
             and proposed.end_at > event.start_at
+            and self._shares_active_day(proposed, event)
         ]
+
+    @staticmethod
+    def _shares_active_day(first: PersonalEvent, second: PersonalEvent) -> bool:
+        if not first.skip_weekends and not second.skip_weekends:
+            return True
+        zone = ZoneInfo("Asia/Shanghai")
+        start = max(first.start_at, second.start_at).astimezone(zone)
+        end = min(first.end_at, second.end_at).astimezone(zone)
+        day = start.date()
+        for offset in range(7):
+            candidate = day + timedelta(days=offset)
+            if datetime.combine(candidate, datetime.min.time(), zone) >= end:
+                break
+            if candidate.weekday() < 5:
+                return True
+        return False
 
     def save_event(self, event: PersonalEvent, confirm_overlap: bool = False) -> PersonalEvent:
         if event.owner_id != self.owner_id:
@@ -65,26 +134,51 @@ class PersonalScheduleService:
         timezone: str = "Asia/Shanghai",
         location_text: str | None = None,
         location_url: str | None = None,
+        reference_links: list[dict] | None = None,
         note: str | None = None,
         position: str | None = None,
+        room_number: str | None = None,
+        meeting_url: str | None = None,
+        repeat_weekdays: list[int] | None = None,
+        skip_weekends: bool | None = None,
+        workday_only: bool = False,
+        priority: PersonalEventPriority = DEFAULT_EVENT_PRIORITY,
         reminder_offsets_minutes: list[int] | None = None,
         confirm_overlap: bool = False,
+        source_idea_id: str | None = None,
+        event_id: str | None = None,
     ) -> PersonalEvent:
+        idea_event_id = str(uuid5(NAMESPACE_URL, f"idea:{self.owner_id}:{source_idea_id}")) if source_idea_id else None
+        if idea_event_id:
+            existing = self.get_event(idea_event_id)
+            if existing:
+                return existing
         profile = self.profile_mapper.get(self.profile_id) if event_type == "interview" else None
         event = PersonalEvent(
             owner_id=self.owner_id,
             type=event_type,
+            repeat_weekdays=repeat_weekdays or [],
+            workday_only=workday_only,
+            priority=priority,
+            skip_weekends=skip_weekends if skip_weekends is not None else start_at.weekday() < 5,
             title=title.strip(),
             start_at=_localize(start_at, timezone),
             end_at=_localize(end_at, timezone),
             timezone=timezone,
             location_text=location_text or None,
             location_url=location_url or None,
+            reference_links=reference_links or [],
             note=note or None,
             position=position or None if event_type == "interview" else None,
+            room_number=room_number,
+            meeting_url=meeting_url,
             resume_id=profile.resume_id if profile else None,
             reminder_offsets_minutes=reminder_offsets_minutes or [],
         )
+        if idea_event_id:
+            event.id = idea_event_id
+        elif event_id:
+            event.id = event_id
         return self.save_event(event, confirm_overlap)
 
     def from_invitation(
@@ -99,8 +193,15 @@ class PersonalScheduleService:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
         platform: str | None = None,
+        room_number: str | None = None,
         meeting_url: str | None = None,
         location_text: str | None = None,
+        location_url: str | None = None,
+        reference_links: list[dict] | None = None,
+        repeat_weekdays: list[int] | None = None,
+        skip_weekends: bool | None = None,
+        workday_only: bool = False,
+        priority: PersonalEventPriority = DEFAULT_EVENT_PRIORITY,
         reminder_offsets_minutes: list[int] | None = None,
     ) -> PersonalEvent:
         """Preview a shared parser result as a personal event without persisting it."""
@@ -108,21 +209,27 @@ class PersonalScheduleService:
         resolved_type: PersonalEventType = event_type or (
             "interview" if facts.kind_hint == "interview" else "meeting"
         )
-        profile = self.profile_mapper.get(self.profile_id)
+        profile = self.profile_mapper.get(self.profile_id) if resolved_type == "interview" else None
         return PersonalEvent(
             owner_id=self.owner_id,
             type=resolved_type,
+            repeat_weekdays=repeat_weekdays or [],
+            workday_only=workday_only,
+            priority=priority,
+            skip_weekends=skip_weekends if skip_weekends is not None else (start_at or facts.start_time).weekday() < 5,
             title=(title or facts.subject or ("未命名面试" if resolved_type == "interview" else "未命名会议")).strip(),
             start_at=_localize(start_at, timezone) if start_at else facts.start_time,
             end_at=_localize(end_at, timezone) if end_at else facts.end_time,
             timezone=timezone,
             source="invitation",
+            location_url=location_url,
             raw_invitation=raw_text,
             position=(position or facts.position_hint) if resolved_type == "interview" else None,
             platform=platform or facts.platform,
-            room_number=facts.room_number,
+            room_number=room_number or facts.room_number,
             meeting_url=meeting_url or facts.meeting_url,
             location_text=location_text or None,
+            reference_links=reference_links or [],
             note=note or None,
             resume_id=profile.resume_id if profile and resolved_type == "interview" else None,
             reminder_offsets_minutes=reminder_offsets_minutes or [],
@@ -137,7 +244,7 @@ class PersonalScheduleService:
         return self.save_event(event, confirm_overlap)
 
     def update_event(self, event_id: str, confirm_overlap: bool = False, **changes) -> PersonalEvent:
-        current = self.get_event(event_id)
+        current = self.get_event(event_id.split("~", 1)[0])
         if not current:
             raise LookupError("日程不存在")
         timezone = changes.get("timezone", current.timezone)
@@ -150,12 +257,79 @@ class PersonalScheduleService:
         for key in ("start_at", "end_at"):
             if key in changes and isinstance(changes[key], datetime):
                 changes[key] = _localize(changes[key], timezone)
-        updated = current.model_copy(update=changes)
-        updated = PersonalEvent.model_validate(updated.model_dump())
+        updated = PersonalEvent.model_validate({**current.model_dump(), **changes})
         return self.save_event(updated, confirm_overlap)
 
     def delete_event(self, event_id: str) -> bool:
-        return self.mapper.delete(event_id, self.owner_id)
+        return self.mapper.delete(event_id.split("~", 1)[0], self.owner_id)
+
+    def set_event_priority(self, event_id: str, priority: int, priority_order: str | None = None) -> PersonalEvent:
+        """Change only the priority of the event or its owning repeat series."""
+        current = self.get_event(event_id.split("~", 1)[0])
+        if current is None:
+            raise LookupError("日程不存在")
+        values = current.model_dump()
+        values["priority"] = priority
+        if priority_order is not None:
+            values["priority_order"] = priority_order
+        updated = PersonalEvent.model_validate(values)
+        updated.updated_at = datetime.now(ZoneInfo(current.timezone))
+        return self.mapper.save(updated)
+
+    def set_event_completed(self, event_id: str, completed: bool) -> PersonalEvent:
+        """Mark an owned event complete or restore it without changing its schedule."""
+        if "~" in event_id:
+            occurrence = self.get_event(event_id)
+            if occurrence is None:
+                raise LookupError("日程不存在")
+            parent_id, day_text = event_id.rsplit("~", 1)
+            parent = self.get_event(parent_id)
+            if occurrence.start_at.date() > datetime.now(ZoneInfo(parent.timezone)).date():
+                raise ValueError("不能提前完成未来的重复任务")
+            if completed:
+                parent.repeat_completions.setdefault(day_text, datetime.now(ZoneInfo(parent.timezone)))
+            else:
+                parent.repeat_completions.pop(day_text, None)
+            parent.updated_at = datetime.now(ZoneInfo(parent.timezone))
+            self.mapper.save(parent)
+            return self.get_event(event_id)
+        event = self.get_event(event_id)
+        if event is None:
+            raise LookupError("日程不存在")
+        if event.repeat_weekdays:
+            today = datetime.now(ZoneInfo(event.timezone)).date().isoformat()
+            return self.set_event_completed(f"{event.id}~{today}", completed)
+        if event.cancelled_at is not None:
+            raise ValueError("废除日程不能标记完成")
+        if (event.completed_at is not None) == completed:
+            return event
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        event.completed_at = now if completed else None
+        event.updated_at = now
+        return self.mapper.save(event)
+
+    def resolve_overdue(self, event_id: str, action: str, end_at: datetime | None = None) -> PersonalEvent:
+        """Defer or cancel an owned, overdue and unfinished event."""
+        event = self.get_event(event_id)
+        if event is None:
+            raise LookupError("日程不存在")
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        if event.completed_at or event.cancelled_at or event.end_at > now:
+            raise ValueError("仅可处理已到期且未完成的日程")
+        if action == "defer":
+            if end_at is None:
+                raise ValueError("请选择新的结束时间")
+            end_at = _localize(end_at, event.timezone)
+            if end_at < event.end_at or end_at < now:
+                raise ValueError("新结束时间不可早于原结束时间或当前时间")
+            event.end_at = end_at
+        elif action == "cancel":
+            event.cancelled_at = now
+            event.reminder_offsets_minutes = []
+        else:
+            raise ValueError("日程操作无效")
+        event.updated_at = now
+        return self.mapper.save(event)
 
     def migrate_legacy_entry(self, entry: MeetingEntry) -> PersonalEvent:
         """Map a 1.0 personal entry while preserving its identifier and resume link."""

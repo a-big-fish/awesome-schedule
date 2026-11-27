@@ -39,6 +39,7 @@ from app.service.enterprise_calendar_service import EnterpriseCalendarService
 from app.service.personal_schedule_service import PersonalScheduleService
 from app.service.personal_todo_service import PersonalTodoService
 from app.service.interview_experience_service import InterviewExperienceService
+from app.service.personal_resume_service import PersonalResumeStateService
 
 
 @lru_cache
@@ -154,11 +155,29 @@ def get_personal_event_mapper() -> BasePersonalEventMapper:
     return MemoryPersonalEventMapper()
 
 
+@lru_cache
+def get_personal_idea_mapper():
+    from app.mapper.memory_personal_idea_mapper import MemoryPersonalIdeaMapper
+    from app.mapper.postgres_personal_idea_mapper import PostgresPersonalIdeaMapper
+    settings = get_settings()
+    return (PostgresPersonalIdeaMapper(settings=settings)
+            if settings.storage_backend in {"postgres", "rustfs", "minio"} else MemoryPersonalIdeaMapper())
+
+
+def get_personal_idea_service(request: Request, mapper=Depends(get_personal_idea_mapper)):
+    from app.service.personal_idea_service import PersonalIdeaService
+    owner = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
+    return PersonalIdeaService(mapper, owner)
+
+
 def get_personal_schedule_service(
     request: Request,
     mapper: BasePersonalEventMapper = Depends(get_personal_event_mapper),
     profile_mapper: BaseMyResumeMapper = Depends(get_my_resume_mapper),
 ) -> PersonalScheduleService:
+    if getattr(request.state, "is_guest", False):
+        from app.service.guest_calendar_service import build_guest_schedule
+        return build_guest_schedule()
     owner_id = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
     return PersonalScheduleService(mapper=mapper, profile_mapper=profile_mapper, owner_id=owner_id)
 
@@ -192,5 +211,15 @@ def get_interview_experience_service(
     mapper: BaseInterviewExperienceMapper = Depends(get_interview_experience_mapper),
     schedule_service: PersonalScheduleService = Depends(get_personal_schedule_service),
 ) -> InterviewExperienceService:
-    owner_id = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
+    owner_id = "__guest__" if getattr(request.state, "is_guest", False) else (
+        request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local")
     return InterviewExperienceService(mapper, schedule_service, owner_id)
+
+
+def get_personal_resume_state_service(
+    request: Request,
+    profiles: BaseMyResumeMapper = Depends(get_my_resume_mapper),
+    resumes: BaseResumeMapper = Depends(get_resume_mapper),
+) -> PersonalResumeStateService:
+    owner_id = request.state.user.id if request.app.state.settings.app_mode == "public_personal" else "local"
+    return PersonalResumeStateService(profiles, resumes, owner_id)

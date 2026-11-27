@@ -1,0 +1,46 @@
+.personal-brand-links {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2.5vw, 40px);
+  min-width: 0;
+}
+
+.personal-brand-links .windows-download-link {
+  flex: none;
+  white-space: nowrap;
+}
+
+.windows-release {
+  width: min(100%, 640px);
+  margin: 36px auto;
+  padding: clamp(20px, 4vw, 36px);
+}
+
+.windows-release h1 { margin-top: 0; }
+.windows-release h2 { font-size: 17px; }
+.windows-release-details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 20px;
+  margin: 20px 0;
+}
+.windows-release-details dt { color: var(--muted); }
+.windows-release-details dd { margin: 0; }
+.windows-release summary { cursor: pointer; }
+.windows-release-digest { overflow-wrap: anywhere; }
+.windows-download-link:focus-visible,
+.windows-release a:focus-visible,
+.windows-release summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 540px) {
+  .personal-brand-links { gap: 8px; }
+  .personal-brand-links .brand { gap: 6px; }
+  .personal-brand-links .brand span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .personal-brand-links .windows-download-link { padding-inline: 6px; font-size: 12px; }
+}

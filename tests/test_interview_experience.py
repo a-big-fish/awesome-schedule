@@ -419,3 +419,67 @@ def test_feeling_draft_and_export_and_list_counts():
         pdf = client.get(f"/my-schedule/experiences/{experience.id}/export.pdf")
         pdf_text = "\n".join(page.get_text() for page in pymupdf.open(stream=pdf.content, filetype="pdf"))
         assert "整体交流顺畅" in pdf_text
+
+
+def test_own_list_paginates_searches_filters_and_sorts():
+    from datetime import datetime, timedelta, timezone
+
+    app, auth_mapper, mapper, _ = _fixture()
+    user = AuthUser(email="list@example.com", password_hash=hash_password("list-strong-password"),
+                    email_verified=True)
+    other = AuthUser(email="other-list@example.com", password_hash=hash_password("list-strong-password"),
+                     email_verified=True)
+    auth_mapper.create_user(user)
+    auth_mapper.create_user(other)
+    base = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
+    companies = ["顺丰", "恒生电子", "用友金融"]
+    for index in range(25):
+        mapper.save_experience(InterviewExperience(
+            owner_id=user.id, title=f"面经 {index:02d}",
+            company=companies[index % 3],
+            position="Java开发" if index % 2 else "后端开发",
+            is_public=index % 4 in {0, 1},
+            updated_at=base + timedelta(hours=index)))
+    mapper.save_experience(InterviewExperience(owner_id=other.id, title="别人的面经", company="恒生电子"))
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "list-strong-password")
+        first = client.get("/my-schedule/experiences")
+        assert first.status_code == 200
+        assert first.text.count('class="experience-list-item"') == 20
+        assert "共 25 篇" in first.text and "第 1 / 2 页" in first.text
+        assert "别人的面经" not in first.text
+        assert first.text.index("面经 24") < first.text.index("面经 05")
+
+        second = client.get("/my-schedule/experiences?page=2")
+        assert second.text.count('class="experience-list-item"') == 5
+        assert "第 2 / 2 页" in second.text
+        clamped = client.get("/my-schedule/experiences?page=99")
+        assert "第 2 / 2 页" in clamped.text and clamped.text.count('class="experience-list-item"') == 5
+        assert client.get("/my-schedule/experiences?page=0").status_code == 200
+
+        oldest = client.get("/my-schedule/experiences?order=oldest")
+        assert oldest.text.index("面经 00") < oldest.text.index("面经 19")
+
+        searched = client.get("/my-schedule/experiences?q=顺丰")
+        assert "共 9 篇" in searched.text and "恒生电子 ·" not in searched.text
+        position = client.get("/my-schedule/experiences?q=Java开发")
+        assert "共 12 篇" in position.text and "后端开发 ·" not in position.text
+        private_only = client.get("/my-schedule/experiences?visibility=private")
+        assert "共 12 篇" in private_only.text and "公开 · 改为私密" not in private_only.text
+        public_only = client.get("/my-schedule/experiences?visibility=public")
+        assert "共 13 篇" in public_only.text and "私密 · 改为公开" not in public_only.text
+
+        combined = client.get("/my-schedule/experiences?q=恒生电子&visibility=private&order=oldest")
+        assert "共 4 篇" in combined.text
+        empty = client.get("/my-schedule/experiences?q=不存在的公司")
+        assert "没有符合条件的面经" in empty.text
+
+        target = mapper.list_experiences(user.id)[0]
+        toggle = client.post(f"/my-schedule/experiences/{target.id}/visibility", data={
+            "csrf_token": _csrf(client.get("/my-schedule/experiences")),
+            "is_public": "public", "filter_q": "顺丰", "filter_visibility": "private",
+            "filter_order": "oldest", "filter_page": "2",
+        }, follow_redirects=False)
+        assert toggle.status_code == 303
+        assert toggle.headers["location"] == (
+            "/my-schedule/experiences?q=%E9%A1%BA%E4%B8%B0&visibility=private&order=oldest&page=2")

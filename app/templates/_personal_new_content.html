@@ -1,0 +1,66 @@
+<section class="card personal-form-page">
+  <h1 class="section-title">添加日程</h1>
+  {% if not local_template %}<p class="section-description">手动填写，或粘贴邀请后核对解析结果。这里无需填写候选人姓名。</p>{% endif %}
+  {% if error %}<div class="parse-tip error">{{ error }}</div>{% endif %}
+  {% if warnings %}<dialog class="personal-overlap-dialog" data-overlap-dialog aria-labelledby="overlap-title"><h2 id="overlap-title">日程时间有重叠</h2><p>以下安排与当前日程重叠：</p><ul>{% for title in warnings %}<li>{{ title }}</li>{% endfor %}</ul><p>确认后仍可保存。</p><div class="settings-actions"><button type="button" class="btn secondary" data-overlap-close>返回调整</button><button type="button" class="btn" data-overlap-confirm>仍要保存</button></div></dialog>{% endif %}
+  <label class="personal-type-selection">类型
+    <select class="input" name="event_type" form="personal-event-form" required data-event-type>
+    {% for key, label in event_labels.items() %}<option value="{{ key }}" {% if (values.event_type or 'personal') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <form action="/my-schedule/parse" method="post" class="personal-invitation-form" data-invitation-form {% if (values.event_type or 'personal') not in ['interview', 'meeting'] %}hidden{% endif %}>
+    {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ '' if local_template else request.state.csrf_token }}">{% endif %}
+    <label class="form-label" for="personal-raw">解析会议邀请</label>
+    <textarea id="personal-raw" class="textarea" name="raw_text" placeholder="粘贴面试或普通会议邀请文本">{{ values.raw_text or '' }}</textarea>
+    <button class="btn secondary" type="submit">解析并预览</button>
+  </form>
+  <div class="personal-form-divider" data-invitation-divider {% if (values.event_type or 'personal') not in ['interview', 'meeting'] %}hidden{% endif %}>{{ '确认解析结果' if preview else '手动添加' }}</div>
+  <form id="personal-event-form" action="/my-schedule/events" method="post" class="personal-event-form">
+    {% if request.app.state.settings.app_mode == 'public_personal' %}<input type="hidden" name="csrf_token" value="{{ '' if local_template else request.state.csrf_token }}">{% endif %}
+    <input type="hidden" name="source" value="{{ 'invitation' if preview else 'manual' }}">
+    {% if values.source_idea_id %}<input type="hidden" name="source_idea_id" value="{{ values.source_idea_id }}"><p class="parse-tip">内容来自待安排事项，保存日程不会修改原 idea。<a href="/my-schedule/ideas">返回待安排</a></p>{% endif %}
+    {% if preview %}<textarea name="raw_text" hidden>{{ values.raw_text }}</textarea>{% endif %}
+    {% if warnings %}<input type="hidden" name="confirm_overlap" value="true">{% endif %}
+    <label>事件标题 <input class="input" name="title" required value="{{ values.title or '' }}"></label>
+    {% include '_personal_priority.html' %}
+    <div class="personal-form-pair personal-date-range">
+      <div class="personal-time-field" data-time-mode="{{ 'date' if date_only else 'time' }}">
+        <span>开始时间</span>
+        <input type="hidden" name="start_at" value="{{ values.start_at or '' }}" data-time-value>
+        <button class="input personal-time-trigger" type="button" data-time-trigger aria-haspopup="dialog" aria-label="选择开始时间"></button>
+      </div>
+      <div class="personal-time-field" data-time-mode="{{ 'date' if date_only else 'time' }}">
+        <span>结束时间</span>
+        <input type="hidden" name="end_at" value="{{ values.end_at or '' }}" data-time-value>
+        <button class="input personal-time-trigger" type="button" data-time-trigger aria-haspopup="dialog" aria-label="选择结束时间"></button>
+      </div>
+    </div>
+    <div class="personal-date-options">
+      <p class="muted-text personal-date-hint">只选日期时，使用默认工作时间；需要精确安排可切换“指定时间”。默认时段可在个人设置中修改。</p>
+      {% include '_personal_skip_weekends.html' %}
+    </div>
+    {% include '_personal_repeat_options.html' %}
+    <label>时区 <input class="input personal-timezone-input" name="timezone" list="personal-timezones" required value="{{ values.timezone or 'Asia/Shanghai' }}"></label>
+    <fieldset class="personal-reminder-options"><legend>系统提醒（可选，默认关闭）</legend>
+      {% set selected_reminders = values.reminder_offsets_minutes or [] %}
+      <label><input type="checkbox" name="reminder_offsets_minutes" value="10" {% if '10' in selected_reminders %}checked{% endif %}> 提前 10 分钟</label>
+      <label><input type="checkbox" name="reminder_offsets_minutes" value="60" {% if '60' in selected_reminders %}checked{% endif %}> 提前 1 小时</label>
+      <label><input type="checkbox" name="reminder_offsets_minutes" value="1440" {% if '1440' in selected_reminders %}checked{% endif %}> 提前 1 天</label>
+      <p>提醒设置会同步到手机；是否能收到通知取决于该设备的系统权限。</p>
+    </fieldset>
+    <datalist id="personal-timezones"><option value="Asia/Shanghai"><option value="Asia/Tokyo"><option value="Europe/London"><option value="America/New_York"></datalist>
+    <label class="personal-position-field" data-position-field {% if (values.event_type or 'personal') != 'interview' %}hidden{% endif %}>应聘岗位（面试可选） <input class="input" name="position" value="{{ values.position or '' }}"></label>
+    <label>地点 <input class="input" name="location_text" value="{{ values.location_text or '' }}" placeholder="地址、楼宇或线上"></label>
+    {% if preview %}
+    <div class="personal-form-pair">
+      <label>会议平台 <input class="input" name="platform" value="{{ values.platform or '' }}"></label>
+      <label>会议链接 <input class="input" name="meeting_url" value="{{ values.meeting_url or '' }}"></label>
+    </div>
+    {% else %}
+    <label>地图链接（可选） <input class="input" name="location_url" value="{{ values.location_url or '' }}" placeholder="地图地址；视频、文章请放在下方参考资料中"></label>
+    {% endif %}
+    {% include '_personal_reference_links.html' %}
+    <label>备注 <textarea class="textarea" name="note" rows="3">{{ values.note or '' }}</textarea></label>
+    <div class="settings-actions"><a class="btn secondary" href="{{ '/my-schedule/ideas' if values.source_idea_id else '/my-schedule' }}">取消</a><button class="btn" type="submit">{{ '仍保存日程' if warnings else '保存日程' }}</button></div>
+  </form>
+</section>

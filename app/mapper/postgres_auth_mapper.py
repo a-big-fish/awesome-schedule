@@ -1,11 +1,14 @@
 """PostgreSQL accounts, one-time tokens, and revocable sessions."""
 
-from datetime import datetime
+from datetime import date, datetime
+from threading import Lock
+from time import monotonic
 from typing import Callable
 
 import psycopg
 from psycopg.rows import DictRow, dict_row
 
+from app.core.performance import timed_postgres_connect
 from app.core.config import Settings
 from app.core.postgres import ensure_postgres_database
 from app.mapper.base_auth_mapper import BaseAuthMapper
@@ -17,23 +20,46 @@ class PostgresAuthMapper(BaseAuthMapper):
         self,
         settings: Settings | None = None,
         connection_factory: Callable[[], psycopg.Connection[DictRow]] | None = None,
+        *,
+        defer_schema: bool = False,
     ) -> None:
         self.settings = settings
         self._connection_factory = connection_factory or self._default_connection
-        if settings:
-            ensure_postgres_database(settings)
-        self._ensure_schema()
+        self._schema_lock = Lock()
+        self._schema_ready = False
+        self._schema_retry_at = 0.0
+        if not defer_schema:
+            self.prepare_schema()
+
+    def prepare_schema(self) -> None:
+        """Initialize at most once after PostgreSQL becomes reachable."""
+        if self._schema_ready:
+            return
+        with self._schema_lock:
+            if self._schema_ready:
+                return
+            if monotonic() < self._schema_retry_at:
+                raise psycopg.OperationalError("Database schema initialization is waiting to retry")
+            try:
+                if self.settings:
+                    ensure_postgres_database(self.settings)
+                self._ensure_schema()
+            except psycopg.OperationalError:
+                self._schema_retry_at = monotonic() + 3
+                raise
+            self._schema_ready = True
 
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:
             raise RuntimeError("PostgreSQL settings are required")
-        return psycopg.connect(self.settings.postgres_dsn, row_factory=dict_row)
+        return timed_postgres_connect(self.settings.postgres_dsn, row_factory=dict_row)
 
     def _connect(self) -> psycopg.Connection[DictRow]:
+        self.prepare_schema()
         return self._connection_factory()
 
     def _ensure_schema(self) -> None:
-        with self._connect() as connection:
+        with self._connection_factory() as connection:
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS personal_users (
                     id TEXT PRIMARY KEY,
@@ -52,6 +78,8 @@ class PostgresAuthMapper(BaseAuthMapper):
             connection.execute(
                 "ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS display_name TEXT"
             )
+            connection.execute("ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS workday_start TEXT NOT NULL DEFAULT '08:00'")
+            connection.execute("ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS workday_end TEXT NOT NULL DEFAULT '18:00'")
             connection.execute(
                 "ALTER TABLE personal_users ADD COLUMN IF NOT EXISTS "
                 "is_disabled BOOLEAN NOT NULL DEFAULT FALSE"
@@ -86,12 +114,12 @@ class PostgresAuthMapper(BaseAuthMapper):
             cursor = connection.execute("""
                 INSERT INTO personal_users
                     (id, email, username, display_name, password_hash, email_verified,
-                     can_login_without_email_verification, is_admin, is_disabled, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     can_login_without_email_verification, is_admin, is_disabled, created_at, workday_start, workday_end)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
             """, (user.id, user.email, user.username, user.display_name, user.password_hash,
                   user.email_verified, user.can_login_without_email_verification,
-                  user.is_admin, user.is_disabled, user.created_at))
+                  user.is_admin, user.is_disabled, user.created_at, user.workday_start, user.workday_end))
             created = cursor.rowcount == 1
             connection.commit()
         return created
@@ -115,6 +143,21 @@ class PostgresAuthMapper(BaseAuthMapper):
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM personal_users WHERE id = ANY(%s)", (user_ids,)).fetchall()
         return {row["id"]: self._to_user(row) for row in rows}
+
+    def registration_counts_by_day(self) -> dict[date, int]:
+        """Return only daily signup totals in China standard time."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT (created_at AT TIME ZONE 'Asia/Shanghai')::date AS day, "
+                "COUNT(*) AS count FROM personal_users GROUP BY day"
+            ).fetchall()
+        return {row["day"]: row["count"] for row in rows}
+
+    def update_preferences(self, user_id: str, display_name: str, workday_start: str, workday_end: str) -> None:
+        with self._connect() as connection:
+            connection.execute("UPDATE personal_users SET display_name = %s, workday_start = %s, workday_end = %s WHERE id = %s",
+                               (display_name, workday_start, workday_end, user_id))
+            connection.commit()
 
     def update_display_name(self, user_id: str, display_name: str) -> None:
         with self._connect() as connection:
@@ -149,6 +192,19 @@ class PostgresAuthMapper(BaseAuthMapper):
             """, (token_hash, now)).fetchone()
         return AuthSession(**row) if row else None
 
+    def authenticate_session(self, token_hash: str, now: datetime) -> tuple[AuthUser, AuthSession] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT s.token_hash, s.user_id, s.csrf_token, s.expires_at, to_jsonb(u) AS user_data "
+                "FROM personal_sessions s JOIN personal_users u ON u.id=s.user_id "
+                "WHERE s.token_hash=%s AND s.revoked_at IS NULL AND s.expires_at>%s "
+                "AND NOT u.is_disabled", (token_hash, now),
+            ).fetchone()
+        if not row:
+            return None
+        return self._to_user(row["user_data"]), AuthSession(**{key: row[key] for key in (
+            "token_hash", "user_id", "csrf_token", "expires_at")})
+
     def revoke_session(self, token_hash: str) -> None:
         with self._connect() as connection:
             connection.execute("UPDATE personal_sessions SET revoked_at = NOW() WHERE token_hash = %s", (token_hash,))
@@ -179,4 +235,7 @@ class PostgresAuthMapper(BaseAuthMapper):
 
     @staticmethod
     def _to_user(row: DictRow) -> AuthUser:
-        return AuthUser(**dict(row))
+        values = dict(row)
+        if isinstance(values.get("created_at"), str):
+            values["created_at"] = datetime.fromisoformat(values["created_at"])
+        return AuthUser(**values)

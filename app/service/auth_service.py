@@ -102,6 +102,20 @@ class AuthService:
             raise ValueError("请输入有效的邮箱地址")
         return value
 
+    def update_preferences(self, user_id: str, value: str, workday_start: str, workday_end: str) -> AuthUser:
+        name = value.strip()
+        if not name or len(name) > 40 or any(not char.isprintable() for char in name):
+            raise ValueError("用户名请填写 1 到 40 个字符，不能包含换行或控制字符")
+        if not all(re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value) for value in (workday_start, workday_end)):
+            raise ValueError("工作时间请使用 HH:MM 格式")
+        if workday_end <= workday_start:
+            raise ValueError("工作结束时间必须晚于开始时间（同一天内）")
+        self.mapper.update_preferences(user_id, name, workday_start, workday_end)
+        user = self.mapper.get_user(user_id)
+        if user is None:
+            raise LookupError("账号不存在")
+        return user
+
     def update_display_name(self, user_id: str, value: str) -> AuthUser:
         """Set a non-unique public name without changing the login identifier."""
         name = value.strip()
@@ -180,9 +194,7 @@ class AuthService:
     def authenticate(self, raw_token: str | None) -> tuple[AuthUser, AuthSession] | None:
         if not raw_token:
             return None
-        session = self.mapper.find_session(token_hash(raw_token), datetime.now(timezone.utc))
-        user = self.mapper.get_user(session.user_id) if session else None
-        return (user, session) if user and not user.is_disabled else None
+        return self.mapper.authenticate_session(token_hash(raw_token), datetime.now(timezone.utc))
 
     def logout(self, raw_token: str | None) -> None:
         if raw_token:

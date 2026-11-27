@@ -27,7 +27,13 @@ class Settings(BaseSettings):
     pg_dbname: str = "interview-system"
     pg_user: str = "postgres"
     pg_password: str = ""
-    pg_connect_timeout_seconds: float = 5.0
+    pg_connect_timeout_seconds: float = 3.0
+    windows_release_dir: str = "data/windows-release"
+    log_dir: str = "data/logs"
+    log_max_bytes: int = 10 * 1024 * 1024
+    log_backup_count: int = 5
+    performance_enabled: bool = True
+    performance_db_path: str = "data/performance.sqlite3"
 
     rustfs_endpoint_url: str = "http://127.0.0.1:9007"
     rustfs_access_key_id: str = ""
@@ -45,8 +51,12 @@ class Settings(BaseSettings):
     ai_api_base_url: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = "gpt-4o-mini"
+    # Reasoning models default to long hidden "thinking" bursts that make resume reviews feel
+    # stuck; "none" is honoured by OpenAI-compatible gateways (e.g. api.do.top). Empty disables it.
+    ai_reasoning_effort: str = "none"
     ai_timeout_seconds: float = 60.0
     ai_max_completion_tokens: int = 1024
+    resume_models_db_path: str = "data/resume-models.sqlite3"
     ai_interview_default_system_prompt: str = (
         "你是一位经验丰富的IT行业资深面试官，正在协助真人面试官评估候选人。"
         "请基于简历和面试岗位，提出深入追问、压力面试问题和评估建议；"

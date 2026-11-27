@@ -39,6 +39,39 @@ def test_parse_pdf_extracts_text_and_basic_fields(tmp_path):
     assert service.read_text(resume.id).startswith("Name ZhangSan")
 
 
+def test_parse_pdf_records_numeric_upload_phases(tmp_path):
+    from app.core.performance import RequestTimings, request_timings
+    service = ResumeParserService(storage_dir=tmp_path)
+    content = create_sample_pdf(tmp_path / "resume.pdf")
+    timings = RequestTimings()
+    token = request_timings.set(timings)
+    try:
+        service.parse_pdf(content, "resume.pdf")
+    finally:
+        request_timings.reset(token)
+    assert {"resume_storage_write", "pdf_open", "pdf_text", "photo_select", "metadata_save"} <= set(timings.values)
+    assert all(duration >= 0 for duration in timings.values.values())
+
+
+def test_parse_upload_records_the_receive_phase(tmp_path):
+    import asyncio
+    import io
+
+    from starlette.datastructures import UploadFile
+
+    from app.core.performance import RequestTimings, request_timings
+    service = ResumeParserService(storage_dir=tmp_path)
+    content = create_sample_pdf(tmp_path / "resume.pdf")
+    timings = RequestTimings()
+    token = request_timings.set(timings)
+    try:
+        resume = asyncio.run(service.parse_upload(UploadFile(file=io.BytesIO(content), filename="resume.pdf")))
+    finally:
+        request_timings.reset(token)
+    assert resume.file_name == "resume.pdf"
+    assert {"upload_receive", "resume_storage_write", "metadata_save"} <= set(timings.values)
+
+
 def test_parse_pdf_rejects_invalid_file(tmp_path):
     service = ResumeParserService(storage_dir=tmp_path)
     with pytest.raises(ResumeParseError):

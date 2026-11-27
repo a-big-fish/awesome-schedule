@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="workday-start" content="{{ request.state.user.workday_start if request.state.user is defined else '08:00' }}">
+  <meta name="workday-end" content="{{ request.state.user.workday_end if request.state.user is defined else '18:00' }}">
   <title>{% block title %}会议日程规划器{% endblock %}</title>
   <link rel="icon" type="image/png" href="{{ asset_url('img/logo2.png') }}">
   <link rel="stylesheet" href="{{ asset_url('css/style.css') }}">
@@ -22,8 +24,24 @@
         <a class="nav-link" href="/meetings/settings">工作与休息时间</a>
       </nav>{% endblock %}
     </header>
+    {% block after_header %}{% endblock %}
     <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+    {% block footer %}{% endblock %}
   </div>
+  <dialog class="personal-time-dialog" data-time-dialog aria-label="选择日期和时间">
+  <div class="personal-time-dialog-heading">
+    <strong data-time-heading></strong>
+    <button type="button" class="personal-time-close" data-time-close aria-label="关闭">×</button>
+  </div>
+  <div class="personal-time-progress" aria-live="polite" data-time-progress></div>
+  <div class="personal-time-options" data-time-options></div>
+  <div class="personal-time-actions">
+    <button type="button" class="btn secondary personal-time-now" data-time-now>当前时间</button>
+    <button type="button" class="btn secondary" data-time-back>上一步</button>
+    <button type="button" class="btn secondary" data-time-cancel>取消</button>
+  </div>
+</dialog>
+  <script src="{{ asset_url('js/personal_time_picker.js') }}" defer></script>
   {% block scripts %}{% endblock %}
   <script src="{{ asset_url('js/app.js') }}"></script>
 </body>

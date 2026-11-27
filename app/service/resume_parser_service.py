@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import sys
@@ -12,6 +13,7 @@ import pymupdf as fitz
 from fastapi import UploadFile
 
 from app.core.exceptions import ResumeFileNotFoundError, ResumeParseError
+from app.core.performance import measure_phase
 from app.mapper.base_resume_file_storage import ResumeFileStorage
 from app.mapper.base_resume_mapper import BaseResumeMapper
 from app.mapper.local_resume_file_storage import LocalResumeFileStorage
@@ -48,7 +50,7 @@ def _configure_photo_logging(log_dir: Path) -> None:
     if logger.handlers:
         return
     logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+    logger.propagate = True
     log_dir.mkdir(parents=True, exist_ok=True)
     file_handler = _AppendFileHandler(log_dir / "resume_parser.log")
     file_handler.setLevel(logging.DEBUG)
@@ -110,13 +112,16 @@ class ResumeParserService:
         overall_started = perf_counter()
         if upload.filename and not upload.filename.lower().endswith(".pdf"):
             raise ResumeParseError("仅支持 PDF 简历文件")
-        with timer.step("read_upload"):
+        with timer.step("read_upload"), measure_phase("upload_receive"):
             content = await upload.read(MAX_RESUME_BYTES + 1)
         if not content:
             raise ResumeParseError("简历文件为空")
         if len(content) > MAX_RESUME_BYTES:
             raise ResumeParseError("简历文件不得超过 20 MB")
-        resume = self.parse_pdf(
+        # PDF parsing, photo selection and file storage can take seconds. Keep the
+        # HTTP event loop available for calendar reads and other users' requests.
+        resume = await asyncio.to_thread(
+            self.parse_pdf,
             content,
             upload.filename or "resume.pdf",
             timer=timer,
@@ -142,10 +147,10 @@ class ResumeParserService:
             overall_started if overall_started is not None else perf_counter()
         )
         resume_id = str(uuid4())
-        with timer.step("save_pdf"):
+        with timer.step("save_pdf"), measure_phase("resume_storage_write"):
             pdf_key = self.file_storage.save_pdf(content, file_name, resume_id)
         try:
-            with timer.step("open_pdf"):
+            with timer.step("open_pdf"), measure_phase("pdf_open"):
                 doc = fitz.open(stream=content, filetype="pdf")
         except Exception as exc:  # noqa: BLE001
             logger.debug("无法读取 PDF：%s", type(exc).__name__)
@@ -157,14 +162,14 @@ class ResumeParserService:
         seen_xrefs: set[int] = set()
         try:
             for page_number, page in enumerate(doc, start=1):
-                with timer.step("extract_text"):
+                with timer.step("extract_text"), measure_phase("pdf_text"):
                     text_parts.append(page.get_text())
                 for image_index, image_info in enumerate(page.get_images(full=True), start=1):
                     xref = image_info[0]
                     if xref in seen_xrefs:
                         continue
                     seen_xrefs.add(xref)
-                    with timer.step("extract_images"):
+                    with timer.step("extract_images"), measure_phase("pdf_images"):
                         image, bgr = self._extract_image(
                             doc, xref, resume_id, page_number, image_index
                         )
@@ -185,13 +190,13 @@ class ResumeParserService:
             doc.close()
 
         raw_text = "\n".join(part.strip() for part in text_parts if part and part.strip())
-        with timer.step("save_text"):
+        with timer.step("save_text"), measure_phase("resume_storage_write"):
             text_key = self.file_storage.save_text(raw_text, resume_id)
-        with timer.step("select_photo"):
+        with timer.step("select_photo"), measure_phase("photo_select"):
             selection = self.photo_selector.select_one(photo_candidates)
         candidate_photo_id = selection.selected.image_id if selection.selected else None
 
-        with timer.step("save_metadata"):
+        with timer.step("save_metadata"), measure_phase("metadata_save"):
             resume = Resume(
                 id=resume_id,
                 owner_id=owner_id,
@@ -298,13 +303,14 @@ class ResumeParserService:
     def get_resume(self, resume_id: str) -> Resume | None:
         return self.resume_mapper.find_by_id(resume_id)
 
-    def read_pdf(self, resume_id: str) -> bytes:
+    def read_pdf(self, resume_id: str, *, owned_resume: Resume | None = None) -> bytes:
         """Read the stored PDF for a resume through the storage boundary."""
-        resume = self.get_resume(resume_id)
-        if not resume:
+        resume = owned_resume or self.get_resume(resume_id)
+        if not resume or resume.id != resume_id:
             raise ResumeFileNotFoundError(resume_id)
         try:
-            return self.file_storage.read_pdf(resume.pdf_path)
+            with measure_phase("resume_storage"):
+                return self.file_storage.read_pdf(resume.pdf_path)
         except FileNotFoundError as exc:
             raise ResumeFileNotFoundError(resume.pdf_path) from exc
 

@@ -1,0 +1,29 @@
+{
+  "captured_at_china": "2026-11-20 10:22:02",
+  "app_version": "1.0.0-alpha3",
+  "device": "emulator-5554",
+  "apk": "android/app/build/outputs/apk/debug/app-debug.apk",
+  "data": "本地合成示例；不包含真实用户数据",
+  "screens": [
+    "01-calendar-contract.png",
+    "02-native-outbox.png",
+    "03-native-experiences.png",
+    "04-native-event-form.png",
+    "05-native-event-detail.png",
+    "06-native-pdf-export.png",
+    "07-offline-todo-api.png",
+    "08-confirmed-todo-api.png",
+    "09-native-resume-api.png",
+    "10-native-admin-api.png",
+    "11-native-profile-api.png"
+  ],
+  "additional_checks": [
+    "共享日历用例",
+    "Keystore 写入和回执",
+    "飞行模式保存后恢复网络只提交一条待办",
+    "简历版本与原生 PDF 预览",
+    "管理员看板和个人设置"
+  ],
+  "android_api": 35,
+  "api_screens": "独立 acceptance 应用连接本机内存服务"
+}

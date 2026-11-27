@@ -1,0 +1,39 @@
+<section class="card account-profile-card" id="resume-models" data-resume-models aria-labelledby="resume-models-heading">
+  <h2 id="resume-models-heading">AI 模型</h2>
+  <p class="account-profile-hint">用于简历优化与练一练。API Key 只在本机加密保存，页面不会回显；未添加时使用 .env 中的默认模型。</p>
+  <ul class="resume-model-manage-list" data-resume-models-list></ul>
+  <p class="account-profile-hint" data-resume-models-empty hidden>还没有添加自定义模型。</p>
+  <p class="resume-assistant-notice" data-resume-models-status role="status"></p>
+  <div class="settings-actions">
+    <button class="btn" type="button" data-resume-models-add aria-haspopup="dialog">添加模型</button>
+    <a class="btn secondary" href="/my-schedule/interviews">前往简历助手</a>
+  </div>
+  <dialog class="resume-model-dialog" data-resume-models-dialog aria-labelledby="resume-models-dialog-title">
+    <form class="resume-assistant-form" data-resume-models-form>
+      <header class="resume-assistant-header">
+        <h2 id="resume-models-dialog-title">添加 API 模型</h2>
+        <button class="btn secondary small" type="button" data-resume-models-close>关闭</button>
+      </header>
+      <label>显示名称（可选）
+        <input class="input" name="name" maxlength="40" placeholder="例如 DS">
+      </label>
+      <label>API URL
+        <input class="input" name="base_url" type="url" required maxlength="2048"
+               placeholder="https://api.example.com/v1">
+      </label>
+      <p class="account-profile-hint">填写支持模型列表和流式 Chat Completions 的公开 HTTPS 接口。</p>
+      <label>API Key
+        <input class="input" name="api_key" type="password" required maxlength="4096" autocomplete="off">
+      </label>
+      <button class="btn secondary" type="button" data-resume-models-discover>获取可用模型</button>
+      <label>选择模型
+        <select class="input" name="model" required disabled>
+          <option value="">请先获取可用模型</option>
+        </select>
+      </label>
+      <div class="resume-assistant-submit">
+        <button class="btn" type="submit" disabled>保存模型</button>
+      </div>
+    </form>
+  </dialog>
+</section>

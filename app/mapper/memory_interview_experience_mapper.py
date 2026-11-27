@@ -1,5 +1,6 @@
 from threading import RLock
-from datetime import datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from app.mapper.base_interview_experience_mapper import BaseInterviewExperienceMapper
 from app.model.interview_experience import InterviewExperience, InterviewQuestion
@@ -27,10 +28,43 @@ class MemoryInterviewExperienceMapper(BaseInterviewExperienceMapper):
                      if item.owner_id == owner_id]
         return sorted(items, key=lambda item: (item.updated_at, item.id), reverse=True)
 
+    def experience_counts_by_day(self) -> dict[date, tuple[int, int]]:
+        """Aggregate all saved experiences, including private and draft entries."""
+        counts: dict[date, tuple[int, int]] = {}
+        with self._lock:
+            for item in self._experiences.values():
+                day = item.created_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+                public, private = counts.get(day, (0, 0))
+                counts[day] = (public + int(item.is_public), private + int(not item.is_public))
+        return counts
+
     def list_public_experiences(self) -> list[InterviewExperience]:
         with self._lock:
             return [item.model_copy(deep=True) for item in self._experiences.values()
                     if item.is_public]
+
+    def list_public_batch(self, company: str, order: str, offset: int,
+                          limit: int) -> tuple[list[dict], int]:
+        with self._lock:
+            counts = self.count_public_questions()
+            entries = [{"experience": item.model_copy(deep=True),
+                        "question_count": counts.get(item.id, 0)}
+                       for item in self._experiences.values()
+                       if item.is_public and (item.company or "").strip()
+                       and (not company or company.casefold() in item.company.casefold())
+                       and (counts.get(item.id, 0) or (item.feeling or "").strip())]
+        dated = [row for row in entries if row["experience"].interviewed_at]
+        undated = [row for row in entries if not row["experience"].interviewed_at]
+        dated.sort(key=lambda row: (row["experience"].interviewed_at, row["experience"].id),
+                   reverse=order != "oldest")
+        undated.sort(key=lambda row: row["experience"].id, reverse=order != "oldest")
+        entries = dated + undated
+        result = entries[offset:offset + limit]
+        for row in result:
+            item = row["experience"]
+            item.raw_text_draft = ""
+            item.feeling = item.feeling[:111] if item.feeling else None
+        return result, len(entries)
 
     def find_public_experience(self, experience_id: str) -> InterviewExperience | None:
         with self._lock:
@@ -93,6 +127,12 @@ class MemoryInterviewExperienceMapper(BaseInterviewExperienceMapper):
             items = [item.model_copy(deep=True) for item in self._questions.values()
                      if item.experience_id == experience_id]
         return sorted(items, key=lambda item: (item.asked_order, item.id))
+
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        with self._lock:
+            ids = {e.id for e in self._experiences.values() if e.owner_id == owner_id}
+            return sorted([q.model_copy(deep=True) for q in self._questions.values()
+                           if q.experience_id in ids], key=lambda q: (q.asked_order, q.id))
 
     def delete_questions(self, question_ids: list[str], owner_id: str) -> None:
         with self._lock:

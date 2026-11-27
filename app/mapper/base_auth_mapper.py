@@ -1,12 +1,17 @@
 """Persistence boundary for public accounts and sessions."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 
 from app.model.auth import AuthSession, AuthUser
 
 
 class BaseAuthMapper(ABC):
+    def authenticate_session(self, token_hash: str, now: datetime) -> tuple[AuthUser, AuthSession] | None:
+        session = self.find_session(token_hash, now)
+        user = self.get_user(session.user_id) if session else None
+        return (user, session) if user and not user.is_disabled else None
+
     @abstractmethod
     def create_user(self, user: AuthUser) -> bool: ...
 
@@ -20,7 +25,13 @@ class BaseAuthMapper(ABC):
     def get_users(self, user_ids: list[str]) -> dict[str, AuthUser]: ...
 
     @abstractmethod
+    def registration_counts_by_day(self) -> dict[date, int]: ...
+
+    @abstractmethod
     def update_display_name(self, user_id: str, display_name: str) -> None: ...
+
+    @abstractmethod
+    def update_preferences(self, user_id: str, display_name: str, workday_start: str, workday_end: str) -> None: ...
 
     @abstractmethod
     def mark_verified(self, user_id: str) -> None: ...

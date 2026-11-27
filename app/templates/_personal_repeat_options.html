@@ -1,0 +1,4 @@
+{% set repeat_days = values.repeat_weekdays if values and values.repeat_weekdays is defined else (event.repeat_weekdays if event is defined else []) %}
+<fieldset class="personal-repeat-options"><legend><label><input type="checkbox" name="repeat_enabled" value="true" data-repeat-enabled {% if repeat_days %}checked{% endif %}> 添加为重复任务</label></legend>
+<p class="muted-text">每天按所选星期重复，开始和结束时间须在同一天。编辑会修改整个重复任务。</p>
+<div class="personal-repeat-days">{% for day in ['周一','周二','周三','周四','周五','周六','周日'] %}<label><input type="checkbox" name="repeat_weekdays" value="{{ loop.index0 }}" {% if loop.index0 in repeat_days or not repeat_days %}checked{% endif %}>{{ day }}</label>{% endfor %}</div></fieldset>

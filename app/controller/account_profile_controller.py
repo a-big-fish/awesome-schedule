@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.controller.page_controller import templates
 
@@ -20,12 +21,16 @@ def profile_page(request: Request, saved: bool = False):
 async def update_profile(request: Request):
     form = await request.form()
     try:
-        request.app.state.auth_service.update_display_name(
+        await run_in_threadpool(request.app.state.auth_service.update_preferences,
             request.state.user.id, str(form.get("display_name", "")),
+            str(form.get("workday_start", request.state.user.workday_start)),
+            str(form.get("workday_end", request.state.user.workday_end)),
         )
     except ValueError as exc:
         return templates.TemplateResponse(request, "account_profile.html", {
             "user": request.state.user, "saved": False, "error": str(exc),
             "entered_name": str(form.get("display_name", "")),
+            "entered_start": str(form.get("workday_start", request.state.user.workday_start)),
+            "entered_end": str(form.get("workday_end", request.state.user.workday_end)),
         }, status_code=422)
     return RedirectResponse("/my-schedule/profile?saved=1", status_code=303)

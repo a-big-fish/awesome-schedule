@@ -5,14 +5,17 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pymupdf
+from psycopg import OperationalError
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.core.dependencies import (
     get_interview_experience_mapper, get_my_resume_mapper, get_personal_event_mapper,
-    get_resume_parser_service, get_personal_todo_mapper,
+    get_resume_parser_service, get_personal_todo_mapper, get_resume_mapper,
 )
 from app.main import create_app
+from app.core.dependencies import get_personal_idea_mapper
+from app.mapper.memory_personal_idea_mapper import MemoryPersonalIdeaMapper
 from app.mapper.memory_auth_mapper import MemoryAuthMapper
 from app.mapper.memory_my_resume_mapper import MemoryMyResumeMapper
 from app.mapper.memory_personal_event_mapper import MemoryPersonalEventMapper
@@ -20,6 +23,7 @@ from app.mapper.memory_personal_todo_mapper import MemoryPersonalTodoMapper
 from app.mapper.memory_interview_experience_mapper import MemoryInterviewExperienceMapper
 from app.mapper.memory_resume_mapper import MemoryResumeMapper
 from app.model.auth import AuthUser
+from app.model.personal_event import PersonalEvent
 from app.service.auth_service import AuthService, hash_password
 from app.service.resume_parser_service import ResumeParserService
 
@@ -39,6 +43,7 @@ def _public_fixture(tmp_path, *, email_verification_required=True, registration_
         registration_invite_code="trial-invite", smtp_host="mail.test" if email_verification_required else "",
         smtp_from="noreply@test.local" if email_verification_required else "",
         public_base_url="https://testserver",
+        performance_db_path=str(tmp_path / "performance.sqlite3"),
     )
     mapper = MemoryAuthMapper()
     mailer = CapturingMailer()
@@ -51,10 +56,13 @@ def _public_fixture(tmp_path, *, email_verification_required=True, registration_
     resumes = MemoryResumeMapper()
     parser = ResumeParserService(resume_mapper=resumes, storage_dir=tmp_path)
     app.dependency_overrides[get_personal_event_mapper] = lambda: events
+    ideas = MemoryPersonalIdeaMapper()
+    app.dependency_overrides[get_personal_idea_mapper] = lambda: ideas
     app.dependency_overrides[get_personal_todo_mapper] = lambda: todos
     app.dependency_overrides[get_interview_experience_mapper] = lambda: experience_mapper
     app.dependency_overrides[get_my_resume_mapper] = lambda: profiles
     app.dependency_overrides[get_resume_parser_service] = lambda: parser
+    app.dependency_overrides[get_resume_mapper] = lambda: resumes
     return app, mapper, mailer, events, profiles, resumes
 
 
@@ -70,8 +78,49 @@ def _login(client: TestClient, identifier: str, password: str) -> str:
         "csrf_token": _csrf(login_page), "identifier": identifier, "password": password,
     }, follow_redirects=False)
     assert result.status_code == 303
-    assert result.headers["location"] == "/my-schedule/experiences/plaza"
+    assert result.headers["location"] == "/my-schedule"
     return _csrf(client.get("/my-schedule/new"))
+
+
+def test_event_completion_requires_owner_and_csrf(tmp_path):
+    app, mapper, _, events, _, _ = _public_fixture(tmp_path)
+    alice = AuthUser(email="alice-completion@example.com", password_hash=hash_password("alice-password"), email_verified=True)
+    bob = AuthUser(email="bob-completion@example.com", password_hash=hash_password("bob-password"), email_verified=True)
+    assert mapper.create_user(alice) and mapper.create_user(bob)
+    event = events.save(PersonalEvent(
+        owner_id=alice.id, type="personal", title="仅 Alice 的任务",
+        start_at=datetime(2026, 10, 27, 9, tzinfo=ZoneInfo("Asia/Shanghai")),
+        end_at=datetime(2026, 10, 27, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+    ))
+    with TestClient(app, base_url="https://testserver") as alice_client, \
+         TestClient(app, base_url="https://testserver") as bob_client:
+        alice_csrf = _login(alice_client, alice.email, "alice-password")
+        bob_csrf = _login(bob_client, bob.email, "bob-password")
+        path = f"/my-schedule/events/{event.id}/completion"
+        assert alice_client.post(path, data={"completed": "true"}).status_code == 403
+        assert bob_client.post(path, data={"csrf_token": bob_csrf, "completed": "true"}).status_code == 404
+        assert events.find_by_id(event.id, alice.id).completed_at is None
+        assert alice_client.post(path, data={"csrf_token": alice_csrf, "completed": "true"},
+                                 follow_redirects=False).status_code == 303
+        assert events.find_by_id(event.id, alice.id).completed_at is not None
+
+
+def test_login_shows_service_unavailable_when_database_connection_fails(tmp_path, monkeypatch):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+
+    def unavailable(_identifier):
+        raise OperationalError("connection timeout expired")
+
+    monkeypatch.setattr(mapper, "find_user", unavailable)
+    with TestClient(app, base_url="https://testserver") as client:
+        response = client.post("/auth/login", data={
+            "csrf_token": _csrf(client.get("/auth/login")),
+            "identifier": "user@example.com", "password": "test-password",
+        })
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "30"
+    assert "数据库暂时不可用" in response.text
+    assert "user@example.com" in response.text
 
 
 def test_mobile_snapshot_and_reminders_are_owner_scoped(tmp_path):
@@ -110,7 +159,7 @@ def test_mobile_todos_are_owner_scoped_and_require_csrf(tmp_path):
         alice_csrf = _login(alice_client, alice.email, "alice-todo-password")
         bob_csrf = _login(bob_client, bob.email, "bob-todo-password")
         token = alice_client.get("/api/mobile/v1/session").json()
-        assert token == {"user_id": alice.id, "csrf_token": alice_csrf}
+        assert token == {"user_id": alice.id, "csrf_token": alice_csrf, "is_admin": False}
         assert alice_client.post("/api/mobile/v1/todos", data={
             "title": "准备面试", "due_date": "2026-10-10"}).status_code == 403
         created = alice_client.post("/api/mobile/v1/todos", data={
@@ -132,6 +181,68 @@ def test_mobile_todos_are_owner_scoped_and_require_csrf(tmp_path):
         assert alice_client.get("/api/mobile/v1/snapshot").json()["todos"] == []
 
 
+def test_native_event_api_reuses_schedule_validation_and_owner_checks(tmp_path):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+    alice = AuthUser(email="alice-events@example.com", password_hash=hash_password("alice-events-password"), email_verified=True)
+    bob = AuthUser(email="bob-events@example.com", password_hash=hash_password("bob-events-password"), email_verified=True)
+    mapper.create_user(alice)
+    mapper.create_user(bob)
+    payload = {
+        "title": "原生面试日程", "event_type": "interview",
+        "start_at": "2026-10-20T10:00:00+08:00", "end_at": "2026-10-20T11:00:00+08:00",
+        "timezone": "Asia/Shanghai", "position": "后端开发",
+        "reminder_offsets_minutes": [60],
+    }
+    with TestClient(app, base_url="https://testserver") as alice_client, \
+         TestClient(app, base_url="https://testserver") as bob_client:
+        alice_csrf = _login(alice_client, alice.email, "alice-events-password")
+        bob_csrf = _login(bob_client, bob.email, "bob-events-password")
+        assert alice_client.post("/api/mobile/v1/events", json=payload).status_code == 403
+        created = alice_client.post("/api/mobile/v1/events", json=payload,
+                                    headers={"X-CSRF-Token": alice_csrf})
+        assert created.status_code == 201
+        event_id = created.json()["id"]
+        assert created.json()["reminder_offsets_minutes"] == [60]
+        assert bob_client.put(f"/api/mobile/v1/events/{event_id}", json=payload,
+                              headers={"X-CSRF-Token": bob_csrf}).status_code == 404
+        overlap = alice_client.post("/api/mobile/v1/events", json=payload,
+                                    headers={"X-CSRF-Token": alice_csrf})
+        assert overlap.status_code == 409 and overlap.json()["detail"]["conflicts"]
+        updated = alice_client.put(f"/api/mobile/v1/events/{event_id}",
+                                   json={**payload, "title": "已修改"},
+                                   headers={"X-CSRF-Token": alice_csrf})
+        assert updated.status_code == 200 and updated.json()["title"] == "已修改"
+        completion_url = f"/api/mobile/v1/events/{event_id}/completion"
+        assert alice_client.post(completion_url, json={"completed": True}).status_code == 403
+        assert bob_client.post(completion_url, json={"completed": True},
+                               headers={"X-CSRF-Token": bob_csrf}).status_code == 404
+        completed = alice_client.post(completion_url, json={"completed": True},
+                                      headers={"X-CSRF-Token": alice_csrf})
+        assert completed.status_code == 200 and completed.json()["completed_at"]
+        assert completed.json()["start_at"] == updated.json()["start_at"]
+        assert alice_client.post(completion_url, json={"completed": "false"},
+                                 headers={"X-CSRF-Token": alice_csrf}).status_code == 422
+        restored = alice_client.post(completion_url, json={"completed": False},
+                                     headers={"X-CSRF-Token": alice_csrf})
+        assert restored.status_code == 200 and restored.json()["completed_at"] is None
+        assert bob_client.delete(f"/api/mobile/v1/events/{event_id}",
+                                 headers={"X-CSRF-Token": bob_csrf}).status_code == 404
+        assert alice_client.delete(f"/api/mobile/v1/events/{event_id}",
+                                   headers={"X-CSRF-Token": alice_csrf}).status_code == 204
+        assert alice_client.get("/api/mobile/v1/snapshot").json()["events"] == []
+        raw = "会议主题：后端面试\n会议时间：2026/10/21 10:00-11:00 (GMT+08:00) 中国标准时间 - 北京"
+        parsed = alice_client.post("/api/mobile/v1/events/parse", json={"raw_text": raw},
+                                   headers={"X-CSRF-Token": alice_csrf})
+        assert parsed.status_code == 200
+        assert parsed.json()["start_at"].startswith("2026-10-21T10:00")
+        invited = alice_client.post("/api/mobile/v1/events",
+                                    json={**payload, "raw_invitation": raw,
+                                          "start_at": parsed.json()["start_at"],
+                                          "end_at": parsed.json()["end_at"]},
+                                    headers={"X-CSRF-Token": alice_csrf})
+        assert invited.status_code == 201 and invited.json()["source"] == "invitation"
+
+
 def test_public_mode_closes_enterprise_routes_and_requires_login(tmp_path):
     app, _, _, _, _, _ = _public_fixture(tmp_path)
     with TestClient(app, base_url="https://testserver") as client:
@@ -139,7 +250,7 @@ def test_public_mode_closes_enterprise_routes_and_requires_login(tmp_path):
         assert home.status_code == 200
         assert "Awesome Schedule" in home.text
         assert "会议日程" not in home.text
-        assert client.get("/my-schedule", follow_redirects=False).headers["location"].startswith("/auth/login")
+        assert client.get("/my-schedule", follow_redirects=False).status_code == 200
         assert client.post("/my-schedule/events", data={}).status_code == 401
         assert client.get("/api/mobile/v1/snapshot").status_code == 401
         for path in ("/meetings", "/meetings/schedule", "/schedule", "/my-interviews",
@@ -172,14 +283,14 @@ def test_account_registration_verification_reset_and_logout(tmp_path):
         verify_token = re.search(r"token=([\w-]+)", mailer.messages[-1][1]).group(1)
         verified = client.get(f"/auth/verify?token={verify_token}", follow_redirects=False)
         assert verified.status_code == 303
-        assert verified.headers["location"] == "/my-schedule/experiences/plaza"
+        assert verified.headers["location"] == "/my-schedule"
         assert client.get("/my-schedule/experiences/plaza").status_code == 200
         assert client.get(f"/auth/verify?token={verify_token}").status_code == 400
         assert client.get("/auth/login", follow_redirects=False).status_code == 303
         csrf = _csrf(client.get("/my-schedule/new"))
         assert client.post("/auth/logout", data={"csrf_token": "wrong"}).status_code == 403
         assert client.post("/auth/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
-        assert client.get("/my-schedule", follow_redirects=False).status_code == 303
+        assert client.get("/my-schedule", follow_redirects=False).status_code == 200
         forgot = client.get("/auth/forgot-password")
         assert client.post("/auth/forgot-password", data={
             "csrf_token": _csrf(forgot), "email": "user@example.com",
@@ -252,7 +363,8 @@ def test_admin_username_does_not_open_enterprise_app(tmp_path):
         assert 'href="/">首页</a>' not in dashboard.text
         home = client.get("/", follow_redirects=False)
         assert home.status_code == 303
-        assert home.headers["location"] == "/my-schedule/experiences/plaza"
+        assert home.headers["location"] == "/my-schedule"
+        assert 'class="brand" href="/my-schedule"' in dashboard.text
         assert client.get("/meetings").status_code == 404
 
 
@@ -290,6 +402,41 @@ def test_display_name_settings_allow_duplicates_without_changing_login_email(tmp
         assert mapper.get_user(alice.id).display_name == "同名用户"
 
 
+def test_workday_preferences_are_validated_isolated_and_used_for_new_schedules(tmp_path):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email="workday@example.com", display_name="工作时间", password_hash=hash_password("test-password"), email_verified=True)
+    mapper.create_user(user)
+    with TestClient(app, base_url="https://testserver") as client:
+        csrf = _login(client, user.email, "test-password")
+        for start, end in [("18:00", "08:00"), ("08:00", "08:00"), ("25:00", "18:00")]:
+            assert client.post("/my-schedule/profile", data={"csrf_token": csrf, "display_name": "工作时间", "workday_start": start, "workday_end": end}).status_code == 422
+        assert mapper.get_user(user.id).workday_start == "08:00"
+        assert client.post("/my-schedule/profile", data={"csrf_token": csrf, "display_name": "工作时间", "workday_start": "09:30", "workday_end": "17:30"}).status_code == 200
+        page = client.get("/my-schedule/new").text
+        assert 'T09:30"' in page and 'T17:30"' in page
+        assert 'data-time-mode="date"' in page
+        assert mapper.get_user(user.id).email == user.email
+
+
+def test_database_connection_loss_returns_503_without_revoking_session(tmp_path, monkeypatch):
+    app, mapper, _, _, _, _ = _public_fixture(tmp_path)
+    user = AuthUser(email="connection-test@example.com", password_hash=hash_password("test-password"), email_verified=True)
+    mapper.create_user(user)
+    with TestClient(app, base_url="https://testserver") as client:
+        _login(client, user.email, "test-password")
+        original = mapper.authenticate_session
+        def disconnected(*args):
+            raise OperationalError("server closed connection")
+        monkeypatch.setattr(mapper, "authenticate_session", disconnected)
+        response = client.get("/my-schedule", follow_redirects=False)
+        assert response.status_code == 503
+        assert response.headers["retry-after"] == "30"
+        assert response.headers["cache-control"] == "no-store"
+        assert "数据库连接暂时不可用" in response.text
+        monkeypatch.setattr(mapper, "authenticate_session", original)
+        assert client.get("/my-schedule").status_code == 200
+
+
 def test_direct_email_registration_without_verification_or_mail(tmp_path):
     app, mapper, mailer, _, _, _ = _public_fixture(
         tmp_path, email_verification_required=False
@@ -305,7 +452,7 @@ def test_direct_email_registration_without_verification_or_mail(tmp_path):
         }
         created = client.post("/auth/register", data=form, follow_redirects=False)
         assert created.status_code == 303
-        assert created.headers["location"] == "/my-schedule/experiences/plaza"
+        assert created.headers["location"] == "/my-schedule"
         assert client.get("/my-schedule/experiences/plaza").status_code == 200
         account = mapper.find_user("trial@example.com")
         assert account.email_verified is False
@@ -369,4 +516,4 @@ def test_expired_login_form_renders_new_form_instead_of_raw_error(tmp_path):
             "csrf_token": _csrf(stale), "identifier": user.email, "password": "stale-password-123",
         }, follow_redirects=False)
         assert login.status_code == 303
-        assert login.headers["location"] == "/my-schedule/experiences/plaza"
+        assert login.headers["location"] == "/my-schedule"

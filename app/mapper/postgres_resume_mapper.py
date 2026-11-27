@@ -4,6 +4,7 @@ import psycopg
 from psycopg.rows import DictRow, dict_row
 from psycopg.types.json import Json
 
+from app.core.performance import timed_postgres_connect
 from app.core.config import Settings
 from app.core.postgres import ensure_postgres_database
 from app.mapper.base_resume_mapper import BaseResumeMapper
@@ -27,7 +28,7 @@ class PostgresResumeMapper(BaseResumeMapper):
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:
             raise RuntimeError("PostgreSQL settings are required")
-        return psycopg.connect(self.settings.postgres_dsn, row_factory=dict_row)
+        return timed_postgres_connect(self.settings.postgres_dsn, row_factory=dict_row)
 
     def _connect(self) -> psycopg.Connection[DictRow]:
         return self._connection_factory()
@@ -112,6 +113,14 @@ class PostgresResumeMapper(BaseResumeMapper):
                     (resume_id,),
                 )
                 row = cursor.fetchone()
+        return self._to_model(row) if row else None
+
+    def find_summary(self, resume_id: str) -> Resume | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, owner_id, file_name, pdf_path, page_count, created_at "
+                "FROM interview_resumes WHERE id=%s", (resume_id,),
+            ).fetchone()
         return self._to_model(row) if row else None
 
     @staticmethod

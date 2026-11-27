@@ -1,4 +1,4 @@
-﻿from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod
 
 
 class ResumeFileStorage(ABC):
@@ -32,4 +32,16 @@ class ResumeFileStorage(ABC):
     @abstractmethod
     def read_text(self, storage_key: str) -> str:
         """Read parsed resume text."""
+        raise NotImplementedError
+
+    def save_document(self, content: bytes, storage_key: str) -> str:
+        """Store a derived JSON document (e.g. a saved review) and return its key."""
+        raise NotImplementedError
+
+    def read_document(self, storage_key: str) -> bytes:
+        """Read a derived document by key."""
+        raise NotImplementedError
+
+    def list_documents(self, prefix: str) -> list[str]:
+        """List document keys under a prefix, oldest name first."""
         raise NotImplementedError

@@ -1,12 +1,13 @@
 """PostgreSQL storage for independently owned interview experiences."""
 
 from typing import Callable
-from datetime import datetime
+from datetime import date, datetime
 
 import psycopg
 from psycopg.rows import DictRow, dict_row
 from psycopg.types.json import Json
 
+from app.core.performance import timed_postgres_connect
 from app.core.config import Settings
 from app.core.postgres import ensure_postgres_database
 from app.mapper.base_interview_experience_mapper import BaseInterviewExperienceMapper
@@ -25,7 +26,7 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:
             raise RuntimeError("PostgreSQL settings are required")
-        return psycopg.connect(self.settings.postgres_dsn, row_factory=dict_row)
+        return timed_postgres_connect(self.settings.postgres_dsn, row_factory=dict_row)
 
     def _connect(self) -> psycopg.Connection[DictRow]:
         return self._connection_factory()
@@ -83,6 +84,57 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
             ).fetchall()
         return [InterviewExperience.model_validate(row["payload"]) for row in rows]
 
+    def experience_counts_by_day(self) -> dict[date, tuple[int, int]]:
+        """Aggregate visibility for every saved experience without reading note text."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT (COALESCE(NULLIF(payload->>'created_at', '')::timestamptz, updated_at) "
+                "AT TIME ZONE 'Asia/Shanghai')::date AS day, "
+                "COUNT(*) FILTER (WHERE COALESCE((payload->>'is_public')::boolean, TRUE)) "
+                "AS public_count, "
+                "COUNT(*) FILTER (WHERE NOT COALESCE((payload->>'is_public')::boolean, TRUE)) "
+                "AS private_count FROM personal_interview_experiences GROUP BY day"
+            ).fetchall()
+        return {row["day"]: (row["public_count"], row["private_count"]) for row in rows}
+
+    def list_owned_summaries(self, owner_id: str, *, query: str = "", visibility: str = "all",
+                             order: str = "newest", offset: int = 0,
+                             limit: int = 20) -> tuple[list[dict], int]:
+        needle = f"%{query.strip()}%" if query.strip() else None
+        public = None if visibility == "all" else visibility == "public"
+        where = (
+            "FROM personal_interview_experiences e WHERE e.owner_id=%s "
+            "AND (%s::text IS NULL OR COALESCE(e.payload->>'title', '') ILIKE %s::text "
+            "OR COALESCE(e.payload->>'company', '') ILIKE %s::text "
+            "OR COALESCE(e.payload->>'position', '') ILIKE %s::text) "
+            "AND (%s::boolean IS NULL OR COALESCE((e.payload->>'is_public')::boolean, TRUE)=%s::boolean)"
+        )
+        filters = (owner_id, needle, needle, needle, needle, public, public)
+        direction = "ASC" if order == "oldest" else "DESC"
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"WITH eligible AS MATERIALIZED (SELECT e.id, e.updated_at {where}), "
+                "batch AS (SELECT id, updated_at FROM eligible "
+                f"ORDER BY updated_at {direction}, id {direction} LIMIT %s OFFSET %s) "
+                "SELECT totals.total, e.payload - 'raw_text_draft' - 'feeling' AS payload, "
+                "(SELECT COUNT(*) FROM personal_interview_questions q WHERE q.experience_id=b.id) "
+                "AS question_count FROM (SELECT COUNT(*) AS total FROM eligible) totals "
+                "LEFT JOIN batch b ON TRUE LEFT JOIN personal_interview_experiences e ON e.id=b.id "
+                f"ORDER BY b.updated_at {direction}, b.id {direction}",
+                filters + (max(1, limit), max(0, offset)),
+            ).fetchall()
+        return ([{"experience": InterviewExperience.model_validate(row["payload"]),
+                  "question_count": row["question_count"]} for row in rows if row["payload"]],
+                int(rows[0]["total"]) if rows else 0)
+
+    def list_event_experiences(self, owner_id: str, event_id: str) -> list[InterviewExperience]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM personal_interview_experiences WHERE owner_id=%s "
+                "AND linked_event_id=%s ORDER BY updated_at DESC, id DESC", (owner_id, event_id),
+            ).fetchall()
+        return [InterviewExperience.model_validate(row["payload"]) for row in rows]
+
     def list_public_experiences(self) -> list[InterviewExperience]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -103,6 +155,34 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
                 (experience_id,),
             ).fetchone()
         return InterviewExperience.model_validate(row["payload"]) if row else None
+
+    def list_public_batch(self, company: str, order: str, offset: int,
+                          limit: int) -> tuple[list[dict], int]:
+        direction = "ASC" if order == "oldest" else "DESC"
+        pattern = "%" + company.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        # Select the batch first; count questions only for those IDs. The seed row
+        # preserves the total even when the requested batch is empty.
+        query = (
+            "WITH eligible AS (SELECT id, payload FROM personal_interview_experiences e "
+            "WHERE COALESCE((payload->>'is_public')::boolean, TRUE) "
+            "AND NULLIF(BTRIM(COALESCE(payload->>'company', '')), '') IS NOT NULL "
+            "AND COALESCE(payload->>'company', '') ILIKE %s "
+            "AND (NULLIF(BTRIM(COALESCE(payload->>'feeling', '')), '') IS NOT NULL "
+            "OR EXISTS (SELECT 1 FROM personal_interview_questions q WHERE q.experience_id=e.id))), "
+            "batch AS (SELECT id, payload, NULLIF(payload->>'interviewed_at', '')::timestamptz AS interviewed "
+            f"FROM eligible ORDER BY interviewed {direction} NULLS LAST, id {direction} LIMIT %s OFFSET %s) "
+            "SELECT (SELECT COUNT(*) FROM eligible) AS total, "
+            "b.payload - 'raw_text_draft' - 'feeling' || "
+            "jsonb_build_object('feeling', LEFT(b.payload->>'feeling', 111)) AS payload, "
+            "(SELECT COUNT(*) FROM personal_interview_questions q WHERE q.experience_id=b.id) AS question_count "
+            "FROM (SELECT 1) seed LEFT JOIN batch b ON TRUE "
+            f"ORDER BY b.interviewed {direction} NULLS LAST, b.id {direction}"
+        )
+        with self._connect() as connection:
+            rows = connection.execute(query, (pattern, limit, offset)).fetchall()
+        return ([{"experience": InterviewExperience.model_validate(row["payload"]),
+                  "question_count": row["question_count"]} for row in rows if row["payload"]],
+                rows[0]["total"] if rows else 0)
 
     def list_public_questions(self, experience_id: str) -> list[InterviewQuestion]:
         with self._connect() as connection:
@@ -177,6 +257,15 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
                 "JOIN personal_interview_experiences e ON e.id=q.experience_id "
                 "WHERE e.id=%s AND e.owner_id=%s ORDER BY q.asked_order, q.id",
                 (experience_id, owner_id),
+            ).fetchall()
+        return [InterviewQuestion.model_validate(row["payload"]) for row in rows]
+
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT q.payload FROM personal_interview_questions q "
+                "JOIN personal_interview_experiences e ON e.id=q.experience_id "
+                "WHERE e.owner_id=%s ORDER BY q.asked_order, q.id", (owner_id,),
             ).fetchall()
         return [InterviewQuestion.model_validate(row["payload"]) for row in rows]
 

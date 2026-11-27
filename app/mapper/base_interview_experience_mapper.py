@@ -1,7 +1,7 @@
 """Persistence boundary for a user's interview experiences and questions."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 
 from app.model.interview_experience import InterviewExperience, InterviewQuestion
 
@@ -16,8 +16,40 @@ class BaseInterviewExperienceMapper(ABC):
     @abstractmethod
     def list_experiences(self, owner_id: str) -> list[InterviewExperience]: ...
 
+    def list_owned_summaries(self, owner_id: str, *, query: str = "", visibility: str = "all",
+                             order: str = "newest", offset: int = 0,
+                             limit: int = 20) -> tuple[list[dict], int]:
+        """One filtered page of the owner's summaries plus the filtered total."""
+        counts = self.count_questions_by_experience(owner_id)
+        needle = query.strip().casefold()
+        rows = []
+        for item in self.list_experiences(owner_id):
+            if visibility == "public" and not item.is_public:
+                continue
+            if visibility == "private" and item.is_public:
+                continue
+            if needle and needle not in " ".join(
+                    filter(None, [item.title, item.company, item.position])).casefold():
+                continue
+            rows.append({"experience": item.model_copy(update={"raw_text_draft": "", "feeling": None}),
+                         "question_count": counts.get(item.id, 0)})
+        rows.sort(key=lambda row: (row["experience"].updated_at, row["experience"].id),
+                  reverse=order != "oldest")
+        start = max(0, offset)
+        return rows[start:start + max(1, limit)], len(rows)
+
+    def list_event_experiences(self, owner_id: str, event_id: str) -> list[InterviewExperience]:
+        return [item for item in self.list_experiences(owner_id) if item.linked_event_id == event_id]
+
+    @abstractmethod
+    def experience_counts_by_day(self) -> dict[date, tuple[int, int]]: ...
+
     @abstractmethod
     def list_public_experiences(self) -> list[InterviewExperience]: ...
+
+    @abstractmethod
+    def list_public_batch(self, company: str, order: str, offset: int,
+                          limit: int) -> tuple[list[dict], int]: ...
 
     @abstractmethod
     def find_public_experience(self, experience_id: str) -> InterviewExperience | None: ...
@@ -42,6 +74,11 @@ class BaseInterviewExperienceMapper(ABC):
 
     @abstractmethod
     def list_questions(self, experience_id: str, owner_id: str) -> list[InterviewQuestion]: ...
+
+    @abstractmethod
+    def list_owned_questions(self, owner_id: str) -> list[InterviewQuestion]:
+        """Load snapshot questions in one owner-scoped query."""
+        ...
 
     @abstractmethod
     def delete_questions(self, question_ids: list[str], owner_id: str) -> None: ...

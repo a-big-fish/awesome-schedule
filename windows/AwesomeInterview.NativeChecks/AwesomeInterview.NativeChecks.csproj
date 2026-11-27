@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><PackageReference Include="Velopack" Version="1.2.161" /></ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Services/*.cs" Link="Data/%(Filename)%(Extension)" /></ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Controls/QuietScrollViewer.cs" Link="UI/QuietScrollViewer.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableHoverGesture.cs" Link="UI/PortableHoverGesture.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableTextContrast.cs" Link="UI/PortableTextContrast.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableOklch.cs" Link="UI/PortableOklch.cs" />
+  </ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableContrastStability.cs" Link="UI/PortableContrastStability.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableTimelineLayout.cs" Link="UI/PortableTimelineLayout.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../AwesomeInterview.NativeDemo/Desktop/DesktopWindowBounds.cs" Link="UI/DesktopWindowBounds.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlyphLayout.cs" Link="UI/PortableGlyphLayout.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlyphText.cs" Link="UI/PortableGlyphText.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/DesktopPreferences.cs" Link="UI/DesktopPreferences.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableAppearancePreset.cs" Link="UI/PortableAppearancePreset.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableStyle.cs" Link="UI/PortableStyle.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlass.cs" Link="UI/PortableGlass.cs" />
+    <Compile Include="../AwesomeInterview.NativeDemo/Desktop/PortableGlassOptics.cs" Link="UI/PortableGlassOptics.cs" />
+    <None Include="../AwesomeInterview.NativeDemo/PortableStyles/*.json;../AwesomeInterview.NativeDemo/PortableStyles/README.md" Link="PortableStyles/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../tests/fixtures/calendar_projection_v1.json" Link="calendar_projection_v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

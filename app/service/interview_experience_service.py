@@ -9,6 +9,8 @@ from app.model.interview_experience import (
     CATEGORY_LABELS, InterviewExperience, InterviewQuestion, QuestionCategory,
 )
 from app.service.personal_schedule_service import PersonalScheduleService
+from app.model.personal_event import PersonalEvent
+from app.core.performance import timed_phase
 
 
 def _now() -> datetime:
@@ -25,28 +27,19 @@ class InterviewExperienceService:
     def list_experiences(self) -> list[InterviewExperience]:
         return self.mapper.list_experiences(self.owner_id)
 
+    @timed_phase("experience_summaries")
+    def list_summaries(self, query: str = "", visibility: str = "all", order: str = "newest",
+                       page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+        """One filtered, ordered page of the owner's own summaries plus the filtered total."""
+        start = (max(1, page) - 1) * page_size
+        return self.mapper.list_owned_summaries(self.owner_id, query=query, visibility=visibility,
+                                                order=order, offset=start, limit=page_size)
+
     def list_plaza(self, company: str = "", order: str = "newest",
                    page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
         """Return visible, substantive experiences without exposing private fields."""
-        candidates = self.mapper.list_public_experiences()
-        counts = self.mapper.count_public_questions()
-        entries = []
-        for item in candidates:
-            if not (item.company or "").strip():
-                continue
-            if company and company.casefold() not in (item.company or "").casefold():
-                continue
-            count = counts.get(item.id, 0)
-            if not count and not (item.feeling or "").strip():
-                continue
-            entries.append({"experience": item, "question_count": count})
-        dated = [entry for entry in entries if entry["experience"].interviewed_at]
-        undated = [entry for entry in entries if not entry["experience"].interviewed_at]
-        dated.sort(key=lambda entry: (entry["experience"].interviewed_at,
-                                      entry["experience"].id), reverse=order != "oldest")
-        entries = dated + undated
         start = (max(page, 1) - 1) * page_size
-        return entries[start:start + page_size], len(entries)
+        return self.mapper.list_public_batch(company, order, start, page_size)
 
     def get_public_experience(self, experience_id: str) -> tuple[InterviewExperience, list[InterviewQuestion]] | None:
         """Read a public experience only when it contains saved content."""
@@ -73,11 +66,11 @@ class InterviewExperienceService:
         experience.updated_at = _now()
         return self.mapper.save_experience(experience)
 
-    def for_event(self, event_id: str) -> list[InterviewExperience]:
-        event = self.schedule_service.get_event(event_id)
-        if not event or event.type != "interview":
+    def for_event(self, event_id: str, event: PersonalEvent | None = None) -> list[InterviewExperience]:
+        event = event or self.schedule_service.get_event(event_id)
+        if not event or event.type != "interview" or event.id != event_id or event.owner_id != self.owner_id:
             return []
-        return [item for item in self.list_experiences() if item.linked_event_id == event_id]
+        return self.mapper.list_event_experiences(self.owner_id, event_id)
 
     def _event(self, event_id: str | None):
         if not event_id:
@@ -134,6 +127,14 @@ class InterviewExperienceService:
 
     def delete_experience(self, experience_id: str) -> bool:
         return self.mapper.delete_experience(experience_id, self.owner_id)
+
+    def snapshot_experiences(self) -> list[dict]:
+        """Two bounded reads instead of one questions query per experience."""
+        grouped: dict[str, list[dict]] = {}
+        for question in self.mapper.list_owned_questions(self.owner_id):
+            grouped.setdefault(question.experience_id, []).append(question.model_dump(mode="json"))
+        return [{**item.model_dump(mode="json", exclude={"raw_text_draft"}),
+                 "questions": grouped.get(item.id, [])} for item in self.list_experiences()]
 
     def list_questions(self, experience_id: str) -> list[InterviewQuestion]:
         if not self.get_experience(experience_id):

@@ -9,13 +9,20 @@ android {
     compileSdk = 36
 
     buildFeatures { buildConfig = true }
+    sourceSets.getByName("debug").assets.srcDir("../../tests/fixtures")
+    buildTypes.getByName("debug") {
+        if (providers.gradleProperty("emulatorFixture").orNull == "true") {
+            applicationIdSuffix = ".acceptance"
+            buildConfigField("String", "SERVER_ORIGIN", "\"http://10.0.2.2:8878\"")
+        }
+    }
 
     defaultConfig {
         applicationId = "xyz.hunaochufang.awesomeinterview"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.0-alpha2"
+        versionCode = 3
+        versionName = "1.0.0-alpha3"
         val serverOrigin = providers.gradleProperty("serverOrigin")
             .getOrElse("https://example.invalid").trimEnd('/')
         val originUri = URI(serverOrigin)

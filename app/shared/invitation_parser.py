@@ -239,7 +239,7 @@ class InvitationParser:
     def _extract_room_number(self, text: str) -> str | None:
         patterns = [
             r"#\s*腾讯会议\s*[:：]\s*([0-9][0-9\- ]{4,})",
-            r"(?:会议号|会议号码|Meeting ID|Meeting Number)\s*[:：]?\s*([0-9][0-9\- ]{4,})",
+            r"(?:会议号|会议号码|会议\s*ID|Meeting ID|Meeting Number)\s*[:：]?\s*([0-9][0-9\- ]{4,})",
         ]
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)

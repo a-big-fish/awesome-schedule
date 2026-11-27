@@ -1,0 +1,2 @@
+<label class="personal-weekend-option"><input type="checkbox" name="workday_only" value="true" {% if (values.workday_only if values else event.workday_only) %}checked{% endif %}><span title="按个人设置中的上下班时间展示，不改变任务起止时间">仅上班时间显示</span></label>
+<label class="personal-weekend-option"><input type="checkbox" name="skip_weekends" value="true" data-skip-weekends {% if (values.skip_weekends if values else event.skip_weekends) %}checked{% endif %}><span class="personal-weekend-label">任务跳过周末</span><span data-weekend-hint></span></label>

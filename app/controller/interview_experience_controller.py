@@ -1,7 +1,9 @@
 """Server-rendered interview notes, editing forms, and exports."""
 
 import json
+import math
 from datetime import datetime
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +12,7 @@ from pydantic import ValidationError
 
 from app.controller.page_controller import templates
 from app.core.dependencies import get_interview_experience_service
+from app.core.postgres_pool import release_shared_connection
 from app.model.auth import AuthUser
 from app.model.interview_experience import CATEGORY_LABELS
 from app.service.interview_experience_export import (
@@ -93,15 +96,49 @@ def _export_experience(experience, title: str, hide_company: bool,
     })
 
 
+PAGE_SIZE = 20
+
+
+def _list_url(query: str, visibility: str, order: str, page: int) -> str:
+    """Rebuild the own-list URL from already validated parameters only."""
+    params = {}
+    if query:
+        params["q"] = query
+    if visibility != "all":
+        params["visibility"] = visibility
+    if order != "newest":
+        params["order"] = order
+    if page > 1:
+        params["page"] = str(page)
+    return "/my-schedule/experiences" + (f"?{urlencode(params)}" if params else "")
+
+
 @router.get("", response_class=HTMLResponse)
-def experience_list(request: Request,
+def experience_list(request: Request, q: str = "", visibility: str = "all", order: str = "newest",
+                    page: int = 1,
                     service: InterviewExperienceService = Depends(get_interview_experience_service)):
-    items = service.list_experiences()
-    event_options = [event for event in service.schedule_service.list_events()
-                     if event.type == "interview"]
+    query = q.strip()[:100]
+    visibility = visibility if visibility in {"all", "public", "private"} else "all"
+    order = order if order in {"newest", "oldest"} else "newest"
+    requested = max(1, page)
+    summaries, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                             page=requested, page_size=PAGE_SIZE)
+    page_count = max(1, math.ceil(total / PAGE_SIZE))
+    current = min(requested, page_count)
+    if current != requested:
+        summaries, total = service.list_summaries(query=query, visibility=visibility, order=order,
+                                                  page=current, page_size=PAGE_SIZE)
     return templates.TemplateResponse(request, "interview_experience_list.html", {
-        "experiences": items, "event_options": event_options,
-        "count_by_id": service.count_questions_by_experience(),
+        "experiences": [row["experience"] for row in summaries],
+        "count_by_id": {row["experience"].id: row["question_count"] for row in summaries},
+        "event_options": service.schedule_service.list_interview_options(),
+        "total": total, "page": current, "page_count": page_count, "page_size": PAGE_SIZE,
+        "query": query, "visibility": visibility, "order": order,
+        "has_filters": bool(query or visibility != "all" or order != "newest"),
+        "prev_url": _list_url(query, visibility, order, current - 1) if current > 1 else None,
+        "next_url": _list_url(query, visibility, order, current + 1) if current < page_count else None,
+        "reset_url": "/my-schedule/experiences",
+        "list_url": _list_url(query, visibility, order, current),
     })
 
 
@@ -125,20 +162,35 @@ async def create_experience(request: Request,
 
 @router.get("/plaza", response_class=HTMLResponse)
 def experience_plaza(request: Request, company: str = "", order: str = "newest",
-                     page: int = 1,
+                     page: int = 1, batch: bool = False,
                      service: InterviewExperienceService = Depends(get_interview_experience_service)):
     order = order if order in {"newest", "oldest"} else "newest"
     items, total = service.list_plaza(company=company.strip()[:200], order=order,
                                       page=max(1, page))
+    guest = getattr(request.state, "is_guest", False)
+    if guest:
+        # Whitelist summary fields before template/JSON rendering. No body, answers,
+        # feeling, owner ID, author name or hidden DOM with private content.
+        items = [{"guest": True, "experience": {"id": row["experience"].id,
+                  "title": row["experience"].title}}
+                 for row in items]
     auth_service = getattr(request.app.state, "auth_service", None)
-    owner_ids = list({row["experience"].owner_id for row in items})
+    owner_ids = [] if guest else list({row["experience"].owner_id for row in items})
     authors = auth_service.mapper.get_users(owner_ids) if auth_service else {}
     for row in items:
+        if guest:
+            continue
         owner_id = row["experience"].owner_id
         row["author"] = _author_label(authors.get(owner_id), owner_id)
+    next_page = max(1, page) + 1 if max(1, page) * 20 < total else None
+    if batch:
+        return JSONResponse({
+            "html": templates.get_template("_experience_plaza_cards.html").render(items=items),
+            "next_page": next_page, "total": total,
+        })
     return templates.TemplateResponse(request, "interview_experience_plaza.html", {
         "items": items, "total": total, "company": company, "order": order,
-        "page": max(1, page), "page_size": 20,
+        "page": max(1, page), "page_size": 20, "next_page": next_page,
     })
 
 
@@ -165,7 +217,16 @@ async def update_experience_visibility(experience_id: str, request: Request,
         service.set_visibility(experience_id, _form_value(form, "is_public") == "public")
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return RedirectResponse("/my-schedule/experiences", status_code=303)
+    # Return to the same filtered page the toggle came from.
+    visibility = _form_value(form, "filter_visibility")
+    order = _form_value(form, "filter_order")
+    page = _form_value(form, "filter_page")
+    return RedirectResponse(_list_url(
+        _form_value(form, "filter_q").strip()[:100],
+        visibility if visibility in {"all", "public", "private"} else "all",
+        order if order in {"newest", "oldest"} else "newest",
+        int(page) if page.isdigit() and int(page) > 0 else 1,
+    ), status_code=303)
 
 
 @router.get("/{experience_id}", response_class=HTMLResponse)
@@ -211,8 +272,7 @@ def _render_experience_editor(experience_id: str, request: Request, category: st
                        "raw_text_draft": experience.raw_text_draft},
         "category": category, "category_labels": CATEGORY_LABELS, "saved": saved,
         "editor_mode": editor_mode,
-        "event_options": [event for event in service.schedule_service.list_events()
-                          if event.type == "interview"],
+        "event_options": service.schedule_service.list_interview_options(),
         "detail_url": f"/my-schedule/experiences/{experience_id}",
     })
 
@@ -404,7 +464,9 @@ def markdown_export(experience_id: str, style: str = "lines", title: str = "",
                     service: InterviewExperienceService = Depends(get_interview_experience_service)):
     experience = _export_experience(_required(service, experience_id), title, hide_company,
                                     hide_position, hide_interviewed_at)
-    content = export_markdown(experience, service.numbered_questions(experience_id),
+    rows = service.numbered_questions(experience_id)
+    release_shared_connection()  # rendering the export no longer needs the database
+    content = export_markdown(experience, rows,
                               _export_style(style), hide_on_site_answer=hide_on_site_answer,
                               hide_review_answer=hide_review_answer,
                               hide_interviewer_answer=hide_interviewer_answer)
@@ -421,7 +483,9 @@ def pdf_export(experience_id: str, style: str = "lines", inline: bool = False, t
                service: InterviewExperienceService = Depends(get_interview_experience_service)):
     experience = _export_experience(_required(service, experience_id), title, hide_company,
                                     hide_position, hide_interviewed_at)
-    content = export_pdf(experience, service.numbered_questions(experience_id),
+    rows = service.numbered_questions(experience_id)
+    release_shared_connection()  # rendering the PDF no longer needs the database
+    content = export_pdf(experience, rows,
                          _export_style(style), hide_on_site_answer=hide_on_site_answer,
                          hide_review_answer=hide_review_answer,
                          hide_interviewer_answer=hide_interviewer_answer)

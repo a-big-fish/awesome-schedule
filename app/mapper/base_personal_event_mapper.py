@@ -1,9 +1,23 @@
 from abc import ABC, abstractmethod
+from typing import Any, Callable
 
 from app.model.personal_event import PersonalEvent
 
+SyncResult = dict[str, Any]
+SyncApply = Callable[["BasePersonalEventMapper"], SyncResult]
+
 
 class BasePersonalEventMapper(ABC):
+    def execute_sync_once(self, owner_id: str, operation_id: str, request_hash: str,
+                          apply: SyncApply) -> SyncResult:
+        """Atomically persist an event change and its idempotency receipt."""
+        raise NotImplementedError
+
+    def existing_ids(self, event_ids: list[str], owner_id: str) -> set[str]:
+        """Find arranged ideas without returning their event contents."""
+        wanted = set(event_ids)
+        return {event.id for event in self.list_all(owner_id) if event.id in wanted}
+
     @abstractmethod
     def save(self, event: PersonalEvent) -> PersonalEvent:
         """Create or update an event."""
@@ -15,6 +29,10 @@ class BasePersonalEventMapper(ABC):
     @abstractmethod
     def list_all(self, owner_id: str = "local") -> list[PersonalEvent]:
         """List the owner's events ordered by start time."""
+
+    @abstractmethod
+    def list_interview_options(self, owner_id: str = "local") -> list[dict]:
+        """Return only id, title and start_at for the owner's interview selector."""
 
     @abstractmethod
     def delete(self, event_id: str, owner_id: str = "local") -> bool:

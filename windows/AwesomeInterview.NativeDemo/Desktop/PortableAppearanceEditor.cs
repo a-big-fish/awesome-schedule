@@ -1,0 +1,264 @@
+using System;
+using System.Linq;
+using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using static AwesomeInterview.NativeDemo.WorkspaceControls;
+
+namespace AwesomeInterview.NativeDemo;
+
+internal sealed partial class DesktopIntegration
+{
+    event Action? portableAppearanceChanged;
+
+    string EnsurePortableStyleFolder() => PortableAppearancePreset.EnsureFolder(
+        Path.Combine(Path.GetDirectoryName(PreferencesPath)!, "PortableStyles"));
+
+    bool ApplyPortablePreset(PortableAppearancePreset preset)
+    {
+        var previous = preferences;
+        preferences = preset.Apply(preferences);
+        bool saved = SavePreferences();
+        if (!saved) preferences = previous;
+        if (previous.PortableStyle?.GlassStrength > 0 && ActivePortableStyle.GlassStrength == 0)
+            ClearPortableGlass(restoreInk: true);
+        ApplyPortableAppearance();
+        return saved;
+    }
+
+    void AddPortableStyleShortcuts(Panel body)
+    {
+        PortableAppearancePreset[] local;
+        try { local = PortableAppearancePreset.ReadFolder(EnsurePortableStyleFolder()).ToArray(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { local = []; }
+
+        var row = new WrapPanel();
+        var shortcuts = PortableAppearancePreset.BuiltIn.Select(builtIn =>
+        {
+            var preset = local.FirstOrDefault(item => item.FileName == builtIn.FileName) ?? builtIn;
+            var button = CompactPortableButton(preset.Name, () => ApplyPortablePreset(preset));
+            button.Margin = new(0, 0, 5, 4);
+            row.Children.Add(button);
+            return (preset, button);
+        }).ToArray();
+
+        void Refresh()
+        {
+            var current = preferences with { PortableStyle = ActivePortableStyle };
+            foreach (var (preset, button) in shortcuts)
+            {
+                bool selected = preset.Apply(current) == current ||
+                    (current.PortableStyleFile == null && (preset.Apply(current) with { PortableStyleFile = null }) == current);
+                if (selected)
+                {
+                    button.Background = Brush("#EBF2FF");
+                    button.Foreground = Brush("#2357CE");
+                }
+                else
+                {
+                    button.ClearValue(Control.BackgroundProperty);
+                    button.ClearValue(Control.ForegroundProperty);
+                }
+                AutomationProperties.SetItemStatus(button, selected ? "当前样式" : "");
+            }
+        }
+
+        row.Loaded += (_, _) => { portableAppearanceChanged += Refresh; Refresh(); };
+        row.Unloaded += (_, _) => portableAppearanceChanged -= Refresh;
+        body.Children.Add(row);
+        Refresh();
+    }
+
+    void AddPortableStyleControls(Panel body)
+    {
+        var styles = new ComboBox { MinWidth = 148, MaxWidth = 320, HorizontalContentAlignment = HorizontalAlignment.Left };
+        PortableAppearancePreset[] available = [];
+        PortableAppearancePreset? Selected() => styles.SelectedIndex >= 0 && styles.SelectedIndex < available.Length
+            ? available[styles.SelectedIndex] : null;
+        AutomationProperties.SetName(styles, "随身日程样式");
+        var status = Text("", 11, "#52647D");
+        status.TextWrapping = TextWrapping.Wrap;
+        status.Visibility = Visibility.Collapsed;
+        void Report(string message)
+        {
+            status.Text = message;
+            status.Visibility = Visibility.Visible;
+        }
+        void Apply(PortableAppearancePreset preset)
+        {
+            Report(ApplyPortablePreset(preset) ? $"已应用「{preset.Name}」" : "样式未保存，请检查目录权限或磁盘空间。");
+        }
+
+        void Reload(PortableAppearancePreset? selected = null)
+        {
+            var previous = Selected();
+            try { available = PortableAppearancePreset.ReadFolder(EnsurePortableStyleFolder()).ToArray(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                available = PortableAppearancePreset.BuiltIn.ToArray();
+                Report("无法读取样式目录，已显示内置样式。");
+            }
+            var names = available.ToLookup(item => item.Name);
+            styles.ItemsSource = available.Select(item => names[item.Name].Count() > 1
+                ? $"{item.Name} · {Path.GetFileNameWithoutExtension(item.FileName)}" : item.Name).ToArray();
+            var current = preferences with { PortableStyle = ActivePortableStyle };
+            string? requested = selected?.FileName ?? previous?.FileName ?? preferences.PortableStyleFile;
+            var selection = requested == null
+                ? available.FirstOrDefault(item => item.Apply(current) with { PortableStyleFile = null } == current)
+                    ?? available.FirstOrDefault(item => item.FileName == PortableAppearancePreset.DefaultFile)
+                    ?? available.FirstOrDefault()
+                : available.FirstOrDefault(item => item.FileName == requested);
+            styles.SelectedIndex = Array.IndexOf(available, selection);
+            if (selection == null) Report("选中的样式无法读取，请检查 JSON 或重新选择。");
+        }
+        Reload();
+
+        var row = new WrapPanel();
+        styles.Margin = new(0, 0, 5, 4);
+        row.Children.Add(styles);
+        void AddButton(string label, Action action)
+        {
+            var button = CompactPortableButton(label, action);
+            button.Margin = new(0, 0, 5, 4);
+            row.Children.Add(button);
+        }
+        void ApplySelection()
+        {
+            if (Selected() is { } selected) Apply(selected);
+        }
+        AddButton("应用", ApplySelection);
+        AddButton("导入 JSON", () =>
+        {
+            var picker = new Microsoft.Win32.OpenFileDialog { Filter = "随身日程样式 (*.json)|*.json" };
+            bool opened = portableDetailOpen;
+            portableDetailOpen = true;
+            portableFocusReset?.Stop();
+            try
+            {
+                var owner = Window.GetWindow(body);
+                if ((owner == null ? picker.ShowDialog() : picker.ShowDialog(owner)) != true) return;
+            }
+            finally
+            {
+                portableDetailOpen = opened;
+                RestartPortableIdleTimer();
+            }
+            try
+            {
+                var imported = PortableAppearancePreset.Import(picker.FileName, EnsurePortableStyleFolder());
+                Reload(imported);
+                Apply(imported);
+            }
+            catch (JsonException error) { Report($"无法导入样式。{error.Message}"); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Report("无法读取或保存样式文件。"); }
+        });
+        AddButton("打开目录", () =>
+        {
+            try { Process.Start(new ProcessStartInfo(EnsurePortableStyleFolder()) { UseShellExecute = true }); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+            { Report("无法打开样式目录。"); }
+        });
+        AddButton("重新读取", () => { Reload(); ApplySelection(); });
+        body.Children.Add(row);
+        body.Children.Add(status);
+    }
+
+    void AddPortableTransparencyControls(Panel body)
+    {
+        bool updating = false;
+        void Change(Func<double, DesktopPreferences> update, double opacity)
+        {
+            if (updating) return;
+            preferences = update(opacity);
+            ApplyPortableAppearance();
+        }
+
+        var overall = AddTransparencySlider(body, "整体透明度", PortableOverallOpacity, .9,
+            value => Change(opacity => preferences with { PortableOverallOpacity = opacity }, value));
+        var background = AddTransparencySlider(body, "底色透明度", PortableBackgroundOpacity, 1,
+            value => Change(opacity => preferences with { PortableOpacity = opacity }, value));
+        var border = AddTransparencySlider(body, "边框透明度", PortableBorderOpacity, 1,
+            value => Change(opacity => preferences with { PortableBorderOpacity = opacity }, value));
+        var text = AddTransparencySlider(body, "字体透明度", PortableTextOpacity, .9,
+            value => Change(opacity => preferences with { PortableTextOpacity = opacity }, value));
+
+        void Refresh()
+        {
+            updating = true;
+            overall.Value = 1 - PortableOverallOpacity;
+            background.Value = 1 - PortableBackgroundOpacity;
+            border.Value = 1 - PortableBorderOpacity;
+            text.Value = 1 - PortableTextOpacity;
+            updating = false;
+        }
+
+        body.Loaded += (_, _) => { portableAppearanceChanged += Refresh; Refresh(); };
+        body.Unloaded += (_, _) => portableAppearanceChanged -= Refresh;
+        Refresh();
+    }
+
+    static Slider AddTransparencySlider(Panel body, string name, double opacity, double maxTransparency, Action<double> change)
+    {
+        var row = new Grid { Margin = new(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new() { Width = new(74) });
+        row.ColumnDefinitions.Add(new());
+        row.ColumnDefinitions.Add(new() { Width = new(40) });
+        var title = Text(name, 11);
+        title.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(title);
+        var slider = new Slider
+        {
+            Minimum = 0, Maximum = maxTransparency, Value = Math.Clamp(1 - opacity, 0, maxTransparency),
+            SmallChange = .01, LargeChange = .1, VerticalAlignment = VerticalAlignment.Center,
+            Margin = new(2, 0, 3, 0)
+        };
+        AutomationProperties.SetName(slider, name);
+        Grid.SetColumn(slider, 1);
+        row.Children.Add(slider);
+        var value = Text(slider.Value.ToString("P0"), 11, "#52647D");
+        value.HorizontalAlignment = HorizontalAlignment.Right;
+        value.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(value, 2);
+        row.Children.Add(value);
+        slider.ValueChanged += (_, args) =>
+        {
+            value.Text = args.NewValue.ToString("P0");
+            change(1 - args.NewValue);
+        };
+        body.Children.Add(row);
+        return slider;
+    }
+
+    void AddPortableIdleSetting(Panel body)
+    {
+        const string title = "空闲后自动鼠标穿透";
+        body.Children.Add(Text(title, 13, margin: new(0, 12, 0, 5)));
+        var choice = new ComboBox
+        {
+            ItemsSource = new[] { 0, 5, 10, 15, 30, 60 }.Select(seconds =>
+                new { Seconds = seconds, Label = seconds == 0 ? "关闭" : $"{seconds} 秒" }),
+            DisplayMemberPath = "Label",
+            SelectedValuePath = "Seconds",
+            SelectedValue = PortableAutoLockSeconds,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 132
+        };
+        AutomationProperties.SetName(choice, title);
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (choice.SelectedValue is not int seconds || seconds == PortableAutoLockSeconds) return;
+            var previous = preferences;
+            preferences = preferences with { PortableAutoLockSeconds = seconds };
+            if (!SavePreferences())
+            {
+                preferences = previous;
+                choice.SelectedValue = PortableAutoLockSeconds;
+            }
+            RestartPortableIdleTimer();
+        };
+        body.Children.Add(choice);
+    }
+}

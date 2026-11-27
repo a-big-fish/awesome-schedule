@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from app.mapper.base_resume_file_storage import ResumeFileStorage
 
@@ -40,6 +40,20 @@ class LocalResumeFileStorage(ResumeFileStorage):
             return self._read(storage_key).decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError(f"Invalid resume text encoding: {storage_key}") from exc
+
+    def save_document(self, content: bytes, storage_key: str) -> str:
+        self._write(self._resolve(storage_key), content)
+        return storage_key
+
+    def read_document(self, storage_key: str) -> bytes:
+        return self._read(storage_key)
+
+    def list_documents(self, prefix: str) -> list[str]:
+        directory = self._resolve(prefix)
+        if not directory.is_dir():
+            return []
+        return sorted(path.relative_to(self.root_path).as_posix()
+                      for path in directory.rglob("*") if path.is_file())
 
     def _write(self, path: Path, content: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

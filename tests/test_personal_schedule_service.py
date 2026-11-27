@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -13,6 +13,32 @@ from app.service.personal_schedule_service import PersonalScheduleService
 
 def _service() -> PersonalScheduleService:
     return PersonalScheduleService(MemoryPersonalEventMapper(), MemoryMyResumeMapper())
+
+
+def test_overdue_defer_cancel_and_owner_boundaries():
+    service = _service()
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    event = service.create_manual(title="过期任务", event_type="personal",
+                                  start_at=now - timedelta(hours=2), end_at=now - timedelta(hours=1))
+    with pytest.raises(ValueError, match="不可早于"):
+        service.resolve_overdue(event.id, "defer", now - timedelta(minutes=5))
+    with pytest.raises(ValueError, match="不可早于"):
+        service.resolve_overdue(event.id, "defer", now - timedelta(hours=3))
+    other = PersonalScheduleService(service.mapper, service.profile_mapper, owner_id="other")
+    with pytest.raises(LookupError):
+        other.resolve_overdue(event.id, "cancel")
+    deferred = service.resolve_overdue(event.id, "defer", now + timedelta(hours=1))
+    assert deferred.start_at == event.start_at
+    with pytest.raises(ValueError, match="仅可处理"):
+        service.resolve_overdue(event.id, "cancel")
+    expired = service.create_manual(title="废除任务", event_type="personal",
+                                    start_at=now - timedelta(days=2), end_at=now - timedelta(days=1),
+                                    reminder_offsets_minutes=[10])
+    cancelled = service.resolve_overdue(expired.id, "cancel")
+    assert cancelled.cancelled_at and cancelled.reminder_offsets_minutes == []
+    assert service.get_event(expired.id).cancelled_at
+    with pytest.raises(ValueError, match="废除"):
+        service.set_event_completed(expired.id, True)
 
 
 def test_manual_event_and_soft_overlap_warning():

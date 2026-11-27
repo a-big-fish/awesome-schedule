@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "实色",
+  "OverallTransparency": 0,
+  "BackgroundTransparency": 0,
+  "BorderTransparency": 0,
+  "TextTransparency": 0,
+  "Style": {
+    "GlassStrength": 0,
+    "FillWindow": true
+  }
+}

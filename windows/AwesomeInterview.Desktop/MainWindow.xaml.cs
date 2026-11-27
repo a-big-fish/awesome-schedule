@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _http.DefaultRequestHeaders.Add("X-Awesome-Client", "windows");
         _firedKeys = _store.ReadFiredKeys();
         using var iconStream = System.Windows.Application.GetResourceStream(
             new Uri("pack://application:,,,/Assets/app.ico"))!.Stream;
@@ -101,6 +102,7 @@ public partial class MainWindow : Window
             var profile = Path.Combine(_store.DirectoryPath, "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, profile);
             await Browser.EnsureCoreWebView2Async(environment);
+            Browser.CoreWebView2.Settings.UserAgent += " AwesomeInterview/Windows";
             Browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
             Browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             Browser.CoreWebView2.NavigationStarting += Browser_NavigationStarting;

@@ -1,0 +1,7 @@
+  <aside class="personal-quick-calendar" id="personal-quick-calendar" data-quick-calendar aria-label="快速跳转日历">
+    <div class="quick-calendar-heading"><strong data-mini-heading aria-live="polite">快速跳转</strong><div><button type="button" data-mini-step="-1" aria-label="上一个月">‹</button><button type="button" data-mini-step="1" aria-label="下一个月">›</button></div></div>
+    <div class="quick-calendar-weekdays" aria-hidden="true">{% for day in ['一','二','三','四','五','六','日'] %}<span>{{ day }}</span>{% endfor %}</div>
+    <nav class="quick-calendar-days" data-mini-days aria-label="选择跳转日期"></nav>
+    <a class="quick-calendar-today" data-mini-today href="/my-schedule">回到今天</a>
+    <p>点击日期快速跳转，翻月不请求服务器。</p>
+  </aside>

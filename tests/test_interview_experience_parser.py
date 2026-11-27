@@ -170,7 +170,7 @@ def test_plaza_requires_login_content_and_visibility():
     auth_mapper.create_user(owner)
     auth_mapper.create_user(reader)
     with TestClient(app, base_url="https://testserver") as client:
-        assert client.get("/my-schedule/experiences/plaza", follow_redirects=False).status_code == 303
+        assert client.get("/my-schedule/experiences/plaza", follow_redirects=False).status_code == 200
         csrf = _login(client, owner.email, "strong-password-1")
         created = client.post("/my-schedule/experiences", data={"csrf_token": csrf, "title": "公开草稿"},
                               follow_redirects=False)

@@ -1,25 +1,100 @@
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
+// Bind once; resolve the current dialog after navigation or cached-shell replacement.
+document.addEventListener('click', event => {
+  const trigger = event.target.closest?.('[data-time-trigger]');
+  const dialog = document.querySelector('[data-time-dialog]');
+  if (!trigger || !dialog) return;
+  const field = trigger.closest('.personal-time-field');
+  if (field) dialog.dispatchEvent(new CustomEvent('time:open', {detail: field}));
+});
+function initTimePicker() {
+  upgrade(document);
   const eventType = document.querySelector('[data-event-type]');
   const positionField = document.querySelector('[data-position-field]');
   const invitationForm = document.querySelector('[data-invitation-form]');
   const invitationDivider = document.querySelector('[data-invitation-divider]');
-  if (eventType) {
+  // JS properties, not data attributes: a cached shell serialises data-* from the live DOM,
+  // and an inherited "already initialised" marker would leave the injected form dead.
+  if (eventType && !eventType.__timePickerReady) {
+    eventType.__timePickerReady = true;
     const updateEventFields = () => {
       const isInterview = eventType.value === 'interview';
       if (positionField) {
         positionField.hidden = !isInterview;
         positionField.querySelector('input').disabled = !isInterview;
       }
-      if (invitationForm) invitationForm.hidden = !isInterview;
-      if (invitationDivider) invitationDivider.hidden = !isInterview;
+      const supportsInvitation = isInterview || eventType.value === 'meeting';
+      if (invitationForm) invitationForm.hidden = !supportsInvitation;
+      if (invitationDivider) invitationDivider.hidden = !supportsInvitation;
     };
     eventType.addEventListener('change', updateEventFields);
     updateEventFields();
   }
 
   const dialog = document.querySelector('[data-time-dialog]');
-  const fields = [...document.querySelectorAll('.personal-time-field')];
-  if (!dialog || !fields.length) return;
+  // Cached shells are injected after load (dialog edit / local navigation) and arrive with the
+  // picker markup already applied but unbound, so upgrade and label every field lazily.
+  function upgrade(root) {
+    root.querySelectorAll?.('input[type="datetime-local"]').forEach(input => {
+      // JS properties, not data attributes: cached shells serialise data-* from the live DOM,
+      // and a serialised "already bound" marker would leave the injected picker dead.
+      if (input.__timeUpgraded) return;
+      input.__timeUpgraded = true;
+      const field = document.createElement('div');
+      field.className = 'personal-time-field';
+      const label = document.createElement('span');
+      label.hidden = true;
+      label.textContent = input.closest('label')?.childNodes[0]?.textContent.trim() || '日期和时间';
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'input personal-time-trigger';
+      trigger.dataset.timeTrigger = '';
+      trigger.setAttribute('aria-label', `选择${label.textContent}`);
+      trigger.setAttribute('aria-haspopup', 'dialog');
+      input.before(field);
+      input.dataset.timeValue = '';
+      input.dataset.timeRequired = input.required ? '1' : '';
+      input.type = 'hidden';
+      field.append(label, input, trigger);
+    });
+    root.querySelectorAll?.('.personal-time-field').forEach(field => {
+      const input = field.querySelector('[data-time-value]');
+      const trigger = field.querySelector('[data-time-trigger]');
+      if (!input || !trigger) return;
+      const paint = () => {
+        const current = input.value;
+        trigger.textContent = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(current)
+          ? `${current.slice(0, 4)}/${current.slice(5, 7)}/${current.slice(8, 10)} ${current.slice(11)}`
+          : current || '请选择日期和时间';
+      };
+      paint();
+      if (field.__timeBound) return;
+      field.__timeBound = true;
+      input.addEventListener('change', paint);
+    });
+    root.querySelectorAll?.('[data-skip-weekends]').forEach(checkbox => {
+      if (checkbox.__bound) return;
+      checkbox.__bound = true;
+      const form = checkbox.closest('form');
+      const start = form.querySelector('[name="start_at"]');
+      const hint = form.querySelector('[data-weekend-hint]');
+      let wasWeekend = false;
+      const update = () => {
+        const day = new Date(`${start.value.slice(0, 10)}T00:00:00Z`).getUTCDay();
+        const weekend = day === 0 || day === 6;
+        checkbox.disabled = weekend;
+        if (weekend) checkbox.checked = false;
+        else if (wasWeekend) checkbox.checked = true;
+        hint.textContent = weekend ? '周末开始的任务不能跳过周末' : '';
+        wasWeekend = weekend;
+      };
+      start.addEventListener('change', update);
+      update();
+    });
+  }
+  upgrade(document);
+  if (!dialog || dialog.dataset.timePickerReady) return;
+  dialog.dataset.timePickerReady = '1';
 
   const heading = dialog.querySelector('[data-time-heading]');
   const progress = dialog.querySelector('[data-time-progress]');
@@ -29,6 +104,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let step = 0;
   let selectedDate = '';
   let selectedHour = '';
+  let selectedMinute = '';
+  let onlyDate = false;
   let viewYear = 0;
   let viewMonth = 0;
   let calendarMode = 'days';
@@ -39,10 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const formatValue = value => validValue(value)
     ? `${value.slice(0, 4)}/${value.slice(5, 7)}/${value.slice(8, 10)} ${value.slice(11)}`
     : value || '请选择日期和时间';
-  const startField = fields.find(field => field.querySelector('[name="start_at"]'));
-  const endField = fields.find(field => field.querySelector('[name="end_at"]'));
-
   function updateEndFromStart(startValue) {
+    const endField = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]')?.closest('.personal-time-field');
     if (!validValue(startValue) || !endField) return;
     const year = Number(startValue.slice(0, 4));
     const month = Number(startValue.slice(5, 7)) - 1;
@@ -55,15 +130,14 @@ document.addEventListener('DOMContentLoaded', () => {
     endField.querySelector('[data-time-trigger]').textContent = formatValue(endValue);
   }
 
-  fields.forEach(field => {
-    const value = field.querySelector('[data-time-value]');
-    const trigger = field.querySelector('[data-time-trigger]');
-    trigger.textContent = formatValue(value.value);
-    trigger.addEventListener('click', () => {
-      activeField = field;
+  dialog.addEventListener('time:open', event => {
+      activeField = event.detail;
+      const value = activeField.querySelector('[data-time-value]');
       step = 0;
+      onlyDate = activeField.__timeMode === 'date';
       selectedDate = validValue(value.value) ? value.value.slice(0, 10) : '';
       selectedHour = validValue(value.value) ? value.value.slice(11, 13) : '';
+      selectedMinute = validValue(value.value) ? value.value.slice(14, 16) : '';
       const today = new Date();
       const shownDate = selectedDate || `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
       viewYear = Number(shownDate.slice(0, 4));
@@ -71,7 +145,6 @@ document.addEventListener('DOMContentLoaded', () => {
       calendarMode = 'days';
       render();
       dialog.showModal();
-    });
   });
 
   function calendarButton(label, className, onClick, ariaLabel = label) {
@@ -84,7 +157,50 @@ document.addEventListener('DOMContentLoaded', () => {
     return button;
   }
 
+  function workTime(end = false) {
+    return document.querySelector(`meta[name="workday-${end ? 'end' : 'start'}"]`)?.content || (end ? '18:00' : '08:00');
+  }
+
+  function commitSelection(dateOnly) {
+    const value = activeField.querySelector('[data-time-value]');
+    const isEnd = ['end_at', 'reviewed_end'].includes(value.name);
+    const next = `${selectedDate}T${dateOnly ? workTime(isEnd) : selectedHour + ':' + selectedMinute}`;
+    if ((value.min && next < value.min) || (value.max && next > value.max)) {
+      let error = options.querySelector('[data-time-error]');
+      if (!error) {
+        error = document.createElement('p');
+        error.dataset.timeError = '';
+        error.setAttribute('role', 'alert');
+        options.append(error);
+      }
+      error.textContent = `请选择允许范围内的时间${value.min ? '（最早 ' + value.min.replace('T', ' ') + '）' : ''}`;
+      return;
+    }
+    value.value = next;
+    activeField.__timeMode = dateOnly ? 'date' : 'time';
+    activeField.querySelector('[data-time-trigger]').textContent = formatValue(next);
+    if (['start_at', 'reviewed_start'].includes(value.name)) {
+      const endField = activeField.closest('form')?.querySelector('[name="end_at"], [name="reviewed_end"]')?.closest('.personal-time-field');
+      const endValue = endField?.querySelector('[data-time-value]');
+      if (!endValue) {
+        /* the form has no end field */
+      } else if (dateOnly) {
+        // A date-only start moves the whole event: pull the end onto the same day when it
+        // would otherwise stay behind (previously this compared a wrapper element and threw).
+        if (!validValue(endValue.value) || endValue.value <= next) updateEndFromStart(next);
+        else endField.__timeMode = 'date';
+      } else {
+        updateEndFromStart(next);
+      }
+    }
+    value.dispatchEvent(new Event('input', {bubbles: true}));
+    value.dispatchEvent(new Event('change', {bubbles: true}));
+    dialog.close();
+    activeField.querySelector('[data-time-trigger]').focus();
+  }
+
   function renderCalendar() {
+    progress.textContent = onlyDate ? '选择日期 · 使用默认工作时间' : '选择日期 → 选择时间';
     options.replaceChildren();
     const calendar = document.createElement('div');
     calendar.className = 'personal-calendar-picker';
@@ -179,26 +295,40 @@ document.addEventListener('DOMContentLoaded', () => {
       const date = `${viewYear}-${pad(viewMonth)}-${pad(day)}`;
       const choice = calendarButton(String(day), 'personal-calendar-day', () => {
         selectedDate = date;
-        step = 1;
-        render();
+        if (onlyDate) commitSelection(true);
+        else { step = 1; render(); }
       }, `${viewYear}年${viewMonth}月${day}日`);
       if (date === selectedDate) choice.classList.add('selected');
       grid.append(choice);
     }
+    const modes = document.createElement('div');
+    modes.className = 'personal-date-mode';
+    for (const [dateOnly, label] of [[true, '只选日期'], [false, '指定时间']]) {
+      const button = calendarButton(label, 'personal-date-mode-button', () => { onlyDate = dateOnly; renderCalendar(); });
+      button.classList.toggle('selected', onlyDate === dateOnly);
+      button.setAttribute('aria-pressed', String(onlyDate === dateOnly));
+      modes.append(button);
+    }
+    const hint = document.createElement('p');
+    hint.className = 'personal-date-hint';
+    hint.textContent = onlyDate ? `使用默认工作时间 ${workTime()}–${workTime(true)}，可在个人设置中修改` : '先选择日期，再选择小时和分钟';
+    const error = document.createElement('p');
+    error.dataset.timeError = '';
+    error.setAttribute('role', 'alert');
     calendar.append(header, grid);
-    options.append(calendar);
+    options.append(modes, hint, calendar, error);
 
     if (selectedDate.startsWith(`${viewYear}-${pad(viewMonth)}-`)) {
-      const next = calendarButton('下一步：选择小时', 'btn secondary personal-time-next', () => {
-        step = 1;
-        render();
+      const next = calendarButton(onlyDate ? '确认日期' : '下一步：选择时间', 'btn personal-time-next', () => {
+        if (onlyDate) commitSelection(true);
+        else { step = 1; render(); }
       });
       options.append(next);
     }
   }
 
   function render() {
-    const labels = ['选择年月日', '选择小时', '选择分钟'];
+    const labels = ['选择日期', '选择时间'];
     heading.textContent = `${activeField.querySelector('span').textContent} · ${labels[step]}`;
     progress.textContent = labels.map((label, index) => index === step ? `● ${label}` : label).join('  →  ');
     back.hidden = step === 0;
@@ -210,40 +340,60 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'personal-time-grid';
-    const count = step === 1 ? 24 : 60;
-    for (let index = 0; index < count; index += 1) {
-      const number = pad(index);
-      const choice = document.createElement('button');
-      choice.type = 'button';
-      choice.className = 'personal-time-choice';
-      choice.textContent = step === 1 ? `${number} 时` : `${number} 分`;
-      if (step === 1 && number === selectedHour) choice.classList.add('selected');
-      if (step === 2 && validValue(activeField.querySelector('[data-time-value]').value)
-          && number === activeField.querySelector('[data-time-value]').value.slice(14, 16)) {
-        choice.classList.add('selected');
+    const columns = document.createElement('div');
+    columns.className = 'personal-clock-columns';
+    for (const [kind, count, title] of [['hour', 24, '小时'], ['minute', 60, '分钟']]) {
+      const column = document.createElement('section');
+      const caption = document.createElement('h3');
+      caption.textContent = title;
+      const grid = document.createElement('div');
+      grid.className = 'personal-time-grid';
+      grid.setAttribute('role', 'group');
+      grid.setAttribute('aria-label', title);
+      for (let index = 0; index < count; index += 1) {
+        const number = pad(index);
+        const choice = calendarButton(number, 'personal-time-choice', () => {
+          if (kind === 'hour') selectedHour = number;
+          else selectedMinute = number;
+          grid.querySelectorAll('button').forEach(button => {
+            const selected = button === choice;
+            button.classList.toggle('selected', selected);
+            button.setAttribute('aria-pressed', String(selected));
+          });
+          confirm.disabled = !selectedHour || !selectedMinute;
+        }, `${number}${title === '小时' ? '时' : '分'}`);
+        const selected = number === (kind === 'hour' ? selectedHour : selectedMinute);
+        choice.classList.toggle('selected', selected);
+        choice.setAttribute('aria-pressed', String(selected));
+        grid.append(choice);
       }
-      choice.addEventListener('click', () => {
-        if (step === 1) {
-          selectedHour = number;
-          step = 2;
-          render();
-          return;
-        }
-        const value = activeField.querySelector('[data-time-value]');
-        value.value = `${selectedDate}T${selectedHour}:${number}`;
-        activeField.querySelector('[data-time-trigger]').textContent = formatValue(value.value);
-        if (activeField === startField) updateEndFromStart(value.value);
-        dialog.close();
-        activeField.querySelector('[data-time-trigger]').focus();
-      });
-      grid.append(choice);
+      column.append(caption, grid);
+      columns.append(column);
     }
-    options.append(grid);
-    grid.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
+    const error = document.createElement('p');
+    error.dataset.timeError = '';
+    error.setAttribute('role', 'alert');
+    const confirm = calendarButton('确认时间', 'btn personal-time-next', () => commitSelection(false));
+    confirm.disabled = !selectedHour || !selectedMinute;
+    options.append(columns, error, confirm);
+    requestAnimationFrame(() => {
+      columns.querySelectorAll('.selected').forEach(choice => choice.scrollIntoView({block: 'nearest'}));
+      (columns.querySelector('.personal-time-grid .selected') || columns.querySelector('button'))?.focus();
+    });
   }
 
+  dialog.querySelector('[data-time-now]').addEventListener('click', () => {
+    const requestedZone = activeField.closest('form')?.querySelector('[name="timezone"]')?.value || 'Asia/Shanghai';
+    const settings = {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'};
+    let formatter;
+    try { formatter = new Intl.DateTimeFormat('en-GB', {...settings, timeZone: requestedZone}); }
+    catch { formatter = new Intl.DateTimeFormat('en-GB', {...settings, timeZone: 'Asia/Shanghai'}); }
+    const parts = Object.fromEntries(formatter.formatToParts(new Date()).map(part => [part.type, part.value]));
+    selectedDate = `${parts.year}-${parts.month}-${parts.day}`;
+    selectedHour = parts.hour;
+    selectedMinute = parts.minute;
+    commitSelection(false);
+  });
   back.addEventListener('click', () => {
     if (step > 0) {
       step -= 1;
@@ -252,4 +402,20 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   dialog.querySelector('[data-time-close]').addEventListener('click', () => dialog.close());
   dialog.querySelector('[data-time-cancel]').addEventListener('click', () => dialog.close());
-});
+}
+document.addEventListener('DOMContentLoaded', initTimePicker);
+document.addEventListener('personal:navigated', initTimePicker);
+document.addEventListener('personal:event-dialog-rendered', initTimePicker);
+if (typeof MutationObserver === 'function') new MutationObserver(records => {
+  if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 &&
+    (node.matches?.('input[type="datetime-local"], .personal-time-field') ||
+     node.querySelector?.('input[type="datetime-local"], .personal-time-field'))))) initTimePicker();
+}).observe(document.documentElement, {childList: true, subtree: true});
+document.addEventListener('submit', event => {
+  const missing = [...event.target.querySelectorAll('[data-time-required="1"]')].find(input => !input.value);
+  if (missing) {
+    event.preventDefault();
+    missing.closest('.personal-time-field').querySelector('[data-time-trigger]').click();
+  }
+}, true);
+})();
