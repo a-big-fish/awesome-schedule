@@ -25,6 +25,7 @@ from app.controller import (
     schedule_controller,
     personal_schedule_controller,
     public_page_controller,
+    windows_download_controller,
 )
 from app.core.auth_guard import AuthRequired, InvalidCsrf, require_current_user
 from app.core.config import Settings, get_settings
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None, auth_service: AuthService | Non
                             headers={"Retry-After": "30", "Cache-Control": "no-store"})
 
     application.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+    application.include_router(windows_download_controller.router)
 
     @application.get("/robots.txt", include_in_schema=False)
     def robots_txt():

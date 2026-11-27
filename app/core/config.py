@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     pg_user: str = "postgres"
     pg_password: str = ""
     pg_connect_timeout_seconds: float = 3.0
+    windows_release_dir: str = "data/windows-release"
     log_dir: str = "data/logs"
     log_max_bytes: int = 10 * 1024 * 1024
     log_backup_count: int = 5

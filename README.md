@@ -2,7 +2,7 @@
 
 **开源面试准备工具，支持求职日程、面经复盘和 AI 简历助手。**
 
-[在线体验](https://schedule.hunaochufang.xyz/) · [Android 客户端](android/README.md) · [Windows 客户端](windows/README.md) · [MIT License](LICENSE)
+[在线体验](https://schedule.hunaochufang.xyz/) · [Android 客户端](android/README.md) · [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows) · [MIT License](LICENSE)
 
 Awesome Interview is a self-hosted workspace for interview scheduling, interview notes, and AI-assisted resume review. It uses FastAPI and Jinja2 and includes Android and Windows clients.
 
@@ -66,7 +66,7 @@ Windows PowerShell 可用 `Copy-Item .env.example .env` 代替 `cp`。访问 `ht
 .\gradlew.bat assembleDebug -PserverOrigin=https://your-domain.example
 ```
 
-**Windows** 提供 WPF 原生预览和旧版 WebView2 客户端。选择版本后，按 [Windows 客户端说明](windows/README.md) 构建并配置服务端地址。
+**Windows** 提供 WPF 原生客户端和旧版 WebView2 测试版。[下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows)查看当前发布版本。[Windows 客户端说明](windows/README.md)包含源码构建、更新和 Preview 30 迁移步骤。
 
 ## 测试
 

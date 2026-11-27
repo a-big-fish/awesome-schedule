@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}下载 Windows 版 · Awesome Interview{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ asset_url('css/windows_download.css') }}">{% endblock %}
+{% block brand %}
+<a class="brand" href="/my-schedule/experiences/plaza" aria-label="Awesome Interview">
+  <img class="brand-logo" src="{{ asset_url('img/logo2.png') }}" alt="" width="38" height="38">
+  <span>Awesome Interview</span>
+</a>
+{% endblock %}
+{% block navigation %}
+<nav class="page-nav" aria-label="下载页面导航">
+  <a class="nav-link" href="/my-schedule">返回日程表</a>
+</nav>
+{% endblock %}
+{% block content %}
+<section class="card windows-release" aria-labelledby="windows-download-title">
+  <h1 id="windows-download-title">下载 Windows 版</h1>
+  <p class="muted-text">适用于 Windows 10／11 x64</p>
+  {% if release %}
+  <dl class="windows-release-details">
+    <dt>当前版本</dt><dd>{{ release.version }}</dd>
+    <dt>安装包</dt><dd>{{ size_mib }} MiB · {{ "ZIP 压缩包" if release.filename.endswith(".zip") else "EXE 安装程序" }}</dd>
+  </dl>
+  <a class="btn" href="/download/windows/installer">{{ "下载 ZIP" if release.filename.endswith(".zip") else "下载安装程序" }}</a>
+  {% if release.filename.endswith(".zip") %}
+  <p>下载后解压，运行包内的 <code>Install.cmd</code>。</p>
+  {% else %}
+  <p>从 Preview 30 升级时，请先通过系统托盘退出旧版，再运行安装程序。沿用同一 Windows 账号可读取已有缓存和设置。</p>
+  {% endif %}
+  {% if release.notes %}
+  <h2>更新说明</h2>
+  <ul>{% for note in release.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+  {% endif %}
+  <details>
+    <summary>查看 SHA-256 校验值</summary>
+    <code class="windows-release-digest">{{ release.sha256 | lower }}</code>
+  </details>
+  {% else %}
+  <p>当前服务器还没有提供 Windows 安装包。</p>
+  {% endif %}
+</section>
+{% endblock %}
