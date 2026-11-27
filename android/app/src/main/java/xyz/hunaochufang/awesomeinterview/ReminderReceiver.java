@@ -28,7 +28,7 @@ public final class ReminderReceiver extends BroadcastReceiver {
                 open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification = new Notification.Builder(context, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setContentTitle("Awesome Interview 日程提醒")
+                .setContentTitle(context.getString(R.string.app_name) + " 日程提醒")
                 .setContentText("有一项日程即将开始，点击查看")
                 .setContentIntent(action).setAutoCancel(true).build();
         manager.notify((eventId == null ? "reminder" : eventId).hashCode(), notification);

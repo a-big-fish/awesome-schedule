@@ -1,5 +1,5 @@
 {% extends "personal_base.html" %}
-{% block title %}{{ event.title if event else '日程' }} - Awesome Interview{% endblock %}
+{% block title %}{{ event.title if event else '日程' }} - Awesome Schedule{% endblock %}
 {% block body_class %}{{ super() }}{% if not editing %} personal-event-detail-page{% endif %}{% endblock %}
 {% block content %}
 <section class="card personal-form-page">

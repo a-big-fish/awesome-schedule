@@ -58,7 +58,7 @@ public partial class MainWindow : Window
         _tray = new Forms.NotifyIcon
         {
             Icon = _appIcon,
-            Text = "Awesome Interview",
+            Text = "Awesome Schedule",
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
@@ -319,14 +319,14 @@ public partial class MainWindow : Window
                     if (!_notificationRegistered) throw new InvalidOperationException();
                     var notice = new AppNotificationBuilder()
                         .AddArgument("event_id", Value(item, "id"))
-                        .AddText("Awesome Interview 日程提醒")
+                        .AddText("Awesome Schedule 日程提醒")
                         .AddText("有一项日程即将开始，点击查看")
                         .BuildNotification();
                     AppNotificationManager.Default.Show(notice);
                 }
                 catch
                 {
-                    _tray.ShowBalloonTip(5000, "Awesome Interview", "有一项日程即将开始",
+                    _tray.ShowBalloonTip(5000, "Awesome Schedule", "有一项日程即将开始",
                         Forms.ToolTipIcon.Info);
                 }
             }
@@ -365,7 +365,7 @@ public partial class MainWindow : Window
         if (_reallyClose) return;
         args.Cancel = true;
         Hide();
-        _tray.ShowBalloonTip(2000, "Awesome Interview", "已在托盘保持运行和日程提醒", Forms.ToolTipIcon.Info);
+        _tray.ShowBalloonTip(2000, "Awesome Schedule", "已在托盘保持运行和日程提醒", Forms.ToolTipIcon.Info);
     }
 
     private void ExitApplication()

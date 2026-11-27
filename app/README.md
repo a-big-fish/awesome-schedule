@@ -1,6 +1,6 @@
 # Web 使用与运维
 
-本页面向自建 Awesome Interview 服务的用户。首次运行和公开部署配置见 [项目 README](../README.md)。
+本页面向自建 Awesome Schedule 服务的用户。首次运行和公开部署配置见 [项目 README](../README.md)。
 
 ## 简历助手
 

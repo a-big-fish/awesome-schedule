@@ -1,4 +1,4 @@
-# Awesome Interview Android
+# Awesome Schedule Android
 
 Android 测试版（`1.0.0-alpha3`）。首页、月／周日历、日程添加与编辑、我的面经列表和逐页导出采用原生界面。登录、面经新建与编辑、面经广场等入口复用个人站点。原生层还提供系统日程提醒、加密的本人只读缓存和文件选择。
 

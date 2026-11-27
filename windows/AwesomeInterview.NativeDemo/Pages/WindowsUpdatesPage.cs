@@ -16,7 +16,7 @@ internal sealed partial class SettingsPage
 
     void ShowWindowsUpdates(StackPanel body)
     {
-        body.Children.Add(Text("Awesome Interview", 22));
+        body.Children.Add(Text("Awesome Schedule", 22));
         body.Children.Add(Text($"当前版本 · Windows {WindowsUpdater.Version}", 14, "#64748B", new(0, 12, 0, 16)));
 
         var actions = new WrapPanel();

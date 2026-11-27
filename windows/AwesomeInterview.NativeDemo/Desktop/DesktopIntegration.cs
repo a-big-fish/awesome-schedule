@@ -67,7 +67,7 @@ internal sealed partial class DesktopIntegration(MainWindow shell, SchedulePages
         menu.Items.Add("设置", null, (_, _) => shell.Dispatcher.Invoke(() => { shell.RestoreMain(); showSettings(); }));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("退出应用", null, (_, _) => shell.Dispatcher.Invoke(() => { if (!shell.PreparingUpdate && shell.CanLeaveForm()) { exiting = true; shell.Close(); } }));
-        tray = new Forms.NotifyIcon { Text = "Awesome Interview", ContextMenuStrip = menu,
+        tray = new Forms.NotifyIcon { Text = "Awesome Schedule", ContextMenuStrip = menu,
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!), Visible = true };
         tray.DoubleClick += (_, _) => shell.Dispatcher.Invoke(shell.RestoreMain);
         tray.BalloonTipClicked+=(_,_)=>shell.Dispatcher.Invoke(OpenNotification);

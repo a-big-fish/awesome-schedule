@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}下载 Windows 版 · Awesome Interview{% endblock %}
+{% block title %}下载 Windows 版 · Awesome Schedule{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ asset_url('css/windows_download.css') }}">{% endblock %}
 {% block brand %}
-<a class="brand" href="/my-schedule" aria-label="Awesome Interview · 日程表">
+<a class="brand" href="/my-schedule" aria-label="Awesome Schedule · 日程表">
   <img class="brand-logo" src="{{ asset_url('img/logo2.png') }}" alt="" width="38" height="38">
-  <span>Awesome Interview</span>
+  <span>Awesome Schedule</span>
 </a>
 {% endblock %}
 {% block navigation %}
@@ -25,7 +25,7 @@
   {% if release.filename.endswith(".zip") %}
   <p>下载后解压，运行包内的 <code>Install.cmd</code>。</p>
   {% else %}
-  <p>从 Preview 30 升级时，请先通过系统托盘退出旧版，再运行安装程序。沿用同一 Windows 账号可读取已有缓存和设置。</p>
+  <p>从 ZIP 预览版迁移时，请先通过系统托盘退出旧版，再运行安装程序。沿用同一 Windows 账号可读取已有缓存和设置。</p>
   {% endif %}
   {% if release.notes %}
   <h2>更新说明</h2>

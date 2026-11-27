@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>AwesomeInterview.NativeDemo</AssemblyName>
     <Version>1.6.0-preview.31</Version>
+    <Product>Awesome Schedule</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>../AwesomeInterview.Desktop/Assets/app.ico</ApplicationIcon>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>

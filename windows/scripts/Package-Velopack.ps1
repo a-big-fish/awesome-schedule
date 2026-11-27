@@ -80,12 +80,12 @@ try {
     & $dotnet publish $project -c Release -r win-x64 --self-contained true -o $publish --nologo -v:q `
         "-p:Version=$Version" "-p:WindowsUpdatePublicKey=$publicKey" "-p:WindowsUpdateFeed=$($FeedUrl.AbsoluteUri)" '-p:DebugType=none'
     & $vpk pack --outputDir $release --packId $packageId --packVersion $Version --packDir $publish `
-        --packTitle 'Awesome Interview' --mainExe AwesomeInterview.NativeDemo.exe --channel win --runtime win-x64 `
+        --packTitle 'Awesome Schedule' --mainExe AwesomeInterview.NativeDemo.exe --channel win --runtime win-x64 `
         --instLocation PerUser --noPortable --releaseNotes $notesPath @signArgs
 
     $setup = Join-Path $release "$packageId-win-Setup.exe"
     $manifest = Join-Path $release $feedName
-    $installerName = "AwesomeInterview-Windows-$Version-x64-Setup.exe"
+    $installerName = "AwesomeSchedule-Windows-$Version-x64-Setup.exe"
     $installer = Join-Path $release $installerName
     if (!$UnsignedTest) {
         $signature = Get-AuthenticodeSignature -LiteralPath $setup

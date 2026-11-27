@@ -135,7 +135,7 @@
     const day=target.searchParams.get('date_value')||model.parts(Date.now()).day;
     const parsedDay=new Date(day+'T00:00:00Z');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(parsedDay.getTime())||parsedDay.toISOString().slice(0,10)!==day)return null;
-    const doc=new DOMParser().parseFromString(`<html><head><title>日程表 - Awesome Interview</title><meta name="workday-start" content="${data.workday_start}"><meta name="workday-end" content="${data.workday_end}"></head><body class="page-wide personal-app personal-scroll-page personal-dashboard-page"><div class="page"><nav class="page-nav"><a href="/my-schedule" aria-current="page">日程表</a></nav>${data.shell}</div></body></html>`,'text/html');
+    const doc=new DOMParser().parseFromString(`<html><head><title>日程表 - Awesome Schedule</title><meta name="workday-start" content="${data.workday_start}"><meta name="workday-end" content="${data.workday_end}"></head><body class="page-wide personal-app personal-scroll-page personal-dashboard-page"><div class="page"><nav class="page-nav"><a href="/my-schedule" aria-current="page">日程表</a></nav>${data.shell}</div></body></html>`,'text/html');
     const calendar=doc.querySelector('.personal-calendar');if(!calendar)return null;
     const toolbar=calendar.querySelector('.calendar-workspace-toolbar')?.outerHTML,sub=calendar.querySelector('.calendar-workspace-subtoolbar')?.outerHTML;
     if(!toolbar||!sub)return null;

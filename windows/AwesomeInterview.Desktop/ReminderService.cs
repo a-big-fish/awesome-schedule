@@ -35,7 +35,7 @@ internal sealed class ReminderService
                 {
                     var payload = new AppNotificationBuilder()
                         .AddArgument("event_id", eventId)
-                        .AddText("Awesome Interview 日程提醒")
+                        .AddText("Awesome Schedule 日程提醒")
                         .AddText("有一项日程即将开始，点击查看")
                         .BuildNotification().Payload;
                     var xml = new XmlDocument();

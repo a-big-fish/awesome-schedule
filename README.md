@@ -1,10 +1,10 @@
-# Awesome Interview
+# Awesome Schedule
 
 **一个开源的个人日程工作台。** 把工作、学习和求职安排放进同一张日历，记下还没定时间的想法，按优先级处理今天的事。遇到面试，还可以在这里读简历、记录追问和复盘。
 
-[在线日程表](https://schedule.hunaochufang.xyz/my-schedule) · [面经广场](https://schedule.hunaochufang.xyz/my-schedule/experiences/plaza) · [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows) · [当前开发分支](https://github.com/a-big-fish/awesome-interview/tree/codex/android-native-pages)
+[在线日程表](https://schedule.hunaochufang.xyz/my-schedule) · [面经广场](https://schedule.hunaochufang.xyz/my-schedule/experiences/plaza) · [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows) · [当前开发分支](https://github.com/a-big-fish/awesome-schedule/tree/codex/android-native-pages)
 
-Awesome Interview is a self-hosted calendar and task organizer with offline-friendly scheduling, an idea inbox, and tools for interview notes and resume review. It has a Web app and native Android and Windows clients.
+Awesome Schedule is a self-hosted calendar and task organizer with offline-friendly scheduling, an idea inbox, and tools for interview notes and resume review. It has a Web app and native Android and Windows clients.
 
 本文按在线站点和当前开发分支整理。GitHub 默认分支保留了较早的源码，自建时请使用上述开发分支。游客可先试用示例日程或浏览面经广场列表，登录后进入自己的日程表。
 
@@ -28,15 +28,15 @@ Awesome Interview is a self-hosted calendar and task organizer with offline-frie
 
 - **我的面试**　集中查看面试安排、入会链接和当前 PDF 简历，给一场面试关联对应的面经。
 - **面经整理**　可逐题记录、粘贴全文或导入 Markdown、文字层 PDF。保留多级追问、现场回答和复盘答案，支持预览及导出 Markdown 或 PDF。选择公开的记录可在面经广场按公司浏览。
-- **Web 简历助手**　「练一练」围绕上传的简历提问，可参考个人面经里的相关题目。「简历优化」在原文旁给改写建议并定位 PDF 页码，支持自定义模型、最多双模型流式对照和查看分析历史。日程和面经的常用功能无需配置模型。 [模型与运维说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/app/README.md)
+- **Web 简历助手**　「练一练」围绕上传的简历提问，可参考个人面经里的相关题目。「简历优化」在原文旁给改写建议并定位 PDF 页码，支持自定义模型、最多双模型流式对照和查看分析历史。日程和面经的常用功能无需配置模型。 [模型与运维说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/app/README.md)
 
 ## 客户端
 
 | 客户端 | 可用范围 |
 | --- | --- |
 | Web | FastAPI、Jinja2 和浏览器本地缓存。个人日程为主要入口，自建本地模式也提供企业会议日程。 |
-| Android | 开发分支提供测试版源码。1.3 的业务页原生化和加密离线队列已在本地通过模拟器合成数据验证，待合入开发分支并完成真机验收。 [Android 构建说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/android/README.md) |
-| Windows | WPF 原生预览，含桌面托盘和外观可调的随身日程。下载页现提供 Preview 30 的 ZIP，应用内更新已接入 Velopack，正式签名包和迁移验收待完成。 [Windows 使用与发布说明](https://github.com/a-big-fish/awesome-interview/blob/codex/android-native-pages/windows/README.md) |
+| Android | 开发分支提供测试版源码。1.3 的业务页原生化和加密离线队列已在本地通过模拟器合成数据验证，待合入开发分支并完成真机验收。 [Android 构建说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/android/README.md) |
+| Windows | WPF 原生预览，含桌面托盘和外观可调的随身日程。下载页现提供 Preview 31 的 ZIP，应用内更新已接入 Velopack，正式签名包和迁移验收待完成。 [Windows 使用与发布说明](https://github.com/a-big-fish/awesome-schedule/blob/codex/android-native-pages/windows/README.md) |
 
 ## 开发展望
 

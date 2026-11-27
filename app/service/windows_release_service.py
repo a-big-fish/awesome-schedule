@@ -9,8 +9,11 @@ from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 _REPOSITORY = Path(__file__).resolve().parents[2]
-_PREVIEW_ZIP = "AwesomeInterview-NativeDemo-1.6.0-W-preview30-win-x64.zip"
-_INSTALLER_NAME = r"^AwesomeInterview[A-Za-z0-9.-]*\.(?:zip|exe)$"
+_PREVIEW_ZIPS = (
+    ("1.6.0-W Preview 31", "AwesomeSchedule-NativeDemo-1.6.0-W-preview31-win-x64.zip"),
+    ("1.6.0-W Preview 30", "AwesomeInterview-NativeDemo-1.6.0-W-preview30-win-x64.zip"),
+)
+_INSTALLER_NAME = r"^Awesome(?:Interview|Schedule)[A-Za-z0-9.-]*\.(?:zip|exe)$"
 _UPDATE_NAME = re.compile(r"(?:releases\.win\.json(?:\.sig)?|AwesomeInterviewWindows-[A-Za-z0-9.-]+-(?:full|delta)\.nupkg)")
 
 
@@ -48,16 +51,17 @@ def current_windows_release(root: Path, *, allow_bundled_preview: bool) -> tuple
         return None
 
     artifacts = _REPOSITORY / "windows" / "artifacts"
-    package = _file_in(artifacts, _PREVIEW_ZIP)
-    checksum = _file_in(artifacts, _PREVIEW_ZIP + ".sha256")
-    if package and checksum:
-        try:
-            return WindowsRelease(
-                version="1.6.0-W Preview 30", filename=package.name,
-                sha256=checksum.read_text(encoding="ascii").split()[0],
-            ), package
-        except (OSError, UnicodeError, IndexError, ValidationError):
-            logger.warning("Windows Preview 30 checksum could not be read")
+    for version, filename in _PREVIEW_ZIPS:
+        package = _file_in(artifacts, filename)
+        checksum = _file_in(artifacts, filename + ".sha256")
+        if package and checksum:
+            try:
+                return WindowsRelease(
+                    version=version, filename=package.name,
+                    sha256=checksum.read_text(encoding="ascii").split()[0],
+                ), package
+            except (OSError, UnicodeError, IndexError, ValidationError):
+                logger.warning("Windows preview checksum could not be read for %s", version)
     return None
 
 

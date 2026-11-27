@@ -2,9 +2,9 @@
 
 线上入口是 [下载 Windows 版](https://schedule.hunaochufang.xyz/download/windows)。站点从 `WINDOWS_RELEASE_DIR` 读取文件，默认为 `data/windows-release`。Windows 项目与 Web 放在同一个仓库中，Windows 版本号、`win` 更新渠道和安装产物独立管理。
 
-## Preview 30 迁移
+## ZIP 预览版迁移
 
-当前可下载的 Preview 30 包含 `Install.cmd`。首个签名 EXE 上线后，Preview 30 用户需要手动下载安装一次。先从托盘退出旧版，再用同一个 Windows 账户运行安装程序。首次打开新版时，应用会读取已有的账号缓存和设置。
+当前可下载的 Preview 31 包含 `Install.cmd`。首个签名 EXE 上线后，ZIP 预览版用户需要手动下载安装一次。先从托盘退出旧版，再用同一个 Windows 账户运行安装程序。首次打开新版时，应用会读取已有的账号缓存和设置。
 
 Velopack 的应用 ID 是 `AwesomeInterviewWindows`。安装文件与用户数据使用不同目录，保留现有两处数据位置。
 
@@ -23,7 +23,7 @@ Velopack 的应用 ID 是 `AwesomeInterviewWindows`。安装文件与用户数�
 
 ```powershell
 dotnet tool install --global vpk --version 1.2.161
-./windows/scripts/Package-Velopack.ps1 -Version '1.6.0-preview.31' -ReleaseNotes './release-notes.md' -OutputDir './windows/artifacts/velopack-31' -CertificateThumbprint $signerThumbprint
+./windows/scripts/Package-Velopack.ps1 -Version '1.6.0-preview.32' -ReleaseNotes './release-notes.md' -OutputDir './windows/artifacts/velopack-32' -CertificateThumbprint $signerThumbprint
 ```
 
 发布后续版本时传入 `-PreviousReleaseDir <上一版的 release 目录>`。该目录包含已有的 `.nupkg`，Velopack 会用它生成差异包。打包脚本检查安装程序的 Authenticode 签名，并为 `releases.win.json` 生成 RSA/SHA-256 签名。程序内的更新源默认是本站 `/download/windows/updates/`。其他部署可通过 `-FeedUrl` 在构建时指定自己的 HTTPS 更新目录。

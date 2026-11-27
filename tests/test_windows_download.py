@@ -13,17 +13,17 @@ def _client(tmp_path):
 
 
 def test_downloads_are_public_and_installers_support_ranges(tmp_path):
-    filename = "AwesomeInterview-Windows-1.6.0-preview.31-x64-Setup.exe"
+    filename = "AwesomeSchedule-Windows-1.6.0-preview.32-x64-Setup.exe"
     payload = b"installer"
     (tmp_path / filename).write_bytes(payload)
     (tmp_path / "release.json").write_text(json.dumps({
-        "version": "1.6.0-preview.31", "filename": filename,
+        "version": "1.6.0-preview.32", "filename": filename,
         "sha256": hashlib.sha256(payload).hexdigest(), "notes": ["<script>untrusted</script>"],
     }), encoding="utf-8")
     with _client(tmp_path) as client:
         page = client.get("/download/windows")
         assert page.status_code == 200
-        assert "1.6.0-preview.31" in page.text
+        assert "1.6.0-preview.32" in page.text
         assert "下载安装程序" in page.text
         assert "&lt;script&gt;untrusted&lt;/script&gt;" in page.text
         assert 'href="/download/windows"' in client.get("/my-schedule/experiences/plaza").text

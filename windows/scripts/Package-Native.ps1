@@ -1,4 +1,4 @@
-param([ValidatePattern('^[0-9A-Za-z.-]+$')][string]$Version='1.6.0-W-preview30')
+param([ValidatePattern('^[0-9A-Za-z.-]+$')][string]$Version='1.6.0-W-preview31')
 $ErrorActionPreference='Stop'
 $windowsRoot=Split-Path -Parent $PSScriptRoot
 $repoRoot=Split-Path -Parent $windowsRoot
@@ -8,7 +8,7 @@ $sourceCommit=(& git -C $repoRoot rev-parse HEAD).Trim()
 & git -C $repoRoot diff --quiet HEAD -- windows/AwesomeInterview.NativeDemo windows/AwesomeInterview.NativeChecks
 if($LASTEXITCODE -ne 0){throw 'Commit native sources before packaging.'}
 $artifacts=Join-Path $windowsRoot 'artifacts'
-$package=Join-Path $artifacts ('AwesomeInterview-NativeDemo-'+$Version+'-win-x64')
+$package=Join-Path $artifacts ('AwesomeSchedule-NativeDemo-'+$Version+'-win-x64')
 $archive=$package+'.zip'
 if(Test-Path -LiteralPath $archive){throw ('Archive already exists: '+$archive)}
 New-Item -ItemType Directory -Force -Path $package | Out-Null

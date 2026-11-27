@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        Title = $"Awesome Interview · Windows {WindowsUpdater.Version}";
+        Title = $"Awesome Schedule · Windows {WindowsUpdater.Version}";
         Width = 1280; Height = 850; MinWidth = 940; MinHeight = 640;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
@@ -113,7 +113,7 @@ public sealed partial class MainWindow : Window
             Source = new BitmapImage(new Uri("pack://application:,,,/Assets/logo2.png")),
             Width = 34, Height = 34, Margin = new(0, 0, 10, 0)
         });
-        brand.Children.Add(new TextBlock { Text = "Awesome\nInterview", FontSize = 17, FontWeight = FontWeights.SemiBold });
+        brand.Children.Add(new TextBlock { Text = "Awesome\nSchedule", FontSize = 17, FontWeight = FontWeights.SemiBold });
         DockPanel.SetDock(brand, Dock.Top);
         side.Children.Add(brand);
 

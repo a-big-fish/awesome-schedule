@@ -1,5 +1,5 @@
 {% extends "personal_base.html" %}
-{% block title %}日程表 - Awesome Interview{% endblock %}
+{% block title %}日程表 - Awesome Schedule{% endblock %}
 {% block body_class %}page-wide personal-app personal-scroll-page personal-dashboard-page{% endblock %}
 {% block content %}
 {% if calendar_bootstrap and not request.state.is_guest|default(false) %}<script type="application/json" data-calendar-initial>{{ calendar_bootstrap|tojson }}</script>{% endif %}
