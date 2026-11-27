@@ -112,16 +112,20 @@ class PostgresInterviewExperienceMapper(BaseInterviewExperienceMapper):
         filters = (owner_id, needle, needle, needle, needle, public, public)
         direction = "ASC" if order == "oldest" else "DESC"
         with self._connect() as connection:
-            total = connection.execute(f"SELECT COUNT(*) AS total {where}", filters).fetchone()["total"]
             rows = connection.execute(
-                "SELECT e.payload - 'raw_text_draft' - 'feeling' AS payload, "
-                "(SELECT COUNT(*) FROM personal_interview_questions q WHERE q.experience_id=e.id) "
-                f"AS question_count {where} "
-                f"ORDER BY e.updated_at {direction}, e.id {direction} LIMIT %s OFFSET %s",
+                f"WITH eligible AS MATERIALIZED (SELECT e.id, e.updated_at {where}), "
+                "batch AS (SELECT id, updated_at FROM eligible "
+                f"ORDER BY updated_at {direction}, id {direction} LIMIT %s OFFSET %s) "
+                "SELECT totals.total, e.payload - 'raw_text_draft' - 'feeling' AS payload, "
+                "(SELECT COUNT(*) FROM personal_interview_questions q WHERE q.experience_id=b.id) "
+                "AS question_count FROM (SELECT COUNT(*) AS total FROM eligible) totals "
+                "LEFT JOIN batch b ON TRUE LEFT JOIN personal_interview_experiences e ON e.id=b.id "
+                f"ORDER BY b.updated_at {direction}, b.id {direction}",
                 filters + (max(1, limit), max(0, offset)),
             ).fetchall()
         return ([{"experience": InterviewExperience.model_validate(row["payload"]),
-                  "question_count": row["question_count"]} for row in rows], int(total))
+                  "question_count": row["question_count"]} for row in rows if row["payload"]],
+                int(rows[0]["total"]) if rows else 0)
 
     def list_event_experiences(self, owner_id: str, event_id: str) -> list[InterviewExperience]:
         with self._connect() as connection:
