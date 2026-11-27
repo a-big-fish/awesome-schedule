@@ -1,3 +1,7 @@
+from copy import deepcopy
+from threading import RLock
+from typing import Callable
+
 from app.mapper.base_personal_todo_mapper import BasePersonalTodoMapper
 from app.model.personal_todo import PersonalTodo
 
@@ -5,6 +9,22 @@ from app.model.personal_todo import PersonalTodo
 class MemoryPersonalTodoMapper(BasePersonalTodoMapper):
     def __init__(self) -> None:
         self._todos: dict[str, PersonalTodo] = {}
+        self._lock = RLock()
+        self._receipts: dict[tuple[str, str], tuple[str, dict]] = {}
+
+    def execute_sync_once(self, owner_id: str, operation_id: str, digest: str,
+                          apply: Callable[[BasePersonalTodoMapper], dict]) -> dict:
+        with self._lock:
+            key = owner_id, operation_id
+            receipt = self._receipts.get(key)
+            if receipt is not None:
+                previous, result = receipt
+                if previous != digest:
+                    raise ValueError("同步操作标识已被用于其他内容")
+                return deepcopy(result)
+            result = apply(self)
+            self._receipts[key] = digest, deepcopy(result)
+            return result
 
     def save(self, todo: PersonalTodo) -> PersonalTodo:
         self._todos[todo.id] = todo.model_copy(deep=True)

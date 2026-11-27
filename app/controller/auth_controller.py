@@ -48,8 +48,9 @@ def _page(request: Request, mode: str, *, error: str = "", message: str = "",
         "email_verification_required": request.app.state.settings.email_verification_required,
         "embedded": request.query_params.get("embed") == "1" or request.query_params.get("fragment") == "1",
     }
-    if mode == "login" and request.method == "POST" and "application/json" in request.headers.get("accept", ""):
-        response = JSONResponse({"detail": error or message, "csrf_token": csrf_token}, status_code=status_code)
+    if "application/json" in request.headers.get("accept", ""):
+        response = JSONResponse({"detail": error or message, "csrf_token": csrf_token,
+                                 "invite_required": context["invite_required"]}, status_code=status_code)
     else:
         template = "_auth_login_panel.html" if mode == "login" and request.query_params.get("fragment") == "1" else "auth_page.html"
         response = templates.TemplateResponse(request, template, context, status_code=status_code)
@@ -90,6 +91,12 @@ def login_page(request: Request, next: str = DEFAULT_AFTER_LOGIN):
     if request.app.state.auth_service.authenticate(request.cookies.get(SESSION_COOKIE)):
         return RedirectResponse(_safe_next(next), status_code=303)
     return _page(request, "login", next_path=next)
+
+
+@router.get("/form-config")
+def native_auth_config(request: Request):
+    """Issue a guest CSRF cookie for native forms using the existing login rules."""
+    return _page(request, "login")
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -241,4 +248,6 @@ async def reset_password(request: Request):
         return _page(request, "reset", error=str(exc), reset_token=token, status_code=422)
     if not valid:
         return _page(request, "message", message="重置链接已失效", status_code=400)
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"detail": "密码已重置，请重新登录"}, headers={"Cache-Control": "no-store"})
     return RedirectResponse("/auth/login", status_code=303)

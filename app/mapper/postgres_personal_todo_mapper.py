@@ -8,6 +8,7 @@ from app.core.performance import timed_postgres_connect
 from app.core.config import Settings
 from app.core.postgres import ensure_postgres_database
 from app.mapper.base_personal_todo_mapper import BasePersonalTodoMapper
+from app.mapper.postgres_personal_event_mapper import _SyncConnection
 from app.model.personal_todo import PersonalTodo
 
 
@@ -28,7 +29,34 @@ class PostgresPersonalTodoMapper(BasePersonalTodoMapper):
                 "CREATE INDEX IF NOT EXISTS idx_personal_todos_owner_due "
                 "ON personal_todos (owner_id, due_date)"
             )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS personal_todo_sync_receipts ("
+                "owner_id TEXT NOT NULL, operation_id TEXT NOT NULL, request_hash TEXT NOT NULL, "
+                "payload JSONB NOT NULL, PRIMARY KEY (owner_id, operation_id))"
+            )
             connection.commit()
+
+    def execute_sync_once(self, owner_id: str, operation_id: str, digest: str,
+                          apply: Callable[[BasePersonalTodoMapper], dict]) -> dict:
+        with self._connect() as connection:
+            connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (owner_id,))
+            receipt = connection.execute(
+                "SELECT request_hash,payload FROM personal_todo_sync_receipts WHERE owner_id=%s AND operation_id=%s",
+                (owner_id, operation_id),
+            ).fetchone()
+            if receipt:
+                if receipt["request_hash"] != digest:
+                    raise ValueError("同步操作标识已被用于其他内容")
+                return receipt["payload"]
+            mapper = object.__new__(PostgresPersonalTodoMapper)
+            mapper._connection_factory = lambda: _SyncConnection(connection)
+            result = apply(mapper)
+            connection.execute(
+                "INSERT INTO personal_todo_sync_receipts VALUES (%s,%s,%s,%s)",
+                (owner_id, operation_id, digest, Json(result)),
+            )
+            connection.commit()
+            return result
 
     def _default_connection(self) -> psycopg.Connection[DictRow]:
         if not self.settings:

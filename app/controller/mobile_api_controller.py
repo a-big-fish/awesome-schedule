@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.core.dependencies import (get_interview_experience_service, get_personal_schedule_service,
                                    get_personal_todo_service, get_personal_idea_service)
 from app.core.exceptions import PersonalEventConflictWarning
+from app.controller.schema.todo_sync_dto import TodoSyncInput
 from app.core.exceptions import MeetingParseError
 from app.model.personal_event import PersonalEventType
 from app.model.personal_event import ReferenceLink
@@ -332,6 +333,7 @@ def snapshot(
     return {
         "schema_version": 1,
         "user_id": request.state.user.id,
+        "is_admin": request.state.user.is_admin,
         "server_time": datetime.now(timezone.utc).isoformat(),
         "events": [event.model_dump(mode="json", exclude={"raw_invitation"}) for event in schedule.list_events()],
         "experiences": experiences.snapshot_experiences(),
@@ -355,7 +357,7 @@ def calendar(request: Request, response: Response,
              ideas: PersonalIdeaService = Depends(get_personal_idea_service)) -> dict:
     """Refresh scheduling resources without reading notes/questions or resume files."""
     response.headers["Cache-Control"] = "no-store"
-    return {"schema_version": 1, "user_id": request.state.user.id,
+    return {"schema_version": 1, "user_id": request.state.user.id, "is_admin": request.state.user.is_admin,
             "server_time": datetime.now(timezone.utc).isoformat(),
             "events": [e.model_dump(mode="json", exclude={"raw_invitation"}) for e in schedule.list_events()],
             "todos": [t.model_dump(mode="json") for t in todos.list_todos()],
@@ -391,6 +393,19 @@ def abandon_idea(idea_id: str, ideas: PersonalIdeaService = Depends(get_personal
 class NativeTodoInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     due_date: date
+
+
+@router.post("/todo-sync/{operation_id}")
+def sync_native_todo(operation_id: UUID, payload: TodoSyncInput, response: Response,
+                     todos: PersonalTodoService = Depends(get_personal_todo_service)) -> dict:
+    """Accept one encrypted Android outbox command and return the committed effect."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return todos.apply_sync(str(operation_id), payload)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise _event_error(error) from error
 
 
 @router.put("/todos", status_code=201)
