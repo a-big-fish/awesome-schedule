@@ -78,7 +78,7 @@ def _login(client: TestClient, identifier: str, password: str) -> str:
         "csrf_token": _csrf(login_page), "identifier": identifier, "password": password,
     }, follow_redirects=False)
     assert result.status_code == 303
-    assert result.headers["location"] == "/my-schedule/experiences/plaza"
+    assert result.headers["location"] == "/my-schedule"
     return _csrf(client.get("/my-schedule/new"))
 
 
@@ -283,7 +283,7 @@ def test_account_registration_verification_reset_and_logout(tmp_path):
         verify_token = re.search(r"token=([\w-]+)", mailer.messages[-1][1]).group(1)
         verified = client.get(f"/auth/verify?token={verify_token}", follow_redirects=False)
         assert verified.status_code == 303
-        assert verified.headers["location"] == "/my-schedule/experiences/plaza"
+        assert verified.headers["location"] == "/my-schedule"
         assert client.get("/my-schedule/experiences/plaza").status_code == 200
         assert client.get(f"/auth/verify?token={verify_token}").status_code == 400
         assert client.get("/auth/login", follow_redirects=False).status_code == 303
@@ -363,7 +363,8 @@ def test_admin_username_does_not_open_enterprise_app(tmp_path):
         assert 'href="/">首页</a>' not in dashboard.text
         home = client.get("/", follow_redirects=False)
         assert home.status_code == 303
-        assert home.headers["location"] == "/my-schedule/experiences/plaza"
+        assert home.headers["location"] == "/my-schedule"
+        assert 'class="brand" href="/my-schedule"' in dashboard.text
         assert client.get("/meetings").status_code == 404
 
 
@@ -451,7 +452,7 @@ def test_direct_email_registration_without_verification_or_mail(tmp_path):
         }
         created = client.post("/auth/register", data=form, follow_redirects=False)
         assert created.status_code == 303
-        assert created.headers["location"] == "/my-schedule/experiences/plaza"
+        assert created.headers["location"] == "/my-schedule"
         assert client.get("/my-schedule/experiences/plaza").status_code == 200
         account = mapper.find_user("trial@example.com")
         assert account.email_verified is False
@@ -515,4 +516,4 @@ def test_expired_login_form_renders_new_form_instead_of_raw_error(tmp_path):
             "csrf_token": _csrf(stale), "identifier": user.email, "password": "stale-password-123",
         }, follow_redirects=False)
         assert login.status_code == 303
-        assert login.headers["location"] == "/my-schedule/experiences/plaza"
+        assert login.headers["location"] == "/my-schedule"

@@ -38,7 +38,10 @@ def test_guest_whitelist_blocks_bodies_in_html_batches_and_all_detail_paths(tmp_
             assert response.status_code == 200
             assert 'PRIVATE_' not in response.text
             assert response.headers['cache-control'] == 'no-store'
+        home = client.get('/', follow_redirects=False)
+        assert home.status_code == 303 and home.headers['location'] == '/my-schedule/experiences/plaza'
         listing = client.get('/my-schedule/experiences/plaza').text
+        assert 'class="brand" href="/my-schedule"' in listing
         assert '允许展示的标题' in listing and '用户 ***' in listing and '更新于 ****-**-**' in listing
         assert item.updated_at.strftime('%Y-%m-%d') not in listing
         calendar = client.get('/my-schedule').text

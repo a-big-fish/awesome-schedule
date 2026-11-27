@@ -18,7 +18,8 @@ from app.core.auth_guard import SESSION_COOKIE
 router = APIRouter(prefix="/auth", tags=["accounts"])
 logger = logging.getLogger(__name__)
 GUEST_CSRF_COOKIE = "schedule_guest_csrf"
-DEFAULT_AFTER_LOGIN = "/my-schedule/experiences/plaza"
+DEFAULT_AFTER_LOGIN = "/my-schedule"
+AFTER_LOGOUT = "/my-schedule/experiences/plaza"
 
 
 def _safe_next(value: str) -> str:
@@ -127,7 +128,7 @@ async def logout(request: Request):
         if not hmac.compare_digest(str(form.get("csrf_token", "")), result[1].csrf_token):
             raise HTTPException(status_code=403, detail="表单已过期，请刷新页面重试")
     await run_in_threadpool(request.app.state.auth_service.logout, raw_token)
-    response = RedirectResponse(DEFAULT_AFTER_LOGIN, status_code=303)
+    response = RedirectResponse(AFTER_LOGOUT, status_code=303)
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.headers["Cache-Control"] = "no-store"
     return response

@@ -2,9 +2,10 @@
   const dialog = document.querySelector('[data-login-modal]');
   const content = dialog?.querySelector('[data-login-content]');
   if (!dialog || !content) return;
-  let loading = false, destination = '/my-schedule/experiences/plaza';
-  async function open(next) {
-    destination = next || '/my-schedule/experiences/plaza';
+  const calendarPath = '/my-schedule';
+  let loading = false, destination = calendarPath;
+  async function open(next = calendarPath) {
+    destination = next;
     if (!dialog.open) dialog.showModal();
     const existing = content.querySelector('form');
     if (existing) { existing.querySelector('[name="next"]').value = destination; return; }
@@ -40,13 +41,13 @@
       !['/my-schedule', '/my-schedule/experiences/plaza'].includes(target.pathname.replace(/\/$/, ''));
     if (protectedPage || link.matches('[data-login-open]')) {
       event.preventDefault(); event.stopImmediatePropagation();
-      open(protectedPage && !target.pathname.includes('/events/demo-') ? target.pathname + target.search : location.pathname + location.search);
+      open(protectedPage && !target.pathname.includes('/events/demo-') ? target.pathname + target.search : calendarPath);
     }
   }, true);
   document.addEventListener('submit', event => {
     if (event.target.matches('.auth-login-form')) return;
     if (event.target.method?.toLowerCase() === 'post') {
-      event.preventDefault(); event.stopImmediatePropagation(); open('/my-schedule');
+      event.preventDefault(); event.stopImmediatePropagation(); open(calendarPath);
     }
   }, true);
 })();

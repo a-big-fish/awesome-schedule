@@ -12,7 +12,9 @@ router = APIRouter(tags=["public-pages"])
 
 @router.get("/", response_class=HTMLResponse)
 def public_home(request: Request):
-    return RedirectResponse("/my-schedule/experiences/plaza", status_code=303)
+    # The calendar route checks the session and can serve cached data during an outage.
+    destination = "/my-schedule" if request.cookies.get(SESSION_COOKIE) else "/my-schedule/experiences/plaza"
+    return RedirectResponse(destination, status_code=303)
 
 
 @router.get("/copyright", response_class=HTMLResponse)
